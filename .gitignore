@@ -23,7 +23,6 @@
 *.dll
 *.so.*
 
-
 # Fortran module files
 *.mod
 *.smod
@@ -38,6 +37,18 @@
 *.exe
 *.out
 *.app
+
+# CUDA profiling
+*.ncu-rep
+*.nsys-rep
+*.nvprof
+
+# CUDA and nvcc objects
+*.cubin
+*.fatbin
+*.fatbin.c
+*.ptx
+*.cudafe1.c                                                                                                                                                *.cudafe1.cpp                                                                                                                                              *.cudafe1.stub.c                                                                                                                                           *.cudafe1.gpu                                                                                                                                              *.module_id 
 
 # Build directories
 build/
@@ -57,6 +68,12 @@ compile_commands.json
 *.log
 *.bak
 *.swp
+
+# Visual Studio Code
+.vscode/
+
+# Claude Code
+.claude/
 
 # vcpkg
 vcpkg_installed/
