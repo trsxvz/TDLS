@@ -1,0 +1,37 @@
+# TDLS repository-wide formatting convention.
+# Style carried over from the original tfelGPU tiled solver: 4-space indent,
+# attached braces, 100 columns, left-bound pointers, template<> without space,
+# aligned assignment/macro columns, up to 3 blank lines between sections.
+# Comment blocks are hand-laid-out and must not be reflowed.
+# NOTE: "Standard" below only tells the formatter how to parse; the language
+# floor of the library headers is C++17 (tests/benchmarks may use C++20).
+---
+Language: Cpp
+Standard: Latest
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 100
+MaxEmptyLinesToKeep: 3
+
+BreakBeforeBraces: Attach
+PointerAlignment: Left
+SpaceAfterTemplateKeyword: false
+AlwaysBreakTemplateDeclarations: Yes
+
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveMacros: Consecutive
+AlignTrailingComments: true
+
+AllowShortBlocksOnASingleLine: Always
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+
+IndentPPDirectives: None
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
+FixNamespaceComments: true
+ReflowComments: false

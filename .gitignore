@@ -48,7 +48,11 @@
 *.fatbin
 *.fatbin.c
 *.ptx
-*.cudafe1.c                                                                                                                                                *.cudafe1.cpp                                                                                                                                              *.cudafe1.stub.c                                                                                                                                           *.cudafe1.gpu                                                                                                                                              *.module_id 
+*.cudafe1.c
+*.cudafe1.cpp
+*.cudafe1.stub.c
+*.cudafe1.gpu
+*.module_id
 
 # Build directories
 build/
