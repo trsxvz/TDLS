@@ -5,6 +5,7 @@
 
 /// \file
 /// \brief Toolchain detection and portability macros.
+/// \author Tristan Chenaille
 ///
 /// Targeted toolchains: plain CPU (gcc, clang, MSVC), CUDA (nvcc, clang),
 /// HIP (hipcc/amdclang++), SYCL (icpx, AdaptiveCpp), stdpar (nvc++),
@@ -37,19 +38,17 @@
 
 
 /// \def TDLS_FORCEINLINE
-/// \brief Strongest inline request available on the toolchain.
+/// \brief `__forceinline__` under CUDA/HIP, plain `inline` elsewhere.
 ///
-/// The solvers keep tiles in registers across helper calls; an out-of-line
-/// call would spill them, so plain `inline` is not enough where a stronger
-/// keyword exists.
+/// On GPU backends, forced inlining is the guard that keeps register tiles
+/// alive: an out-of-line call would demote them to slow local memory. On
+/// CPU a register spill to the stack is cheap and the heuristic inliner
+/// makes better calls than a blanket `always_inline` (which also bloats
+/// debug builds and compile times), so a plain `inline` hint is kept there.
 
 #ifndef TDLS_FORCEINLINE
 #if defined(__CUDACC__) || defined(__HIPCC__) || defined(__HIP__)
 #define TDLS_FORCEINLINE __forceinline__
-#elif defined(_MSC_VER) && !defined(__clang__)
-#define TDLS_FORCEINLINE __forceinline
-#elif defined(__GNUC__) /* gcc, clang, icpx, AdaptiveCpp, nvc++ */
-#define TDLS_FORCEINLINE inline __attribute__((always_inline))
 #else
 #define TDLS_FORCEINLINE inline
 #endif
@@ -80,7 +79,7 @@
 /// by the system dimension).
 
 #ifndef TDLS_UNROLL_FORCE
-#if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__) || \
+#if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__) ||          \
     defined(__NVCOMPILER) || defined(__clang__)
 #define TDLS_UNROLL_FORCE _Pragma("unroll")
 #elif defined(__GNUC__)

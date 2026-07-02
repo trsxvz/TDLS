@@ -5,6 +5,7 @@
 
 /// \file
 /// \brief TDLS version macros.
+/// \author Tristan Chenaille
 
 #define TDLS_VERSION_MAJOR  0
 #define TDLS_VERSION_MINOR  1

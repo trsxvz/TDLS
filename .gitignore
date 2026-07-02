@@ -38,7 +38,7 @@
 *.out
 *.app
 
-# CUDA profiling
+# CUDA profiling
 *.ncu-rep
 *.nsys-rep
 *.nvprof

@@ -35,3 +35,10 @@ IncludeBlocks: Preserve
 SortIncludes: CaseSensitive
 FixNamespaceComments: true
 ReflowComments: false
+
+# TDLS portability macros, declared so the formatter parses them correctly:
+# decorations merge with the declaration specifiers; the unroll pragma macro
+# keeps its own line as a statement.
+AttributeMacros: [TDLS_HOST_DEVICE, TDLS_FORCEINLINE, TDLS_RESTRICT]
+BreakAfterAttributes: Leave
+StatementMacros: [TDLS_UNROLL_FORCE]
