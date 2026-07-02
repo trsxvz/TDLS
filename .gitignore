@@ -68,6 +68,7 @@ compile_commands.json
 *.log
 *.bak
 *.swp
+*.txt
 
 # Visual Studio Code
 .vscode/
