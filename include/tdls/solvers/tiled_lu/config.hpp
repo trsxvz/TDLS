@@ -58,7 +58,10 @@ struct TiledLuDefaultConfig {
     static constexpr T oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
 
     /// Singularity floor: the factorization is declared singular when even
-    /// the best candidate stays below it. `numeric_limits<T>::min()`
+    /// the best candidate of the out-of-tile recovery stays below it. The
+    /// floor only guards the recovery path (a pivot reaching oot_threshold
+    /// is accepted directly), so it must not exceed oot_threshold; the
+    /// solvers enforce this contract at compile time. `numeric_limits<T>::min()`
     /// rejects only a zero/subnormal pivot - a genuine structural
     /// singularity. A merely small pivot is kept on purpose: the loss of
     /// stability is surfaced by the backward error and overflow is caught

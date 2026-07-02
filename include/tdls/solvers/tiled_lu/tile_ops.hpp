@@ -25,6 +25,17 @@
 
 
 
+// gcc's flow analysis cannot prove that the phantom slots of trailing
+// register tiles are never read (the extent-bounded loops skip them by
+// construction, a property validated bitwise against reference solvers),
+// and emits spurious -Wmaybe-uninitialized warnings on some
+// internal-matrix instantiations at -O2. The suppression is scoped to
+// this header and to that warning only.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 namespace tdls {
 
 
@@ -213,6 +224,10 @@ struct TiledLuTileOps {
 
 
 } // namespace tdls
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 
 

@@ -55,6 +55,17 @@
 
 
 
+// gcc's flow analysis cannot prove that the phantom slots of trailing
+// register tiles are never read (the extent-bounded loops skip them by
+// construction, a property validated bitwise against reference solvers),
+// and emits spurious -Wmaybe-uninitialized warnings on some
+// internal-matrix instantiations at -O2. The suppression is scoped to
+// this header and to that warning only.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 namespace tdls {
 
 
@@ -113,6 +124,9 @@ struct TiledLuSolverStatic {
     static constexpr TiledLuSchedule Sched = TiledSolverConfig::schedule;
 
     static_assert(N >= 2, "TiledLuSolverStatic: N must be >= 2");
+    static_assert(TiledSolverConfig::singular_eps <= TiledSolverConfig::oot_threshold,
+                  "TiledLuSolverStatic: singular_eps must not exceed oot_threshold (the "
+                  "floor applies to the out-of-tile recovery path)");
     static_assert(TS >= 2 && TS <= N, "TiledLuSolverStatic: tile size must satisfy 2 <= TS <= N");
 
     static constexpr int F    = N / TS;     // full tiles per dimension
@@ -1734,6 +1748,10 @@ struct TiledLuSolverStatic {
 
 
 } // namespace tdls
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 
 

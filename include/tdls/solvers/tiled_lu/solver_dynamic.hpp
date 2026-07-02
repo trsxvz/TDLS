@@ -46,6 +46,16 @@
 
 
 
+// gcc's flow analysis cannot prove that the replay buffer of the
+// out-of-tile search is written before being read (the loop structure
+// guarantees it, a property validated bitwise against the static
+// solver), and emits spurious -Wmaybe-uninitialized warnings at -O2.
+// The suppression is scoped to this header and to that warning only.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 namespace tdls {
 
 
@@ -91,6 +101,9 @@ struct TiledLuSolverDynamic {
     static constexpr int TS                = TiledSolverConfig::tile_size;
     static constexpr TiledLuSchedule Sched = TiledSolverConfig::schedule;
 
+    static_assert(TiledSolverConfig::singular_eps <= TiledSolverConfig::oot_threshold,
+                  "TiledLuSolverDynamic: singular_eps must not exceed oot_threshold (the "
+                  "floor applies to the out-of-tile recovery path)");
     static_assert(TS >= 2, "TiledLuSolverDynamic: tile size must be >= 2");
 
     /// \brief Number of tiles per dimension (last one possibly partial).
@@ -1349,6 +1362,10 @@ struct TiledLuSolverDynamic {
 
 
 } // namespace tdls
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 
 
