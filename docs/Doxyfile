@@ -2,7 +2,8 @@
 # that differ from the defaults are listed; the reference is built from
 # docs/ with `doxygen Doxyfile` and lands in docs/_build/doxygen.
 PROJECT_NAME           = TDLS
-PROJECT_NUMBER         = 0.1.0
+# PROJECT_NUMBER is injected by the build commands from
+# include/tdls/core/version.hpp, the single source of the version.
 PROJECT_BRIEF          = "Tiny Device-callable Linear Solvers"
 INPUT                  = ../include
 RECURSIVE              = YES

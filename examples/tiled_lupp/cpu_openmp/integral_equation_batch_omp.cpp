@@ -21,6 +21,7 @@
 /// physical unit potential, giving the curve of the potential against
 /// the plate separation.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>

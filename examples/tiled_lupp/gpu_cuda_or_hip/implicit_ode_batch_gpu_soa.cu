@@ -21,6 +21,7 @@
 /// device memory, which bounds its size; the register variant has no
 /// such bound.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>

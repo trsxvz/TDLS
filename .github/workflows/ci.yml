@@ -1,6 +1,5 @@
 # Builds the library, runs the test suites and the examples, and gates
-# the formatting, the documentation and the consumability of the
-# project on every push and pull request. GitHub-hosted runners have no
+# the formatting and the documentation on every push and pull request. GitHub-hosted runners have no
 # GPU, so no CUDA or HIP toolchain is installed and the GPU examples
 # are simply not configured; they run on machines that have a device.
 name: ci
@@ -53,5 +52,6 @@ jobs:
         working-directory: docs
         run: |
           mkdir -p _build
-          ../doxygen-1.12.0/bin/doxygen Doxyfile 2> warnings.txt
+          TDLS_VERSION=$(sed -n 's/.*TDLS_VERSION_STRING "\([0-9.]*\)".*/\1/p' ../include/tdls/core/version.hpp)
+          ( cat Doxyfile; echo "PROJECT_NUMBER = $TDLS_VERSION" ) | ../doxygen-1.12.0/bin/doxygen - 2> warnings.txt
           if [ -s warnings.txt ]; then cat warnings.txt; exit 1; fi

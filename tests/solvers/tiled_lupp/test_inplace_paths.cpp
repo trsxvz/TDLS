@@ -43,6 +43,7 @@ void inplace_case(const int count, const double bound, const std::uint64_t seed)
     std::vector<T> A_dynamic(static_cast<std::size_t>(N) * N);
     std::vector<T> x_gather(N), x_static(N), x_dynamic(N);
     std::vector<int> piv_static(N), piv_dynamic(N);
+    int solved = 0;
     for (int s = 0; s < count; ++s) {
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A_static.begin());
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A_dynamic.begin());
@@ -51,6 +52,7 @@ void inplace_case(const int count, const double bound, const std::uint64_t seed)
         const bool ok_dynamic = Dynamic::factorize(N, A_dynamic.data(), 1, piv_dynamic.data(), 1);
         TDLS_CHECK(ok_static == ok_dynamic);
         if (!ok_static || !ok_dynamic) continue;
+        ++solved;
 
         Static::template substitute<false, false, false>(A_static.data(), 1, piv_static.data(), 1,
                                                          batch.rhs(s), x_gather.data(), 1);
@@ -64,6 +66,8 @@ void inplace_case(const int count, const double bound, const std::uint64_t seed)
         TDLS_CHECK_BITWISE(x_gather.data(), x_static.data(), static_cast<std::size_t>(N));
         TDLS_CHECK_BITWISE(x_static.data(), x_dynamic.data(), static_cast<std::size_t>(N));
     }
+    // Floor: every generated system must have been solved.
+    TDLS_CHECK(solved == count);
 }
 
 } // namespace

@@ -36,11 +36,15 @@ endforeach()
 set(TDLS_TILEDLUPP_REJECT_CASES
     reject_config_float_thresholds
     reject_config_double_thresholds
-    reject_config_eps_above_threshold)
+    reject_config_eps_above_threshold
+    reject_adaptors_const_matrix
+    reject_adaptors_const_pivot)
 set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
     "the config thresholds must have the scalar type T"
     "the config thresholds must have the scalar type T"
-    "singular_eps must not exceed oot_threshold")
+    "singular_eps must not exceed oot_threshold"
+    "A must not be const here"
+    "the pivot must be mutable here")
 
 foreach(case diagnostic IN ZIP_LISTS TDLS_TILEDLUPP_REJECT_CASES
                                      TDLS_TILEDLUPP_REJECT_DIAGNOSTICS)
@@ -50,7 +54,10 @@ foreach(case diagnostic IN ZIP_LISTS TDLS_TILEDLUPP_REJECT_CASES
     add_test(NAME solvers.tiledlupp.${case}
              COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target
                      tdls_test_tiledlupp_${case} --config $<CONFIG>)
-    set_tests_properties(solvers.tiledlupp.${case} PROPERTIES LABELS "solvers"
-                                                              PASS_REGULAR_EXPRESSION
-                                                              "${diagnostic}")
+    # The reject tests build inside the shared binary tree: serialize
+    # them so concurrent ctest -j runs cannot collide on the build lock.
+    set_tests_properties(
+        solvers.tiledlupp.${case}
+        PROPERTIES LABELS "solvers" PASS_REGULAR_EXPRESSION "${diagnostic}" RESOURCE_LOCK
+                   build_tree)
 endforeach()

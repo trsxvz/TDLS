@@ -47,7 +47,7 @@
 /// debug builds and compile times), so a plain `inline` hint is kept there.
 
 #ifndef TDLS_FORCEINLINE
-#if defined(__CUDACC__) || defined(__HIPCC__) || defined(__HIP__)
+#if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__)
 #define TDLS_FORCEINLINE __forceinline__
 #else
 #define TDLS_FORCEINLINE inline

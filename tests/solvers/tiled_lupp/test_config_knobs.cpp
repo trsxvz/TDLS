@@ -69,6 +69,7 @@ void unroll_case(const int count, const double bound, const std::uint64_t seed) 
 
     std::vector<T> A_def(N * N), A_alt(N * N), x_def(N), x_alt(N);
     int piv_def[N], piv_alt[N];
+    int solved = 0;
     for (int s = 0; s < count; ++s) {
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A_def.begin());
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A_alt.begin());
@@ -78,10 +79,13 @@ void unroll_case(const int count, const double bound, const std::uint64_t seed) 
             A_alt.data(), 1, piv_alt, 1, batch.rhs(s), x_alt.data(), 1);
         TDLS_CHECK(ok_def == ok_alt);
         if (!ok_def) continue;
+        ++solved;
         TDLS_CHECK_BITWISE(A_def.data(), A_alt.data(), static_cast<std::size_t>(N) * N);
         TDLS_CHECK_BITWISE(piv_def, piv_alt, static_cast<std::size_t>(N));
         TDLS_CHECK_BITWISE(x_def.data(), x_alt.data(), static_cast<std::size_t>(N));
     }
+    // Floor: every generated system must have been solved.
+    TDLS_CHECK(solved == count);
 }
 
 } // namespace
@@ -103,19 +107,27 @@ TDLS_TEST_CASE("tiledlupp/config/oot_first_acceptable-both-anchored/N=25,TS=5,st
     std::vector<double> A(N * N), x(N);
     std::vector<int> piv(N);
     double be_first = 0.0, be_max_scan = 0.0;
+    int solved_first = 0, solved_scan = 0;
     for (int s = 0; s < batch.count; ++s) {
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
         if (FirstOk::solve<false, false, false>(A.data(), 1, piv.data(), 1, batch.rhs(s), x.data(),
-                                                1))
+                                                1)) {
+            ++solved_first;
             be_first = std::max(
                 be_first, tdls_tests::backward_error(batch.matrix(s), x.data(), batch.rhs(s), N));
+        }
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
         if (MaxScan::solve<false, false, false>(A.data(), 1, piv.data(), 1, batch.rhs(s), x.data(),
-                                                1))
+                                                1)) {
+            ++solved_scan;
             be_max_scan =
                 std::max(be_max_scan,
                          tdls_tests::backward_error(batch.matrix(s), x.data(), batch.rhs(s), N));
+        }
     }
+    // Floor: every generated system must have been solved on both paths.
+    TDLS_CHECK(solved_first == batch.count);
+    TDLS_CHECK(solved_scan == batch.count);
     TDLS_CHECK_LE(be_first, 1e-9);
     TDLS_CHECK_LE(be_max_scan, 1e-9);
 }
@@ -126,12 +138,18 @@ TDLS_TEST_CASE("tiledlupp/config/oot-counter/silent-in-default-regime/N=12,TS=3"
     const auto batch = tdls_tests::make_batch<double>(N, 200, 190400, 0.5);
     std::vector<double> A(N * N), x(N);
     int piv[N];
+    int solved = 0;
     for (int s = 0; s < batch.count; ++s) {
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
         int oot = -1;
-        if (Solver::solve<false, true, false>(A.data(), 1, piv, 1, batch.rhs(s), x.data(), 1, oot))
+        if (Solver::solve<false, true, false>(A.data(), 1, piv, 1, batch.rhs(s), x.data(), 1,
+                                              oot)) {
+            ++solved;
             TDLS_CHECK(oot == 0);
+        }
     }
+    // Floor: every generated system must have been solved.
+    TDLS_CHECK(solved == batch.count);
 }
 
 TDLS_TEST_CASE("tiledlupp/config/oot-counter/fires-in-stress-regime/N=12,TS=3") {
@@ -157,16 +175,20 @@ TDLS_TEST_CASE("tiledlupp/config/oot-counter/every-column-when-threshold-unreach
     std::vector<double> A(N * N), x(N);
     int piv[N];
     double be_max = 0.0;
+    int solved    = 0;
     for (int s = 0; s < batch.count; ++s) {
         std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
         int oot = 0;
         if (Solver::solve<false, true, false>(A.data(), 1, piv, 1, batch.rhs(s), x.data(), 1,
                                               oot)) {
+            ++solved;
             TDLS_CHECK(oot == N);
             be_max = std::max(
                 be_max, tdls_tests::backward_error(batch.matrix(s), x.data(), batch.rhs(s), N));
         }
     }
+    // Floor: every generated system must have been solved.
+    TDLS_CHECK(solved == batch.count);
     TDLS_CHECK_LE(be_max, 1e-9);
 }
 

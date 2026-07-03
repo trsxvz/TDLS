@@ -74,11 +74,13 @@ void cross_case(const int count, const double bound, const std::uint64_t seed) {
                                            tdls_tests::SolvePath::fused};
     T A_ref[N * N], x_ref[N];
     int piv_ref[N];
+    int solved = 0;
     for (int s = 0; s < count; ++s) {
         int oot_ref = 0;
         const bool ok_ref =
             Baseline::run(batch.matrix(s), batch.rhs(s), tdls_tests::SolvePath::combined, A_ref,
                           piv_ref, x_ref, oot_ref);
+        if (ok_ref) ++solved;
         for (const auto path : paths) {
             const T* A0 = batch.matrix(s);
             const T* b0 = batch.rhs(s);
@@ -100,6 +102,8 @@ void cross_case(const int count, const double bound, const std::uint64_t seed) {
                                                                 piv_ref, x_ref, oot_ref);
         }
     }
+    // Floor: every generated system must have been solved.
+    TDLS_CHECK(solved == count);
 }
 
 } // namespace

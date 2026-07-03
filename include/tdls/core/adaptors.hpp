@@ -304,6 +304,17 @@ struct pivot_access {
     static_assert(is_raw || is_dense, "tdls adaptors: the pivot must be an int pointer/array or "
                                       "a dense int object");
 
+    //! \brief true when the pivot argument may be written (non-const
+    //! object, non-const pointee for raw pointers)
+    static constexpr bool is_mutable = [] {
+        if constexpr (is_raw) {
+            return !std::is_const_v<std::remove_pointer_t<std::decay_t<PivotType>>>;
+        } else {
+            return !std::is_const_v<PivotType> &&
+                   storage_traits<std::remove_cv_t<PivotType>>::is_mutable;
+        }
+    }();
+
     //! \brief true when the pivot storage is compile-time contiguous
     static constexpr bool is_internal = [] {
         if constexpr (is_raw) {
@@ -352,6 +363,10 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE bool factorize(MatrixType& A, PivotType& piv) 
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
     static_assert(mt::is_mutable, "tdls adaptors: factorize writes into A");
+    static_assert(!std::is_const_v<MatrixType>, "tdls adaptors: A must not be const here "
+                                                "(factorize writes it)");
+    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
+                                  "(factorize writes it)");
     return ctx::solver::template factorize<pa::is_internal, mt::is_internal>(
         mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv));
 }
@@ -377,6 +392,10 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve(MatrixType& A, PivotType& piv, cons
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(mt::is_mutable, "tdls adaptors: solve factors A in place");
     static_assert(xt::is_mutable, "tdls adaptors: solve writes into x");
+    static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<SolutionType>,
+                  "tdls adaptors: A and x must not be const here (solve writes them)");
+    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
+                                  "(solve writes it)");
     return ctx::solver::template solve<xt::is_internal, pa::is_internal, mt::is_internal>(
         mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
         xt::pointer(x), xt::stride(x));
@@ -398,6 +417,10 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve_inplace(MatrixType& A, PivotType& p
     using yt = storage_traits<std::remove_cv_t<VectorType>>;
     static_assert(mt::is_mutable, "tdls adaptors: solve_inplace factors A in place");
     static_assert(yt::is_mutable, "tdls adaptors: solve_inplace writes into y");
+    static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<VectorType>,
+                  "tdls adaptors: A and y must not be const here (solve_inplace writes them)");
+    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
+                                  "(solve_inplace writes it)");
     return ctx::solver::template solve_inplace<yt::is_internal, pa::is_internal, mt::is_internal>(
         mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), yt::pointer(y),
         yt::stride(y));
@@ -423,6 +446,8 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE void substitute(const MatrixType& A, const Piv
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute writes into x");
+    static_assert(!std::is_const_v<SolutionType>,
+                  "tdls adaptors: x must not be const here (substitute writes it)");
     ctx::solver::template substitute<xt::is_internal, pa::is_internal, mt::is_internal>(
         mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
         xt::pointer(x), xt::stride(x));
@@ -443,6 +468,8 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE void substitute_inplace(const MatrixType& A, c
     detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_inplace writes into x");
+    static_assert(!std::is_const_v<SolutionType>,
+                  "tdls adaptors: x must not be const here (substitute_inplace writes it)");
     ctx::solver::template substitute_inplace<xt::is_internal, pa::is_internal, mt::is_internal>(
         mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), xt::pointer(x),
         xt::stride(x));
@@ -464,6 +491,8 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
     detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_canonical writes into x");
+    static_assert(!std::is_const_v<SolutionType>,
+                  "tdls adaptors: x must not be const here (substitute_canonical writes it)");
     ctx::solver::template substitute_canonical<xt::is_internal, pa::is_internal, mt::is_internal>(
         mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col, xt::pointer(x),
         xt::stride(x));

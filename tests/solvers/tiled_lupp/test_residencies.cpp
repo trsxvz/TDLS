@@ -40,6 +40,7 @@ void compare_to_baseline(const tdls_tests::SystemBatch<T>& batch) {
 
     std::vector<T> A_ref(N * N), A_tst(N * N), x_ref(N), x_tst(N);
     int piv_ref[N], piv_tst[N];
+    int solved = 0;
     for (int s = 0; s < batch.count; ++s) {
         int oot_ref = 0, oot_tst = 0;
         const bool ok_ref =
@@ -50,11 +51,14 @@ void compare_to_baseline(const tdls_tests::SystemBatch<T>& batch) {
                         A_tst.data(), piv_tst, x_tst.data(), oot_tst);
         TDLS_CHECK(ok_ref == ok_tst);
         if (!ok_ref || !ok_tst) continue;
+        ++solved;
         TDLS_CHECK_BITWISE(A_ref.data(), A_tst.data(), static_cast<std::size_t>(N) * N);
         TDLS_CHECK_BITWISE(piv_ref, piv_tst, static_cast<std::size_t>(N));
         TDLS_CHECK_BITWISE(x_ref.data(), x_tst.data(), static_cast<std::size_t>(N));
         TDLS_CHECK(oot_ref == oot_tst);
     }
+    // Floor: every generated system must have been solved.
+    TDLS_CHECK(solved == batch.count);
 }
 
 /// \brief Runs the seven non-baseline combinations against the baseline.

@@ -36,7 +36,9 @@
 /// flexibility path (dimensions unknown at compile time, fast builds).
 ///
 /// Preconditions: n >= 2. TS may exceed n (the grid is then a single
-/// partial tile).
+/// partial tile). Offsets are computed in unsigned 32-bit arithmetic:
+/// the largest element offset of every array (for the matrix,
+/// (n*n-1)*A_stride) must stay below 2^32.
 
 
 
@@ -67,22 +69,23 @@ namespace tdls {
 
 /// \def TDLS_LUPP_DYN_A
 /// \brief Strided element (r, c) of the factor matrix.
-#define TDLS_LUPP_DYN_A(r, c) A[((r) * n + (c)) * A_stride]
+#define TDLS_LUPP_DYN_A(r, c) A[unsigned((r) * n + (c)) * unsigned(A_stride)]
 /// \def TDLS_LUPP_DYN_PIV
 /// \brief Strided pivot entry i.
-#define TDLS_LUPP_DYN_PIV(i) piv[(i) * piv_stride]
+#define TDLS_LUPP_DYN_PIV(i) piv[unsigned(i) * unsigned(piv_stride)]
 /// \def TDLS_LUPP_DYN_X
 /// \brief Strided entry i of the solution vector.
-#define TDLS_LUPP_DYN_X(i) x[(i) * rhs_stride]
+#define TDLS_LUPP_DYN_X(i) x[unsigned(i) * unsigned(rhs_stride)]
 /// \def TDLS_LUPP_DYN_B
 /// \brief Strided entry i of the right-hand side.
-#define TDLS_LUPP_DYN_B(i) b[(i) * rhs_stride]
+#define TDLS_LUPP_DYN_B(i) b[unsigned(i) * unsigned(rhs_stride)]
 /// \def TDLS_LUPP_DYN_XW
 /// \brief Strided entry i of column w of a multi right-hand-side block.
-#define TDLS_LUPP_DYN_XW(w, i) x[(i) * rhs_stride + (w) * xcol_stride]
+#define TDLS_LUPP_DYN_XW(w, i)                                                                     \
+    x[unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
 /// \def TDLS_LUPP_DYN_Y
 /// \brief Strided entry i of the fused right-hand side of solve_inplace.
-#define TDLS_LUPP_DYN_Y(i) y[(i) * rhs_stride]
+#define TDLS_LUPP_DYN_Y(i) y[unsigned(i) * unsigned(rhs_stride)]
 
 
 

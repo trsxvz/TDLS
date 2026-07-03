@@ -23,6 +23,7 @@
 /// solution, which the solve must return to solver accuracy, whatever
 /// the resolution) and the physical unit potential.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>

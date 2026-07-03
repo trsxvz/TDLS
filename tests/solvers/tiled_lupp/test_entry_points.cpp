@@ -36,6 +36,7 @@ void entry_points_case(const int count, const double bound, const std::uint64_t 
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     std::vector<T> A_split(N * N), A_other(N * N);
+    int solved = 0;
     for (int s = 0; s < count; ++s) {
         const T* A0 = batch.matrix(s);
         const T* b0 = batch.rhs(s);
@@ -49,6 +50,7 @@ void entry_points_case(const int count, const double bound, const std::uint64_t 
         const bool ok =
             Solver::template factorize<true, false>(A_split.data(), 1, piv_split, 1, oot_split);
         if (!ok) continue;
+        ++solved;
         Solver::template substitute<true, true, false>(A_split.data(), 1, piv_split, 1, b, x_split,
                                                        1);
 
@@ -138,6 +140,10 @@ void entry_points_case(const int count, const double bound, const std::uint64_t 
             TDLS_CHECK_BITWISE(piv_split, piv, static_cast<std::size_t>(N));
         }
     }
+    // Floor: the generator produces well-conditioned systems, so every
+    // one must have been solved (a suite green on zero solved systems
+    // would assert nothing).
+    TDLS_CHECK(solved == count);
 }
 
 } // namespace

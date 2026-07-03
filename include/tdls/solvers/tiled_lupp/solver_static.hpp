@@ -22,7 +22,10 @@
 /// The solver never sees a thread index: callers pre-offset every remote
 /// pointer with the lane/system index and pass a runtime stride.
 /// Element (r,c) of the matrix lives at `A[((r)*N+(c))*A_stride]`. The
-/// pivot array and the right-hand sides follow the same convention. Each
+/// pivot array and the right-hand sides follow the same convention.
+/// Offsets are computed in unsigned 32-bit arithmetic: the largest
+/// element offset of every array (for the matrix, (N*N-1)*A_stride)
+/// must stay below 2^32. Each
 /// of the three arrays has an *internal* residency mode (plain
 /// caller-local array, stride ignored) selected by the `internal_rhs` /
 /// `internal_piv` / `internal_matrix` template booleans - the
@@ -87,28 +90,31 @@ namespace tdls {
 /// \def TDLS_LUPP_A
 /// \brief Element (r, c) of the factor matrix: contiguous under internal
 /// residency, strided otherwise.
-#define TDLS_LUPP_A(r, c) A[internal_matrix ? ((r) * N + (c)) : ((r) * N + (c)) * A_stride]
+#define TDLS_LUPP_A(r, c)                                                                          \
+    A[internal_matrix ? unsigned((r) * N + (c)) : unsigned((r) * N + (c)) * unsigned(A_stride)]
 /// \def TDLS_LUPP_PIV
 /// \brief Pivot entry i: contiguous under internal residency, strided
 /// otherwise.
-#define TDLS_LUPP_PIV(i) piv[internal_piv ? (i) : (i) * piv_stride]
+#define TDLS_LUPP_PIV(i) piv[internal_piv ? unsigned(i) : unsigned(i) * unsigned(piv_stride)]
 /// \def TDLS_LUPP_X
 /// \brief Entry i of the solution vector: contiguous under internal
 /// residency, strided otherwise.
-#define TDLS_LUPP_X(i) x[internal_rhs ? (i) : (i) * rhs_stride]
+#define TDLS_LUPP_X(i) x[internal_rhs ? unsigned(i) : unsigned(i) * unsigned(rhs_stride)]
 /// \def TDLS_LUPP_B
 /// \brief Entry i of the right-hand side: contiguous under internal
 /// residency, strided otherwise.
-#define TDLS_LUPP_B(i) b[internal_rhs ? (i) : (i) * rhs_stride]
+#define TDLS_LUPP_B(i) b[internal_rhs ? unsigned(i) : unsigned(i) * unsigned(rhs_stride)]
 /// \def TDLS_LUPP_XW
 /// \brief Entry i of column w of a multi right-hand-side block: W
 /// contiguous columns under internal residency, xcol_stride-strided
 /// columns in remote memory. W = 1 collapses to TDLS_LUPP_X exactly.
-#define TDLS_LUPP_XW(w, i) x[internal_rhs ? (w) * N + (i) : (i) * rhs_stride + (w) * xcol_stride]
+#define TDLS_LUPP_XW(w, i)                                                                         \
+    x[internal_rhs ? unsigned((w) * N + (i))                                                       \
+                   : unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
 /// \def TDLS_LUPP_Y
 /// \brief Entry i of the fused right-hand side of solve_inplace (y follows
 /// the matrix rows through pivoting).
-#define TDLS_LUPP_Y(i) y[internal_rhs ? (i) : (i) * rhs_stride]
+#define TDLS_LUPP_Y(i) y[internal_rhs ? unsigned(i) : unsigned(i) * unsigned(rhs_stride)]
 
 
 
