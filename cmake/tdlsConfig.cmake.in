@@ -1,0 +1,8 @@
+# Package configuration for find_package(tdls). TDLS is header-only
+# with no external dependencies, so this only pulls in the exported
+# INTERFACE target (its include path and C++17 floor).
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/tdlsTargets.cmake")
+
+check_required_components(tdls)

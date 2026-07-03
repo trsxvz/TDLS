@@ -22,8 +22,22 @@ foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
     target_link_libraries(tdls_test_tiledlupp_${suite} PRIVATE tdls::tdls)
     target_include_directories(tdls_test_tiledlupp_${suite} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../common")
     target_compile_features(tdls_test_tiledlupp_${suite} PRIVATE cxx_std_20)
+    # These are correctness tests, not benchmarks. In the Release config
+    # the CI builds, the fully-unrolled solver templates expand into
+    # large functions whose -O3 optimisation dominates compile time
+    # (test_cross_full alone: ~20s at -O3 vs ~6s at -O1 under g++), while
+    # the bitwise and backward-error checks are unaffected by the level.
+    # Drop the tests to -O1 there - the -O1 trails the Release -O3 and
+    # wins - but only in Release, so a Debug build stays steppable.
     if(NOT MSVC)
-        target_compile_options(tdls_test_tiledlupp_${suite} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(tdls_test_tiledlupp_${suite} PRIVATE
+            $<$<CONFIG:Release>:-O1> -Wall -Wextra -Wpedantic -Werror
+            # The harness derives unique test-case ids from __COUNTER__, a
+            # ubiquitous extension (GCC/Clang/MSVC; standard in C2y). Clang
+            # >=22 flags it under -Wc2y-extensions, which -Werror makes
+            # fatal; exempt just that diagnostic on Clang. It trails
+            # -Wpedantic so it wins, and is a silent no-op on GCC/older Clang.
+            $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
     endif()
     add_test(NAME solvers.tiledlupp.${suite} COMMAND tdls_test_tiledlupp_${suite})
     set_tests_properties(solvers.tiledlupp.${suite} PROPERTIES LABELS "solvers")
