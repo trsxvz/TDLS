@@ -22,13 +22,15 @@ are themselves `View` objects and are accepted individually.
 Residencies are inferred per argument (contiguous object: internal;
 strided view: external) and can be mixed freely in one call. Two
 shapes are rejected at compile time with an explicit message:
-row-strided sub-matrix views (such as the result of
-`tfel::math::map_derivative()`, which maps a derivative block inside a
-larger jacobian matrix, or of `tfel::math::tmatrix::submatrix_view()`),
-whose row stride cannot be expressed by the single-stride addressing,
-and gather views holding one pointer per component (this matches
-`tfel::math::CoalescedView`, built by the `map()` overload taking an
-array of pointers), which expose no `data()` at all.
+
+- row-strided sub-matrix views (such as the result of
+  `tfel::math::map_derivative()`, which maps a derivative block inside
+  a larger jacobian matrix, or of
+  `tfel::math::tmatrix::submatrix_view()`), whose row stride cannot be
+  expressed by the single-stride addressing;
+- gather views holding one pointer per component (this matches
+  `tfel::math::CoalescedView`, built by the `map()` overload taking an
+  array of pointers), which expose no `data()` at all.
 
 For exotic types the detection can be overridden by specializing
 `tdls::storage_traits`.

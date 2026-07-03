@@ -49,7 +49,7 @@ localizes a divergence exactly.
 | `tile_sizes` | every tile size against the anchored one, plus the runtime TS > n cases |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
 | `config_knobs` | each configuration knob changes what it should and nothing else |
-| `adaptors` | structural detection on mock objects, accepted and rejected shapes |
+| `adaptors` | structural detection on mocks mirroring the TFEL shapes, accepted and rejected: the contract behind {doc}`tfel_interoperability` |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
 | `reject_config_*` | negative compilation tests of the configuration contracts |
