@@ -10,8 +10,9 @@ if(NOT MSVC)
     target_compile_options(tdls_test_common_backward_error PRIVATE
     $<$<CONFIG:Release>:-O1> -Wall -Wextra -Wpedantic -Werror
     # Clang >=22 flags __COUNTER__ (harness ids) under -Wc2y-extensions;
-    # -Werror makes it fatal. Exempt it on Clang (no-op elsewhere).
-    $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
+    # -Werror makes it fatal. Suppress it where the compiler knows the flag
+    # (probed in ../CMakeLists.txt).
+    $<$<BOOL:${TDLS_HAVE_WNO_C2Y_EXTENSIONS}>:-Wno-c2y-extensions>)
 endif()
 add_test(NAME common.backward_error COMMAND tdls_test_common_backward_error)
 set_tests_properties(common.backward_error PROPERTIES LABELS "common")

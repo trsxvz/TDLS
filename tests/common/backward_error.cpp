@@ -48,7 +48,8 @@ TDLS_TEST_CASE("common/backward_error/discriminates-correct-from-wrong-solutions
         // and its infinity norm is zero, so the metric collapses to
         // |b|/|b| = 1 by construction, independent of conditioning.
         std::vector<double> x_zero(N, 0.0);
-        const double be_zero = tdls_tests::backward_error(A0.data(), x_zero.data(), batch.rhs(s), N);
+        const double be_zero =
+            tdls_tests::backward_error(A0.data(), x_zero.data(), batch.rhs(s), N);
         TDLS_CHECK(be_zero > 0.5);
 
         // Negative control 2: the exact solution with one entry bumped.

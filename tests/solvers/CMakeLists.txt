@@ -35,9 +35,10 @@ foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
             # The harness derives unique test-case ids from __COUNTER__, a
             # ubiquitous extension (GCC/Clang/MSVC; standard in C2y). Clang
             # >=22 flags it under -Wc2y-extensions, which -Werror makes
-            # fatal; exempt just that diagnostic on Clang. It trails
-            # -Wpedantic so it wins, and is a silent no-op on GCC/older Clang.
-            $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
+            # fatal; suppress just that diagnostic where the compiler knows
+            # the flag (probed in ../CMakeLists.txt). It trails -Wpedantic
+            # so it wins.
+            $<$<BOOL:${TDLS_HAVE_WNO_C2Y_EXTENSIONS}>:-Wno-c2y-extensions>)
     endif()
     add_test(NAME solvers.tiledlupp.${suite} COMMAND tdls_test_tiledlupp_${suite})
     set_tests_properties(solvers.tiledlupp.${suite} PROPERTIES LABELS "solvers")
