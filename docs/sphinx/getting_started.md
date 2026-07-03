@@ -25,7 +25,7 @@ Then include the umbrella header:
 
 Finer-grained headers exist for the individual pieces
 (`tdls/solvers/tiled_lupp/solver_static.hpp`,
-`tdls/solvers/tiled_lupp/solver_dynamic.hpp`, `tdls/adaptors.hpp`).
+`tdls/solvers/tiled_lupp/solver_dynamic.hpp`, `tdls/core/adaptors.hpp`).
 
 ## Building the tests and examples
 

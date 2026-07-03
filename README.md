@@ -1,7 +1,7 @@
 # TDLS - Tiny Device-callable Linear Solvers
 
-[![ci](https://github.com/trsxvz/tdls/actions/workflows/ci.yml/badge.svg)](https://github.com/trsxvz/tdls/actions/workflows/ci.yml)
-[![docs](https://github.com/trsxvz/tdls/actions/workflows/docs.yml/badge.svg)](https://trsxvz.github.io/tdls/)
+[![ci](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml/badge.svg)](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml)
+[![docs](https://github.com/trsxvz/TDLS/actions/workflows/docs.yml/badge.svg)](https://trsxvz.github.io/TDLS/)
 
 TDLS is a header-only C++17 library of direct solvers for small
 general linear systems. It is written to be callable from device code:
@@ -27,7 +27,7 @@ Solver::substitute<true, true, true>(M, 1, piv, 1, r, dz, 1);
 ```
 
 Dense math objects can also be passed directly: the adaptors of
-`tdls/adaptors.hpp` recognize matrices, vectors and strided views
+`tdls/core/adaptors.hpp` recognize matrices, vectors and strided views
 structurally, without naming any external library.
 
 ## Using the library
@@ -55,7 +55,7 @@ when a CUDA or HIP toolchain is found.
 ## Documentation
 
 The documentation, including the Doxygen API reference, lives at
-<https://trsxvz.github.io/tdls/>.
+<https://trsxvz.github.io/TDLS/>.
 
 ## License
 

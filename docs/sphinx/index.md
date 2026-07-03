@@ -28,18 +28,27 @@ A taste of the interface, from the examples:
 ```cpp
 #include <tdls/tdls.hpp>
 
+// LUpp solver with compile-time matrix size.
 using StaticSolver  = tdls::TiledLUppSolverStatic<double, 9, tdls::TiledLUppConfig<double, 3>>;
+// LUpp solver with runtime matrix size.
 using DynamicSolver = tdls::TiledLUppSolverDynamic<double>;
 
-// Split interface: factorize once, then reuse the factorization for
-// every right-hand side (Newton iterations, parameter sweeps, ...).
-StaticSolver::factorize<true, true>(M, 1, piv, 1);
-StaticSolver::substitute<true, true, true>(M, 1, piv, 1, r, dz, 1);
+// Both variants offer two interfaces:
+// - split: factorize once, then one substitute call per right-hand
+//   side, reusing the factorization;
+// - one-call: solve chains factorize and substitute.
 
-// Combined interface: solve() chains factorize() and substitute().
-// Both variants offer both interfaces; the split is shown on the
-// static solver and the combined one on the dynamic solver.
-DynamicSolver::solve(n, A.data(), 1, piv.data(), 1, b.data(), x.data(), 1);
+// Static variant, split interface, contiguous storage (stride 1).
+// substitute reads b and writes x; substitute_inplace overwrites its
+// single buffer y instead.
+StaticSolver::factorize<true, true>(M, 1, piv, 1);
+StaticSolver::substitute<true, true, true>(M, 1, piv, 1, b, x, 1);
+StaticSolver::substitute_inplace<true, true, true>(M, 1, piv, 1, y, 1);
+
+// Runtime variant, one-call interface, on a structure-of-arrays batch
+// of B interleaved systems: element k of the system number s sits at
+// A[k * B + s]. Every pointer is offset by s, every stride is B.
+DynamicSolver::solve(n, A + s, B, piv + s, B, b + s, x + s, B);
 ```
 
 Dense math objects (matrices, vectors, strided views) can also be

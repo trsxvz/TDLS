@@ -1,5 +1,5 @@
-#ifndef TDLS_ADAPTORS_HPP
-#define TDLS_ADAPTORS_HPP
+#ifndef TDLS_CORE_ADAPTORS_HPP
+#define TDLS_CORE_ADAPTORS_HPP
 
 
 
@@ -475,4 +475,4 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
 
 
 
-#endif // TDLS_ADAPTORS_HPP
+#endif // TDLS_CORE_ADAPTORS_HPP

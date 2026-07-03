@@ -1,6 +1,6 @@
 # TFEL interoperability
 
-The free functions of `tdls/adaptors.hpp` accept dense math objects
+The free functions of `tdls/core/adaptors.hpp` accept dense math objects
 directly and infer everything the raw interface needs: the scalar
 type, the dimension, the strides and the residency booleans.
 
