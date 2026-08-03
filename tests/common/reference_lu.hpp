@@ -80,7 +80,7 @@ template<typename T>
 template<typename T>
 inline void reference_substitute(const T* A, const int* piv, T* x, const int n) {
     for (int k = 0; k < n; ++k) {
-        if (piv[k] != k) {
+        if (piv[k] > k && piv[k] < n) {
             const T tmp = x[k];
             x[k]        = x[piv[k]];
             x[piv[k]]   = tmp;

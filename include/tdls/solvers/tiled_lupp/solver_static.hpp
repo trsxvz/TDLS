@@ -61,17 +61,6 @@
 
 
 
-// gcc's flow analysis cannot prove that the phantom slots of trailing
-// register tiles are never read (the extent-bounded loops skip them by
-// construction, a property validated bitwise against reference solvers),
-// and emits spurious -Wmaybe-uninitialized warnings on some
-// internal-matrix instantiations at -O2. The suppression is scoped to
-// this header and to that warning only.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
 // clang reports a forced unrolling that the optimizer could not perform
 // through -Wpass-failed. The unrolling requested by TDLS_UNROLL_FORCE is
 // a performance hint: a failed hint does not affect correctness. The
@@ -547,7 +536,7 @@ struct TiledLUppSolverStatic {
             }
 
             if (piv_row < k0 + KE) {
-                Ops::swap_rows(tile, c, piv_row - k0);
+                Ops::template swap_rows<KE>(tile, c, piv_row - k0);
             } else {
                 // Cross-tile swap: pull the new row into the tile and
                 // replay everything it missed - prior tiles (LL), then
@@ -1788,10 +1777,6 @@ struct TiledLUppSolverStatic {
 
 
 } // namespace tdls
-
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 #if defined(__clang__)
 #pragma clang diagnostic pop

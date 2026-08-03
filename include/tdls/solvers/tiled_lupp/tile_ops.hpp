@@ -28,17 +28,6 @@
 
 
 
-// gcc's flow analysis cannot prove that the phantom slots of trailing
-// register tiles are never read (the extent-bounded loops skip them by
-// construction, a property validated bitwise against reference solvers),
-// and emits spurious -Wmaybe-uninitialized warnings on some
-// internal-matrix instantiations at -O2. The suppression is scoped to
-// this header and to that warning only.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
 // clang reports a forced unrolling that the optimizer could not perform
 // through -Wpass-failed. The unrolling requested by TDLS_UNROLL_FORCE is
 // a performance hint: a failed hint does not affect correctness. The
@@ -59,20 +48,25 @@ namespace tdls {
 template<typename T, int TS, bool unroll_inner>
 struct TiledLUppTileOps {
 
-    /// \brief Row swap k <-> r, compile-time indexed on both sides.
+    /// \brief Row swap k <-> r inside the KExKE active part of the tile,
+    /// compile-time indexed on both sides.
     ///
     /// The equality test against every unrolled row index keeps the tile
-    /// addressing static; a dynamic t[r*TS+j] would spill the tile.
+    /// addressing static; a dynamic t[r*TS+j] would spill the tile. The
+    /// KE extent bounds both loops, so the phantom slots of trailing
+    /// tiles are never touched, as in every other micro-kernel.
+    /// \tparam KE active extent of the tile
     /// \param[in,out] t register tile
     /// \param[in]     k destination row (elimination column)
     /// \param[in]     r source row to swap in
+    template<int KE>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static void swap_rows(T* TDLS_RESTRICT t, int k, int r) {
         if constexpr (unroll_inner) {
             TDLS_UNROLL_FORCE
-            for (int row = 0; row < TS; ++row) {
+            for (int row = 0; row < KE; ++row) {
                 if (row == r) {
                     TDLS_UNROLL_FORCE
-                    for (int j = 0; j < TS; ++j) {
+                    for (int j = 0; j < KE; ++j) {
                         const T tmp     = t[k * TS + j];
                         t[k * TS + j]   = t[row * TS + j];
                         t[row * TS + j] = tmp;
@@ -80,9 +74,9 @@ struct TiledLUppTileOps {
                 }
             }
         } else {
-            for (int row = 0; row < TS; ++row) {
+            for (int row = 0; row < KE; ++row) {
                 if (row == r) {
-                    for (int j = 0; j < TS; ++j) {
+                    for (int j = 0; j < KE; ++j) {
                         const T tmp     = t[k * TS + j];
                         t[k * TS + j]   = t[row * TS + j];
                         t[row * TS + j] = tmp;
@@ -236,10 +230,6 @@ struct TiledLUppTileOps {
 
 
 } // namespace tdls
-
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
