@@ -9,7 +9,12 @@
 /// canonical embarrassingly parallel workload of parametric studies.
 /// Every instance assembles and solves its own dense n x n Nystroem
 /// system; one omp parallel for distributes the instances and each
-/// thread reuses its own buffers.
+/// thread reuses its own buffers. Every instance writes its outputs
+/// (manufactured error, central potential, success flag) into shared
+/// per-instance slots - the exact outputs of the GPU companion
+/// examples - and the self-checks run serially afterwards; the pragmas
+/// thus stay plain OpenMP 2.0 (no min/max reduction, which the default
+/// MSVC OpenMP runtime rejects).
 ///
 /// Why the dimension is only known at run time: n is the quadrature
 /// resolution, an accuracy versus cost knob chosen when the computation
@@ -68,10 +73,12 @@ int main(int argc, char** argv) {
     const double h = 2.0 / (n - 1);
     const int mid  = (n - 1) / 2;
 
-    int failures = 0;
-    double err = 0.0, u_first = 0.0, u_last = 0.0;
-    double u_lo = 1.0, u_hi = 0.0;
-#pragma omp parallel reduction(+ : failures) reduction(max : err, u_hi) reduction(min : u_lo)
+    // Shared per-instance outputs, written once per instance by its
+    // owning iteration.
+    std::vector<double> err(instances), u_mid(instances);
+    std::vector<int> ok(instances);
+
+#pragma omp parallel
     {
         // Thread-local buffers, reused across the instances of the
         // thread.
@@ -101,27 +108,41 @@ int main(int argc, char** argv) {
 
             // One factorization, two right-hand sides.
             if (!Solver::factorize(n, A.data(), 1, piv.data(), 1)) {
-                ++failures;
+                err[c]   = 1.0;
+                u_mid[c] = 0.0;
+                ok[c]    = 0;
                 continue;
             }
             Solver::substitute(n, A.data(), 1, piv.data(), 1, g.data(), u.data(), 1);
+            double e = 0.0;
             for (int i = 0; i < n; ++i)
-                err = std::fmax(err, std::fabs(u[i] - manufactured(-1.0 + i * h)));
+                e = std::fmax(e, std::fabs(u[i] - manufactured(-1.0 + i * h)));
+            err[c] = e;
 
             std::fill(g.begin(), g.end(), 1.0);
             Solver::substitute(n, A.data(), 1, piv.data(), 1, g.data(), u.data(), 1);
-            u_lo = std::fmin(u_lo, u[mid]);
-            u_hi = std::fmax(u_hi, u[mid]);
-            if (c == 0) u_first = u[mid];
-            if (c == instances - 1) u_last = u[mid];
+            u_mid[c] = u[mid];
+            ok[c]    = 1;
         }
+    }
+
+    // Serial self-checks over the gathered outputs, as in the GPU
+    // examples.
+    int failures = 0;
+    double e_max = 0.0, u_lo = 1.0, u_hi = 0.0;
+    for (int c = 0; c < instances; ++c) {
+        if (!ok[c]) ++failures;
+        e_max = std::fmax(e_max, err[c]);
+        u_lo  = std::fmin(u_lo, u_mid[c]);
+        u_hi  = std::fmax(u_hi, u_mid[c]);
     }
 
     std::printf("instances = %d, n = %d, threads = %d, manufactured error = %.3e, "
                 "u(0): %.6f at d = %.1f -> %.6f at d = %.1f\n",
-                instances, n, omp_get_max_threads(), err, u_first, d_min, u_last, d_max);
+                instances, n, omp_get_max_threads(), e_max, u_mid.front(), d_min, u_mid.back(),
+                d_max);
 
     // The potential of the unit problem is bounded by construction: the
     // integral operator is positive with norm below one.
-    return failures == 0 && err < 1e-12 && u_lo > 0.4 && u_hi < 1.0 ? 0 : 1;
+    return failures == 0 && e_max < 1e-12 && u_lo > 0.4 && u_hi < 1.0 ? 0 : 1;
 }

@@ -17,7 +17,11 @@
 /// of every other cell: a moderate number of small stiff systems of
 /// identical size, embarrassingly parallel. One omp parallel for
 /// distributes the cells; each thread solves on its own stack arrays
-/// (local residency), and only the cell states live in shared memory.
+/// (local residency), and only the per-cell outputs (final state,
+/// success flag) live in shared memory. The loop only computes and the
+/// self-checks run serially on the gathered outputs afterwards, exactly
+/// as in the GPU examples; the pragma thus stays plain OpenMP 2.0 (no
+/// min/max reduction, which the default MSVC OpenMP runtime rejects).
 ///
 /// Each cell carries its own temperature factor scaling the reaction
 /// rates, so the Newton matrices differ from cell to cell and are
@@ -163,30 +167,37 @@ int main(int argc, char** argv) {
     const double h  = 1e-3; // time step of the reaction substep
     const int steps = 10;   // integrate each cell to t = 0.01
 
-    // Shared cell states, written once per cell by its owning iteration.
+    // Shared per-cell outputs, written once per cell by its owning
+    // iteration: the final state and a success flag, the exact outputs
+    // of the GPU companion example.
     std::vector<double> state(static_cast<std::size_t>(species) * cells);
+    std::vector<int> ok(cells);
 
-    int failures = 0, unphysical = 0;
-    double mass_err = 0.0;
-#pragma omp parallel for schedule(static) reduction(+ : failures, unphysical)                      \
-    reduction(max : mass_err)
+#pragma omp parallel for schedule(static)
     for (int c = 0; c < cells; ++c) {
         // Per-cell inputs: fresh mixture and a temperature factor in
         // [0.5, 2], log-uniform across the batch.
         double y[species]  = {1.0, 0.0, 0.0};
         const double theta = 0.5 * std::pow(4.0, hash01(static_cast<unsigned long long>(c)));
 
-        bool ok = true;
-        for (int s = 0; s < steps && ok; ++s)
-            ok = radau_step(butcher, theta, h, y);
-        if (!ok) ++failures;
+        bool success = true;
+        for (int s = 0; s < steps && success; ++s)
+            success = radau_step(butcher, theta, h, y);
 
         for (int a = 0; a < species; ++a)
             state[static_cast<std::size_t>(species) * c + a] = y[a];
+        ok[c] = success ? 1 : 0;
+    }
 
-        // The Robertson system conserves the total mass exactly, and the
-        // trajectory stays a physical concentration vector.
-        mass_err = std::fmax(mass_err, std::fabs(y[0] + y[1] + y[2] - 1.0));
+    // Serial self-checks over the gathered outputs: the Robertson
+    // system conserves the total mass exactly, and the trajectory stays
+    // a physical concentration vector.
+    int failures = 0, unphysical = 0;
+    double mass_err = 0.0;
+    for (int c = 0; c < cells; ++c) {
+        if (!ok[c]) ++failures;
+        const double* y = &state[static_cast<std::size_t>(species) * c];
+        mass_err        = std::fmax(mass_err, std::fabs(y[0] + y[1] + y[2] - 1.0));
         if (!(y[0] > 0.0 && y[0] < 1.0 && y[1] > 0.0 && y[1] < 1e-3 && y[2] > 0.0 && y[2] < 1.0))
             ++unphysical;
     }
