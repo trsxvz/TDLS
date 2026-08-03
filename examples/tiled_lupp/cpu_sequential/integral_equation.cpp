@@ -2,6 +2,8 @@
 /// \brief Example: Love's integral equation solved by the Nystroem
 /// method, using the runtime TiledLUpp solver.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Love's equation gives the potential of a circular parallel-plate
 /// capacitor with plate separation d:

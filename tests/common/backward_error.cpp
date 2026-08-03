@@ -1,6 +1,8 @@
 /// \file
 /// \brief Negative control of the backward-error metric.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Every solver suite anchors its accuracy claim on
 /// tdls_tests::backward_error being small (<= 1e-9). That assertion only

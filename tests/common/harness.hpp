@@ -6,6 +6,8 @@
 /// \file
 /// \brief Minimal self-contained test harness of the tdls test suites.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Test cases register themselves at static-initialization time through
 /// TDLS_TEST_CASE and run from the main() emitted by TDLS_TEST_MAIN. Each

@@ -3,6 +3,8 @@
 /// letting every GPU example keep a single source compiled as either
 /// language.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Device code (kernels, launch syntax, math functions) is identical in
 /// CUDA and HIP; only the host-side runtime API names differ. The

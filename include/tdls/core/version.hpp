@@ -6,6 +6,8 @@
 /// \file
 /// \brief TDLS version macros.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 
 /// \def TDLS_VERSION_MAJOR
 /// \brief Major version component.

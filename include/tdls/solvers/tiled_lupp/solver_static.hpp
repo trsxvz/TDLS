@@ -7,6 +7,8 @@
 /// \brief TiledLUpp solver - LU with partial pivoting on tile grids, one
 /// thread / work-item per system.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// The matrix is split into a grid of TSxTS tiles; Gaussian elimination
 /// runs on tiles instead of scalars. Only the tiles involved in the

@@ -2,6 +2,8 @@
 /// \brief Bridge suite: the dynamic TiledLUpp solver reproduces the static TiledLUpp solver
 /// bitwise.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// At equal shape (N, TS, schedule, configuration) and on identical
 /// inputs, TiledLUppSolverDynamic and TiledLUppSolverStatic execute the same

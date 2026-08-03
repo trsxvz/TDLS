@@ -2,6 +2,8 @@
 /// \brief Example: stiff chemical kinetics integrated with an implicit
 /// Runge-Kutta method, using the compile-time TiledLUpp solver.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Why the dimension is known at compile time: the linear systems solved
 /// here are the Newton systems of a Radau IIA time step. Their size is

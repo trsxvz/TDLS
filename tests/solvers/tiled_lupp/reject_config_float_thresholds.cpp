@@ -2,6 +2,8 @@
 /// \brief Negative compilation test: a configuration whose thresholds
 /// are float must be rejected by a double solver.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// This translation unit must NOT compile. ctest builds it on purpose
 /// and passes only when the compiler emits the scalar-type contract

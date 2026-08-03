@@ -6,6 +6,8 @@
 /// \file
 /// \brief Toolchain detection and portability macros.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Targeted toolchains: plain CPU (gcc, clang, MSVC), CUDA (nvcc, clang),
 /// HIP (hipcc/amdclang++), SYCL (icpx, AdaptiveCpp), stdpar (nvc++),

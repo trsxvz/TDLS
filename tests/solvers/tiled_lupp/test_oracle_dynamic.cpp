@@ -1,6 +1,8 @@
 /// \file
 /// \brief Anchor suite of the dynamic TiledLUpp solver.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// TiledLUppSolverDynamic is compared against the independent reference LU
 /// on the same shape grid as the static anchor, plus shapes the static

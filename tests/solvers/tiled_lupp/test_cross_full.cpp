@@ -1,6 +1,8 @@
 /// \file
 /// \brief Exhaustive cross-product suite on two structurally rich shapes.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// The other bridge suites cover each axis against a baseline; this one
 /// guards against higher-order interactions by running the FULL cross

@@ -3,6 +3,8 @@
 /// one dense Nystroem system per plate separation held in thread-local
 /// storage, solved with the runtime TiledLUpp solver at unit stride.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// Companion of the sequential and OpenMP integral_equation examples at
 /// the GPU scale: the capacitor potential is computed for a large sweep

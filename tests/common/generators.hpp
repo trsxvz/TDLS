@@ -7,6 +7,8 @@
 /// \brief Reproducible input generators and layout helpers of the test
 /// suites.
 /// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. Released under the
+/// BSD 3-Clause License (see the LICENSE file).
 ///
 /// The generator maps raw mt19937_64 output to [-bound, bound] with a
 /// fixed 53-bit multiply. mt19937_64 is specified bit for bit by the C++
