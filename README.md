@@ -75,6 +75,19 @@ The examples cover two scientific problems at four execution scales:
 sequential, OpenMP, and two GPU placements. The GPU examples build
 when a CUDA or HIP toolchain is found.
 
+All the build options (the `TDLS_*` switches default to ON when TDLS
+is the top-level project, OFF when it is consumed through
+`add_subdirectory`):
+
+| Option | Effect |
+|--------|--------|
+| `TDLS_BUILD_TESTS` | build the test suites |
+| `TDLS_BUILD_EXAMPLES` | build the examples |
+| `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
+| `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
+| `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
+| `CMAKE_HIP_COMPILER` | HIP compiler of the AMD toolchain |
+
 ## Documentation
 
 The documentation, including the Doxygen API reference, lives at
