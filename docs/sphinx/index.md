@@ -21,7 +21,20 @@ in two variants:
 Both variants address every operand through a single element stride.
 This covers the three batch layouts alike: AoS (contiguous storage,
 stride 1), SoA (stride = batch size) and AoSoA (tiled hybrid); the SoA
-and AoSoA layouts both provide memory coalescence.
+and AoSoA layouts both provide memory coalescence. The layout never
+appears in the calls: every solver argument is one (pointer, stride)
+pair. The table gives this pair for system b of a batch of B systems.
+g is the base pointer of the batch buffer. M is the element count of
+one object: N * N for a matrix, N for a right-hand side or a pivot.
+
+| layout           | pointer of system b   | element stride |
+|------------------|-----------------------|----------------|
+| AoS              | `g + b*M`             | `1`            |
+| SoA              | `g + b`               | `B`            |
+| AoSoA of width W | `g + (b/W)*M*W + b%W` | `W`            |
+
+An AoSoA batch is padded to a multiple of W systems, so that every
+block is full and the stride stays uniform.
 
 A taste of the interface:
 
