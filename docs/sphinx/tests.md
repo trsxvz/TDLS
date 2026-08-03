@@ -50,6 +50,7 @@ localizes a divergence exactly.
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
 | `config_knobs` | each configuration knob changes what it should and nothing else |
 | `adaptors` | structural detection on mocks mirroring the TFEL shapes, accepted and rejected: the contract behind {doc}`tfel_interoperability` |
+| `constexpr` | compile-time certificates: constant-evaluated solves the standard requires to be free of undefined behaviour, built at the C++17 floor |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
 | `reject_config_*` | negative compilation tests of the configuration contracts |

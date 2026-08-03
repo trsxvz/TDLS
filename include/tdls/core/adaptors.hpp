@@ -208,7 +208,8 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! \return the pointer to the first element (const-ness is erased;
     //! mutating entry points check is_mutable beforehand)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static value_type* pointer(const DenseType& o) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr value_type*
+    pointer(const DenseType& o) noexcept {
         if constexpr (detail::has_pair_data<DenseType>::value) {
             return const_cast<value_type*>(static_cast<const value_type*>(o.data().first));
         } else {
@@ -219,7 +220,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! \return the total element stride (compile-time part times the
     //! runtime stride of the view, when any)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static int stride(const DenseType& o) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int stride(const DenseType& o) noexcept {
         if constexpr (detail::has_pair_data<DenseType>::value) {
             return policy_stride * static_cast<int>(o.data().second);
         } else if constexpr (detail::has_stride<DenseType>::value) {
@@ -328,7 +329,7 @@ struct pivot_access {
 
     //! \return the pivot element pointer
     //! \param[in] p pivot argument
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static int* pointer(const PivotType& p) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int* pointer(const PivotType& p) noexcept {
         if constexpr (is_raw) {
             return const_cast<int*>(static_cast<const int*>(p));
         } else {
@@ -341,7 +342,7 @@ struct pivot_access {
 
     //! \return the pivot element stride
     //! \param[in] p pivot argument
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static int stride(const PivotType& p) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int stride(const PivotType& p) noexcept {
         if constexpr (is_raw) {
             return 1;
         } else {
@@ -360,7 +361,8 @@ struct pivot_access {
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
 /// \return false on a singular matrix.
 template<typename UserConfig = void, typename MatrixType, typename PivotType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE bool factorize(MatrixType& A, PivotType& piv) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
+                                                                         PivotType& piv) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -382,8 +384,8 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
 /// \return false on a singular matrix.
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve(MatrixType& A, PivotType& piv,
-                                                           const RhsType& b, SolutionType& x) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -411,8 +413,8 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType, ty
 /// \param[in,out] y   vector-like right-hand side on entry, solution on exit
 /// \return false on a singular matrix (y left partially updated).
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename VectorType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve_inplace(MatrixType& A, PivotType& piv,
-                                                                   VectorType& y) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -438,8 +440,8 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType, ty
 /// \param[out] x   vector-like solution
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE void substitute(const MatrixType& A, const PivotType& piv,
-                                                  const RhsType& b, SolutionType& x) {
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, SolutionType& x) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -463,8 +465,8 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE void substitute(const MatrixType& A, const Piv
 /// \param[in]     piv pivot storage produced by factorize
 /// \param[in,out] x   vector-like right-hand side, then solution
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE void substitute_inplace(const MatrixType& A, const PivotType& piv,
-                                                          SolutionType& x) {
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -486,7 +488,7 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE void substitute_inplace(const MatrixType& A, c
 /// \param[in]  col index of the canonical column e_col
 /// \param[out] x   vector-like solution
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE void
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;

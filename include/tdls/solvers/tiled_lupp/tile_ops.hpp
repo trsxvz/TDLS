@@ -60,7 +60,8 @@ struct TiledLUppTileOps {
     /// \param[in]     k destination row (elimination column)
     /// \param[in]     r source row to swap in
     template<int KE>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static void swap_rows(T* TDLS_RESTRICT t, int k, int r) {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void swap_rows(T* TDLS_RESTRICT t, int k,
+                                                                      int r) noexcept {
         if constexpr (unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int row = 0; row < KE; ++row) {
@@ -99,7 +100,8 @@ struct TiledLUppTileOps {
     /// \param[in,out] t register tile
     /// \param[in]     k column to eliminate
     template<int R, int C>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static void eliminate_column(T* TDLS_RESTRICT t, int k) {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void eliminate_column(T* TDLS_RESTRICT t,
+                                                                             int k) noexcept {
         const T inv_pivot = T(1) / t[k * TS + k];
         t[k * TS + k]     = inv_pivot;
         if constexpr (unroll_inner) {
@@ -126,8 +128,8 @@ struct TiledLUppTileOps {
     /// \param[in]     lu factored diagonal tile (L\\U)
     /// \param[in,out] B  updated register tile
     template<int KD, int C>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static void trsm_left_unit(const T* TDLS_RESTRICT lu,
-                                                                 T* TDLS_RESTRICT B) {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    trsm_left_unit(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B) noexcept {
         if constexpr (unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int k = 0; k < KD; ++k) {
@@ -160,8 +162,8 @@ struct TiledLUppTileOps {
     /// \param[in]     lu factored diagonal tile (L\\U, reciprocal diagonal)
     /// \param[in,out] B  updated register tile
     template<int KD, int R>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static void trsm_right(const T* TDLS_RESTRICT lu,
-                                                             T* TDLS_RESTRICT B) {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    trsm_right(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B) noexcept {
         if constexpr (unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int k = 0; k < KD; ++k) {
@@ -200,8 +202,8 @@ struct TiledLUppTileOps {
     /// \param[in]     At left factor tile
     /// \param[in]     Bt right factor tile
     template<int R, int C, int K>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static void
-    gemm_sub(T* TDLS_RESTRICT Ct, const T* TDLS_RESTRICT At, const T* TDLS_RESTRICT Bt) {
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    gemm_sub(T* TDLS_RESTRICT Ct, const T* TDLS_RESTRICT At, const T* TDLS_RESTRICT Bt) noexcept {
         if constexpr (unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < R; ++i) {
