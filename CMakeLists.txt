@@ -39,6 +39,15 @@ else()
     option(TDLS_BUILD_EXAMPLES "Build the tdls examples" OFF)
 endif()
 
+# The GPU examples enroll a full toolchain (enable_language), so they
+# are strictly opt-in, even when tdls is the top-level project: nothing
+# probes for CUDA or HIP unless one of these is ON, and a requested
+# toolchain that cannot be found fails the configure loudly. The two
+# options are mutually exclusive (the example sources are single
+# sources compiled as one language).
+option(TDLS_BUILD_CUDA_EXAMPLES "Build the GPU examples with the CUDA toolchain" OFF)
+option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" OFF)
+
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
     enable_testing()
 endif()

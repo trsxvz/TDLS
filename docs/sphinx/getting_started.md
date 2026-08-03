@@ -41,9 +41,14 @@ ctest --test-dir build -L solvers    # library test suites
 ctest --test-dir build -L examples   # self-checking examples
 ```
 
-The OpenMP examples build when an OpenMP runtime is found; the GPU
-examples build when a CUDA or HIP toolchain is found and report
-themselves as skipped when no device is present.
+The OpenMP examples build when an OpenMP runtime is found. The GPU
+examples are opt-in: set `TDLS_BUILD_CUDA_EXAMPLES` or
+`TDLS_BUILD_HIP_EXAMPLES` to ON, and the requested toolchain becomes
+mandatory (point `CMAKE_CUDA_COMPILER` / `CMAKE_HIP_COMPILER` at a
+compiler outside the `PATH`). `CMAKE_CUDA_ARCHITECTURES` defaults to
+`native`, so set it explicitly when the build machine has no device.
+At run time the GPU examples report themselves as skipped when no
+device is present.
 
 ## Portability model
 

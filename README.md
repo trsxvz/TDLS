@@ -72,18 +72,21 @@ ctest --test-dir build -L examples   # self-checking examples
 ```
 
 The examples cover two scientific problems at four execution scales:
-sequential, OpenMP, and two GPU placements. The GPU examples build
-when a CUDA or HIP toolchain is found.
+sequential, OpenMP, and two GPU placements. The GPU examples are
+opt-in through `TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES`;
+nothing probes for a GPU toolchain otherwise.
 
-All the build options (the `TDLS_*` switches default to ON when TDLS
-is the top-level project, OFF when it is consumed through
-`add_subdirectory`):
+All the build options (the first three default to ON when TDLS is the
+top-level project, OFF when it is consumed through `add_subdirectory`;
+the GPU switches always default to OFF):
 
 | Option | Effect |
 |--------|--------|
 | `TDLS_BUILD_TESTS` | build the test suites |
 | `TDLS_BUILD_EXAMPLES` | build the examples |
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
+| `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
+| `TDLS_BUILD_HIP_EXAMPLES` | build the GPU examples with HIP (the toolchain becomes required) |
 | `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
 | `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
 | `CMAKE_HIP_COMPILER` | HIP compiler of the AMD toolchain |

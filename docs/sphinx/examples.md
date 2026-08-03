@@ -14,7 +14,8 @@ only the parallel harness, never the solver calls.
 The sources live under `examples/tiled_lupp/`, split by execution
 scale (`cpu_sequential/`, `cpu_openmp/`, `gpu_cuda_or_hip/`). The GPU
 examples are single sources in the common CUDA/HIP dialect, compiled
-by whichever toolchain the configure step finds.
+as CUDA or HIP according to the opt-in option enabled at configure
+time (`TDLS_BUILD_CUDA_EXAMPLES` / `TDLS_BUILD_HIP_EXAMPLES`).
 
 ## The compile-time family
 

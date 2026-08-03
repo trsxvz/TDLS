@@ -1,7 +1,8 @@
 # Builds the library, runs the test suites and the examples, and gates
-# the formatting and the documentation on every push and pull request. GitHub-hosted runners have no
-# GPU, so no CUDA or HIP toolchain is installed and the GPU examples
-# are simply not configured; they run on machines that have a device.
+# the formatting and the documentation on every push and pull request.
+# The GPU examples are opt-in (TDLS_BUILD_CUDA_EXAMPLES /
+# TDLS_BUILD_HIP_EXAMPLES) and stay disabled here: GitHub-hosted
+# runners have no GPU. They run on machines that have a device.
 name: ci
 
 on:
