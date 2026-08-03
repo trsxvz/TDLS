@@ -2,10 +2,9 @@
 /// \brief Edge suite of the dynamic TiledLUpp solver.
 /// \author Tristan Chenaille
 ///
-/// Covers what only the dynamic TiledLUpp solver can reach: the tile-grid helper
-/// functions on assorted runtime shapes, the minimal dimension, and a
-/// dimension well beyond the static test grid, anchored on the backward
-/// error against the reference LU.
+/// Covers the tile-grid helper functions on assorted runtime shapes,
+/// the smallest full-tile grid, and a dimension well beyond the static
+/// test grid, anchored on the backward error against the reference LU.
 
 #include <algorithm>
 #include <cstdint>
@@ -60,7 +59,7 @@ TDLS_TEST_CASE("tiledlupp/dynamic-edges/tile-grid-helpers") {
     TDLS_CHECK(S6::tile_extent(12, 13) == 1);
 }
 
-TDLS_TEST_CASE("tiledlupp/dynamic-edges/minimal-dimension/n=2,TS=2") {
+TDLS_TEST_CASE("tiledlupp/dynamic-edges/smallest-full-tile-grid/n=2,TS=2") {
     anchor<2>(2, 300, 1e-9, 230100);
 }
 

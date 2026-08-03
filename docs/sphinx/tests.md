@@ -46,7 +46,7 @@ localizes a divergence exactly.
 | `layouts` | AoS, SoA and AoSoA addressing, bitwise |
 | `entry_points` | the documented entry point equivalences, bitwise |
 | `inplace_paths` | the two in-place substitution algorithms around their switchover dimensions |
-| `tile_sizes` | every tile size against the anchored one, plus the runtime TS > n cases |
+| `tile_sizes` | every tile size against the anchored one, including unit tiles (TS = 1) and tile sizes exceeding the dimension |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
 | `config_knobs` | each configuration knob changes what it should and nothing else |
 | `adaptors` | structural detection on mocks mirroring the TFEL shapes, accepted and rejected: the contract behind {doc}`tfel_interoperability` |

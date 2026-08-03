@@ -8,8 +8,8 @@
 /// arithmetic sequence: the factored matrix, the pivot, the solution and
 /// the out-of-tile counter must be bitwise identical. The bridge runs on
 /// the boundary-covering shape grid so that every structural code path
-/// (trailing tiles, mask widths, cycle-leader, TS = N) is crossed by the
-/// equivalence proof.
+/// (trailing tiles, mask widths, cycle-leader, TS = N, TS > N) is
+/// crossed by the equivalence proof.
 
 #include <algorithm>
 #include <cstdint>
@@ -89,6 +89,10 @@ TDLS_BRIDGE_CASES(double, 32, 4, "default", 200, 0.5, 813240)
 TDLS_BRIDGE_CASES(double, 33, 5, "default", 200, 0.5, 813350)
 TDLS_BRIDGE_CASES(double, 64, 8, "default", 60, 0.5, 816480)
 TDLS_BRIDGE_CASES(double, 128, 4, "default", 30, 0.5, 822840)
+// Scalar corner and a tile size exceeding the dimension (single
+// partial tile).
+TDLS_BRIDGE_CASES(double, 1, 1, "default", 400, 0.5, 810110)
+TDLS_BRIDGE_CASES(double, 5, 8, "default", 400, 0.5, 810580)
 
 // Stress regime: the out-of-tile recovery and its counter are exercised
 // on most columns, so the counter equality check carries real weight.
@@ -96,6 +100,9 @@ TDLS_BRIDGE_CASES(double, 12, 3, "stress", 400, 5e-10, 911230)
 TDLS_BRIDGE_CASES(double, 13, 6, "stress", 400, 5e-10, 911360)
 TDLS_BRIDGE_CASES(double, 33, 5, "stress", 200, 5e-10, 913350)
 TDLS_BRIDGE_CASES(double, 128, 4, "stress", 30, 5e-10, 922840)
+// Single partial tile under stress: the sub-threshold trailing branch
+// (singularity verdict, then counter) fires on most columns.
+TDLS_BRIDGE_CASES(double, 5, 8, "stress", 400, 5e-10, 910580)
 
 // Float: one nominal and one trailing-tile shape.
 TDLS_BRIDGE_CASES(float, 12, 3, "default", 400, 0.5, 951230)

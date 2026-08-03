@@ -41,9 +41,10 @@ struct TiledLUppDefaultConfig {
     /// Tile extent: the matrix is processed as a grid of tile_size x
     /// tile_size register tiles. This is the main performance axis of the
     /// solvers - tune it per system dimension (measured optima in the
-    /// source project: 3, 4 or 6 depending on N). The static TiledLUpp solver
-    /// requires 2 <= tile_size <= N; the dynamic TiledLUpp solver only requires
-    /// tile_size >= 2 (it may exceed n).
+    /// source project: 3, 4 or 6 depending on N). Both TiledLUpp solvers only
+    /// require tile_size >= 1. The tile size may exceed the dimension (the
+    /// grid is then a single partial tile), and tile_size = 1 degenerates
+    /// into an untiled scalar elimination.
     static constexpr int tile_size = 3;
 
     /// Elimination schedule of the tiled factorization, see

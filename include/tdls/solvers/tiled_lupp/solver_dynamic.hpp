@@ -35,7 +35,7 @@
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (dimensions unknown at compile time, fast builds).
 ///
-/// Preconditions: n >= 2. TS may exceed n (the grid is then a single
+/// Preconditions: n >= 1. TS may exceed n (the grid is then a single
 /// partial tile). Offsets are computed in unsigned 32-bit arithmetic:
 /// the largest element offset of every array (for the matrix,
 /// (n*n-1)*A_stride) must stay below 2^32.
@@ -125,7 +125,7 @@ struct TiledLUppSolverDynamic {
         std::is_same_v<std::remove_cv_t<decltype(TiledLUppSolverConfig::oot_threshold)>, T> &&
             std::is_same_v<std::remove_cv_t<decltype(TiledLUppSolverConfig::singular_eps)>, T>,
         "TiledLUppSolverDynamic: the config thresholds must have the scalar type T");
-    static_assert(TS >= 2, "TiledLUppSolverDynamic: tile size must be >= 2");
+    static_assert(TS >= 1, "TiledLUppSolverDynamic: tile size must be >= 1");
 
     /// \brief Number of tiles per dimension (last one possibly partial).
     /// \param[in] n system dimension
@@ -892,7 +892,7 @@ struct TiledLUppSolverDynamic {
     ///         out-parameter
     /// \tparam fuse_rhs internal hook of solve_inplace: folds the forward
     ///         substitution of y into the factorization
-    /// \param[in]     n          system dimension (n >= 2)
+    /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          matrix, pre-offset by the caller
     /// \param[in]     A_stride   element stride of A
     /// \param[out]    piv        permutation storage (always caller-provided)
@@ -931,7 +931,7 @@ struct TiledLUppSolverDynamic {
 
     /// \brief Diagnostics-free factorize overload: no out-of-tile
     /// out-parameter at all.
-    /// \param[in]     n          system dimension (n >= 2)
+    /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          matrix, pre-offset by the caller
     /// \param[in]     A_stride   element stride of A
     /// \param[out]    piv        permutation storage (always caller-provided)
@@ -1276,7 +1276,7 @@ struct TiledLUppSolverDynamic {
 
     /// \brief factorize + substitute in one call.
     /// \tparam oot_diag compile the out-of-tile counter in or out
-    /// \param[in]     n          system dimension (n >= 2)
+    /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization (usable for
     ///                further substitute* calls)
@@ -1301,7 +1301,7 @@ struct TiledLUppSolverDynamic {
 
     /// \brief Diagnostics-free solve overload: no out-of-tile
     /// out-parameter at all.
-    /// \param[in]     n          system dimension (n >= 2)
+    /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride   element stride of A
@@ -1330,7 +1330,7 @@ struct TiledLUppSolverDynamic {
     /// makes the result bitwise-identical to factorize +
     /// substitute_inplace.
     /// \tparam oot_diag compile the out-of-tile counter in or out
-    /// \param[in]     n          system dimension (n >= 2)
+    /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride   element stride of A
@@ -1355,7 +1355,7 @@ struct TiledLUppSolverDynamic {
 
     /// \brief Diagnostics-free solve_inplace overload: no out-of-tile
     /// out-parameter at all.
-    /// \param[in]     n          system dimension (n >= 2)
+    /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride   element stride of A

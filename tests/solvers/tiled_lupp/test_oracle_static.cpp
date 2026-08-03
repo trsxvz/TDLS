@@ -98,6 +98,8 @@ TDLS_ANCHOR_CASES(double, 32, 4, "default", 400, 0.5, 1e-9, 103240)
 TDLS_ANCHOR_CASES(double, 33, 5, "default", 400, 0.5, 1e-9, 103350)
 TDLS_ANCHOR_CASES(double, 64, 8, "default", 120, 0.5, 1e-8, 106480)
 TDLS_ANCHOR_CASES(double, 128, 4, "default", 40, 0.5, 1e-8, 112840)
+// Scalar corner: a 1 x 1 system on a 1 x 1 tile grid.
+TDLS_ANCHOR_CASES(double, 1, 1, "default", 1000, 0.5, 1e-9, 100110)
 
 // Stress regime, double: tiny entries put every in-tile pivot below
 // oot_threshold, so the out-of-tile recovery fires on most columns.

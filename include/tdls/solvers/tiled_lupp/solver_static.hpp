@@ -34,8 +34,9 @@
 /// solver: AoS (stride 1), SoA (stride = batch size), AoSoA (stride = W).
 ///
 /// **Tile grid.** F = N/TS full tiles per dimension, plus one trailing
-/// tile of extent TAIL = N - F*TS when N is not a multiple of TS. Every
-/// sweep is a runtime loop over the full tiles followed by an
+/// tile of extent TAIL = N - F*TS when N is not a multiple of TS; TS may
+/// exceed N, the grid then being a single partial tile (F = 0, TAIL = N).
+/// Every sweep is a runtime loop over the full tiles followed by an
 /// `if constexpr (TAIL > 0)` epilogue instantiated with the trailing
 /// extent; phantom slots of partial tiles are skipped at compile time by
 /// the extent template parameters.
@@ -143,7 +144,7 @@ namespace tdls {
 /// without any diagnostic.
 ///
 /// \tparam T                 scalar type (float or double)
-/// \tparam N                 system dimension (N >= 2)
+/// \tparam N                 system dimension (N >= 1)
 /// \tparam TiledLUppSolverConfig compile-time knobs - tile size, schedule,
 ///         pivoting thresholds, unroll policy; see TiledLUppDefaultConfig
 ///         and TiledLUppConfig
@@ -154,7 +155,7 @@ struct TiledLUppSolverStatic {
     static constexpr TiledLUppSchedule Schedule =
         TiledLUppSolverConfig::schedule; ///< elimination schedule (RightLooking or LeftLooking)
 
-    static_assert(N >= 2, "TiledLUppSolverStatic: N must be >= 2");
+    static_assert(N >= 1, "TiledLUppSolverStatic: N must be >= 1");
     static_assert(TiledLUppSolverConfig::singular_eps <= TiledLUppSolverConfig::oot_threshold,
                   "TiledLUppSolverStatic: singular_eps must not exceed oot_threshold (the "
                   "floor applies to the out-of-tile recovery path)");
@@ -162,7 +163,7 @@ struct TiledLUppSolverStatic {
         std::is_same_v<std::remove_cv_t<decltype(TiledLUppSolverConfig::oot_threshold)>, T> &&
             std::is_same_v<std::remove_cv_t<decltype(TiledLUppSolverConfig::singular_eps)>, T>,
         "TiledLUppSolverStatic: the config thresholds must have the scalar type T");
-    static_assert(TS >= 2 && TS <= N, "TiledLUppSolverStatic: tile size must satisfy 2 <= TS <= N");
+    static_assert(TS >= 1, "TiledLUppSolverStatic: tile size must be >= 1");
 
     static constexpr int F    = N / TS;     ///< full tiles per dimension
     static constexpr int TAIL = N - F * TS; ///< trailing tile extent (0 = divisible)

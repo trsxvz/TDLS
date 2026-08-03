@@ -6,9 +6,9 @@
 /// sizes cannot be compared bitwise to each other. Each tile size is
 /// therefore anchored on the backward error against the reference LU,
 /// and bridged bitwise against the dynamic TiledLUpp solver at equal shape. The
-/// sweeps include divisible grids, trailing tiles and the TS = N corner;
-/// the dynamic-only TS > n corner is anchored by the dynamic oracle
-/// suite.
+/// sweeps include divisible grids, trailing tiles, the TS = N corner,
+/// unit tiles (TS = 1, an untiled scalar elimination) and tile sizes
+/// exceeding the dimension (a single partial tile).
 
 #include <algorithm>
 #include <cstdint>
@@ -85,5 +85,13 @@ TDLS_TILE_SIZE_CASE(13, 4, 200, 170234)
 TDLS_TILE_SIZE_CASE(13, 5, 200, 170235)
 TDLS_TILE_SIZE_CASE(13, 6, 200, 170236)
 TDLS_TILE_SIZE_CASE(13, 13, 200, 170243)
+// Unit tiles: TS = 1 degenerates into an untiled scalar elimination.
+TDLS_TILE_SIZE_CASE(12, 1, 200, 170121)
+TDLS_TILE_SIZE_CASE(13, 1, 200, 170231)
+// Tile size exceeding the dimension: a single partial tile (the
+// default tile_size = 3 lands here for N = 1 and N = 2).
+TDLS_TILE_SIZE_CASE(1, 3, 200, 170013)
+TDLS_TILE_SIZE_CASE(2, 3, 200, 170023)
+TDLS_TILE_SIZE_CASE(5, 8, 200, 170058)
 
 TDLS_TEST_MAIN

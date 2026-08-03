@@ -3,8 +3,8 @@
 /// \author Tristan Chenaille
 ///
 /// TiledLUppSolverDynamic is compared against the independent reference LU
-/// on the same shape grid as the static anchor, plus the shapes only the
-/// dynamic solver accepts: tile size exceeding the dimension (single
+/// on the same shape grid as the static anchor, plus shapes the static
+/// suite does not cover: tile size exceeding the dimension (single
 /// partial tile) and dimensions beyond the static test grid. The verdict
 /// of every case is the normwise backward error of both solvers, plus the
 /// exact agreement of the singularity verdicts (one structurally singular
@@ -86,7 +86,8 @@ void anchor_case(const int n, const int count, const double bound, const double 
         anchor_case<T, TS, tdls::TiledLUppSchedule::LeftLooking>(N, COUNT, BOUND, TOL, SEED + 1);  \
     }
 
-// Default regime, double: the static grid plus the dynamic-only shapes.
+// Default regime, double: the static grid plus shapes the static suite
+// does not cover.
 TDLS_ANCHOR_CASES(double, 2, 2, "default", 1000, 0.5, 1e-9, 500220)
 TDLS_ANCHOR_CASES(double, 7, 4, "default", 1000, 0.5, 1e-9, 500740)
 TDLS_ANCHOR_CASES(double, 12, 3, "default", 1000, 0.5, 1e-9, 501230)
@@ -99,6 +100,8 @@ TDLS_ANCHOR_CASES(double, 128, 4, "default", 40, 0.5, 1e-8, 512840)
 // Tile size exceeding the dimension: a single partial tile.
 TDLS_ANCHOR_CASES(double, 5, 8, "default", 1000, 0.5, 1e-9, 500580)
 TDLS_ANCHOR_CASES(double, 2, 6, "default", 1000, 0.5, 1e-9, 500260)
+// Scalar corner: a 1 x 1 system on a 1 x 1 tile grid.
+TDLS_ANCHOR_CASES(double, 1, 1, "default", 1000, 0.5, 1e-9, 500110)
 // Beyond the static grid.
 TDLS_ANCHOR_CASES(double, 100, 3, "default", 60, 0.5, 1e-8, 510030)
 
