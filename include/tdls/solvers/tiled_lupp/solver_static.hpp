@@ -407,7 +407,7 @@ struct TiledLUppSolverStatic {
     /// \return false when the matrix is singular at this column.
     template<int KE, bool internal_piv, bool internal_matrix, bool oot_diag, bool fuse_rhs,
              bool internal_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     factor_diag_column(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                        const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                        const int c, T* TDLS_RESTRICT y, const int rhs_stride) {
@@ -617,7 +617,7 @@ struct TiledLUppSolverStatic {
     /// \return false on a singular matrix.
     template<int KE, bool internal_piv, bool internal_matrix, bool oot_diag, bool fuse_rhs = false,
              bool internal_rhs = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     factor_diag_tile(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                      const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                      T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) {
@@ -810,7 +810,7 @@ struct TiledLUppSolverStatic {
     /// \return false on a singular matrix.
     template<int KE, bool internal_piv, bool internal_matrix, bool oot_diag, bool fuse_rhs = false,
              bool internal_rhs = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     rl_step(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
             const int k, int& oot_count, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) {
         const int k0 = k * TS;
@@ -1011,7 +1011,7 @@ struct TiledLUppSolverStatic {
     /// \return false on a singular matrix.
     template<int KE, bool internal_piv, bool internal_matrix, bool oot_diag, bool fuse_rhs = false,
              bool internal_rhs = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     ll_step(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
             const int k, int& oot_count, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) {
         const int k0 = k * TS;
@@ -1098,7 +1098,7 @@ struct TiledLUppSolverStatic {
     /// \return false on a singular matrix.
     template<bool internal_piv, bool internal_matrix, bool oot_diag = true, bool fuse_rhs = false,
              bool internal_rhs = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     factorize(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
               int& oot_count, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) {
 
@@ -1146,9 +1146,9 @@ struct TiledLUppSolverStatic {
     /// \param[in]     piv_stride element stride of piv (external mode)
     /// \return false on a singular matrix.
     template<bool internal_piv, bool internal_matrix>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool factorize(T* TDLS_RESTRICT A, const int A_stride,
-                                                            int* TDLS_RESTRICT piv,
-                                                            const int piv_stride) {
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    factorize(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+              const int piv_stride) {
         int unused = 0;
         return factorize<internal_piv, internal_matrix, false>(A, A_stride, piv, piv_stride,
                                                                unused);
@@ -1667,7 +1667,7 @@ struct TiledLUppSolverStatic {
     ///                out-of-tile pivot search
     /// \return false on a singular matrix.
     template<bool internal_rhs, bool internal_piv, bool internal_matrix, bool oot_diag = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
           const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride, int& oot_count) {
         if (!factorize<internal_piv, internal_matrix, oot_diag>(A, A_stride, piv, piv_stride,
@@ -1693,7 +1693,7 @@ struct TiledLUppSolverStatic {
     /// \param[in]     rhs_stride element stride of b and x (external mode)
     /// \return false on a singular matrix.
     template<bool internal_rhs, bool internal_piv, bool internal_matrix>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
           const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride) {
         int unused = 0;
@@ -1726,7 +1726,7 @@ struct TiledLUppSolverStatic {
     ///                out-of-tile pivot search
     /// \return false on a singular matrix (y left partially updated).
     template<bool internal_rhs, bool internal_piv, bool internal_matrix, bool oot_diag = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride, int& oot_count) {
         if (!factorize<internal_piv, internal_matrix, oot_diag, true, internal_rhs>(
@@ -1753,7 +1753,7 @@ struct TiledLUppSolverStatic {
     /// \param[in]     rhs_stride element stride of y (external mode)
     /// \return false on a singular matrix (y left partially updated).
     template<bool internal_rhs, bool internal_piv, bool internal_matrix>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride) {
         int unused = 0;

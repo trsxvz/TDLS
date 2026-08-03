@@ -39,7 +39,7 @@ namespace tdls_tests {
 /// \param[in]     n   system dimension
 /// \return false on a singular matrix.
 template<typename T>
-inline bool reference_factorize(T* A, int* piv, const int n) {
+[[nodiscard]] inline bool reference_factorize(T* A, int* piv, const int n) {
     for (int k = 0; k < n; ++k) {
         int best_row = k;
         T best       = std::fabs(A[k * n + k]);
@@ -104,7 +104,7 @@ inline void reference_substitute(const T* A, const int* piv, T* x, const int n) 
 /// \param[in]     n   system dimension
 /// \return false on a singular matrix.
 template<typename T>
-inline bool reference_solve(T* A, int* piv, const T* b, T* x, const int n) {
+[[nodiscard]] inline bool reference_solve(T* A, int* piv, const T* b, T* x, const int n) {
     for (int i = 0; i < n; ++i)
         x[i] = b[i];
     if (!reference_factorize(A, piv, n)) return false;

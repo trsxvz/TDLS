@@ -179,7 +179,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
 
     //! \return true when the distance between rows is exactly extent1
     //! times the distance between columns (vectors: always true)
-    static constexpr bool has_uniform_rows() {
+    [[nodiscard]] static constexpr bool has_uniform_rows() {
         if constexpr (arity == 1) {
             return true;
         } else {
@@ -358,7 +358,7 @@ struct pivot_access {
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
 /// \return false on a singular matrix.
 template<typename UserConfig = void, typename MatrixType, typename PivotType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE bool factorize(MatrixType& A, PivotType& piv) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE bool factorize(MatrixType& A, PivotType& piv) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -380,8 +380,8 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE bool factorize(MatrixType& A, PivotType& piv) 
 /// \return false on a singular matrix.
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve(MatrixType& A, PivotType& piv, const RhsType& b,
-                                             SolutionType& x) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve(MatrixType& A, PivotType& piv,
+                                                           const RhsType& b, SolutionType& x) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;
@@ -409,7 +409,8 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve(MatrixType& A, PivotType& piv, cons
 /// \param[in,out] y   vector-like right-hand side on entry, solution on exit
 /// \return false on a singular matrix (y left partially updated).
 template<typename UserConfig = void, typename MatrixType, typename PivotType, typename VectorType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE bool solve_inplace(MatrixType& A, PivotType& piv,
+                                                                   VectorType& y) {
     using ctx = detail::adaptor_context<UserConfig, MatrixType>;
     using mt  = typename ctx::mtraits;
     using pa  = detail::pivot_access<PivotType>;

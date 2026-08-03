@@ -67,8 +67,8 @@ struct ResidencyRunner {
     /// \param[out] x_out   solution
     /// \param[out] oot     out-of-tile counter
     /// \return false on a singular matrix.
-    static bool run(const T* A0, const T* b0, const SolvePath path, T* A_out, int* piv_out,
-                    T* x_out, int& oot) {
+    [[nodiscard]] static bool run(const T* A0, const T* b0, const SolvePath path, T* A_out,
+                                  int* piv_out, T* x_out, int& oot) {
         using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
 
         // Matrix storage.

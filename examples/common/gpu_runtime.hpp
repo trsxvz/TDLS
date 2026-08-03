@@ -93,7 +93,7 @@ constexpr int gpu_skip_code = 77;
 
 /// \brief Tells whether at least one device is usable.
 /// \return true when a device can be selected
-inline bool gpu_device_available() {
+[[nodiscard]] inline bool gpu_device_available() {
     int count = 0;
     return TDLS_EXAMPLES_GPU_API(GetDeviceCount)(&count) == gpuSuccess && count > 0;
 }

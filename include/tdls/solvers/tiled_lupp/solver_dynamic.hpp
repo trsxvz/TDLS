@@ -399,7 +399,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false when the matrix is singular at this column.
     template<bool oot_diag, bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     factor_diag_column(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                        const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                        const int c, const int ke, T* TDLS_RESTRICT y, const int rhs_stride) {
@@ -554,7 +554,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diag, bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     factor_diag_tile(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                      const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                      const int ke, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) {
@@ -689,7 +689,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diag, bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     rl_step(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
             const int piv_stride, const int k, int& oot_count, T* TDLS_RESTRICT y = nullptr,
             const int rhs_stride = 1) {
@@ -839,7 +839,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diag, bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     ll_step(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
             const int piv_stride, const int k, int& oot_count, T* TDLS_RESTRICT y = nullptr,
             const int rhs_stride = 1) {
@@ -903,7 +903,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diag = true, bool fuse_rhs = false>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, int& oot_count, T* TDLS_RESTRICT y = nullptr,
               const int rhs_stride = 1) {
@@ -937,10 +937,9 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    piv        permutation storage (always caller-provided)
     /// \param[in]     piv_stride element stride of piv
     /// \return false on a singular matrix.
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool factorize(const int n, T* TDLS_RESTRICT A,
-                                                            const int A_stride,
-                                                            int* TDLS_RESTRICT piv,
-                                                            const int piv_stride) {
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+              const int piv_stride) {
         int unused = 0;
         return factorize<false>(n, A, A_stride, piv, piv_stride, unused);
     }
@@ -1290,7 +1289,7 @@ struct TiledLUppSolverDynamic {
     ///                out-of-tile pivot search
     /// \return false on a singular matrix.
     template<bool oot_diag = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           int& oot_count) {
@@ -1311,11 +1310,10 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    x          solution
     /// \param[in]     rhs_stride element stride of b and x
     /// \return false on a singular matrix.
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool solve(const int n, T* TDLS_RESTRICT A,
-                                                        const int A_stride, int* TDLS_RESTRICT piv,
-                                                        const int piv_stride,
-                                                        const T* TDLS_RESTRICT b,
-                                                        T* TDLS_RESTRICT x, const int rhs_stride) {
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    solve(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+          const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+          const int rhs_stride) {
         int unused = 0;
         return solve<false>(n, A, A_stride, piv, piv_stride, b, x, rhs_stride, unused);
     }
@@ -1342,7 +1340,7 @@ struct TiledLUppSolverDynamic {
     ///                out-of-tile pivot search
     /// \return false on a singular matrix (y left partially updated).
     template<bool oot_diag = true>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve_inplace(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride, int& oot_count) {
         if (!factorize<oot_diag, true>(n, A, A_stride, piv, piv_stride, oot_count, y, rhs_stride))
@@ -1364,7 +1362,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] y          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix (y left partially updated).
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static bool
     solve_inplace(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride) {
         int unused = 0;

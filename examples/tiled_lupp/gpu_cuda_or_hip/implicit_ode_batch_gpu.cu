@@ -85,8 +85,8 @@ __device__ void robertson_jacobian(const double theta, const double* y, double* 
 /// \param[in]     h       time step
 /// \param[in,out] y       cell state, advanced by h on success
 /// \return true when the factorizations succeeded and Newton converged
-__device__ bool radau_step(const double (&butcher)[stages][stages], const double theta,
-                           const double h, double (&y)[species]) {
+[[nodiscard]] __device__ bool radau_step(const double (&butcher)[stages][stages],
+                                         const double theta, const double h, double (&y)[species]) {
     // Newton iterates on the stacked stage values Z = (Y1, Y2, Y3),
     // started from the current state and kept across refreshes.
     double Z[N];
