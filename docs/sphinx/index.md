@@ -3,8 +3,9 @@
 TDLS is a header-only C++20 library of direct solvers for small
 general linear systems, written to be callable from device code: one thread
 solves one system, on CPU as well as inside a CUDA, HIP, SYCL, Kokkos,
-AdaptiveCpp, stdpar or OpenMP (host and offload) kernel. It has no
-dependency and no installation step.
+AdaptiveCpp, stdpar or OpenMP (host and offload) kernel. The solvers
+are designed for maximum GPU performance. It has no dependency and no
+installation step.
 
 The only solver family available today is TiledLUpp, an LU
 factorization with logical partial pivoting operating on a tile grid,
