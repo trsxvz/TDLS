@@ -431,7 +431,7 @@ struct TiledLUppSolverStatic {
             }
         }
 
-        int piv_row = 0; // winning global (logical) row
+        int piv_row; // winning global (logical) row
 
         if (best >= TiledLUppSolverConfig::oot_threshold) {
             piv_row = k0 + best_r;
@@ -464,7 +464,7 @@ struct TiledLUppSolverStatic {
                 }
 
                 if (c > 0) {
-                    T L_row[TS] = {};
+                    T L_row[TS];
                     for (int t = 0; t < c; ++t) {
                         T a_t = TDLS_LUPP_A(phys, k0 + t);
                         if constexpr (Schedule == TiledLUppSchedule::LeftLooking) {
@@ -570,7 +570,7 @@ struct TiledLUppSolverStatic {
                 }
 
                 if (c > 0) {
-                    T L_row[TS] = {};
+                    T L_row[TS];
                     for (int t = 0; t < c; ++t) {
                         T a_t = tile[c * TS + t];
                         for (int p = 0; p < t; ++p)
@@ -656,7 +656,7 @@ struct TiledLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     rl_trsm_right_one(T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT pk,
                       const T* TDLS_RESTRICT tile, const int j0) noexcept {
-        T Akj[TS * TS] = {};
+        T Akj[TS * TS];
         load_tile<KE, JE, internal_matrix>(A, A_stride, pk, j0, Akj);
         Ops::template trsm_left_unit<KE, JE>(tile, Akj);
         store_tile<KE, JE, internal_matrix>(A, A_stride, pk, j0, Akj);
@@ -679,13 +679,13 @@ struct TiledLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     rl_schur_one(T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT pk,
                  const int* TDLS_RESTRICT pi, const T* TDLS_RESTRICT Aik, const int j0) noexcept {
-        T Aij[TS * TS] = {};
+        T Aij[TS * TS];
         load_tile<IE, JE, internal_matrix>(A, A_stride, pi, j0, Aij);
 
         if constexpr (TiledLUppSolverConfig::unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int p = 0; p < KE; ++p) {
-                T Akj_row[TS] = {};
+                T Akj_row[TS];
                 TDLS_UNROLL_FORCE
                 for (int j = 0; j < JE; ++j)
                     Akj_row[j] = TDLS_LUPP_A(pk[p], j0 + j);
@@ -699,7 +699,7 @@ struct TiledLUppSolverStatic {
             }
         } else {
             for (int p = 0; p < KE; ++p) {
-                T Akj_row[TS] = {};
+                T Akj_row[TS];
                 for (int j = 0; j < JE; ++j)
                     Akj_row[j] = TDLS_LUPP_A(pk[p], j0 + j);
                 for (int i = 0; i < IE; ++i) {
@@ -740,7 +740,7 @@ struct TiledLUppSolverStatic {
                       T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) noexcept {
         const int k0 = k * TS;
 
-        int pi[TS] = {};
+        int pi[TS];
         if constexpr (TiledLUppSolverConfig::unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < IE; ++i)
@@ -751,7 +751,7 @@ struct TiledLUppSolverStatic {
         }
 
         // TRSM down: Aik := Aik * U^-1
-        T Aik[TS * TS] = {};
+        T Aik[TS * TS];
         load_tile<IE, KE, internal_matrix>(A, A_stride, pi, k0, Aik);
         Ops::template trsm_right<KE, IE>(tile, Aik);
         store_tile<IE, KE, internal_matrix>(A, A_stride, pi, k0, Aik);
@@ -811,7 +811,7 @@ struct TiledLUppSolverStatic {
             const int rhs_stride = 1) noexcept {
         const int k0 = k * TS;
 
-        T tile[TS * TS] = {};
+        T tile[TS * TS];
         load_tile_piv<KE, KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, k0,
                                                              tile);
 
@@ -820,7 +820,7 @@ struct TiledLUppSolverStatic {
             return false;
 
         // Physical rows of the tile after the swaps of this step
-        int pk[TS] = {};
+        int pk[TS];
         if constexpr (TiledLUppSolverConfig::unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < KE; ++i)
@@ -896,10 +896,10 @@ struct TiledLUppSolverStatic {
                     const int piv_stride, const int row0, const int col0, const int k0,
                     T* TDLS_RESTRICT t) noexcept {
         for (int bj0 = 0; bj0 < k0; bj0 += TS) {
-            T Lt[TS * TS] = {};
+            T Lt[TS * TS];
             load_tile_piv<RE, TS, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, row0,
                                                                  bj0, Lt);
-            T Ut[TS * TS] = {};
+            T Ut[TS * TS];
             load_tile_piv<TS, CE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, bj0,
                                                                  col0, Ut);
             Ops::template gemm_sub<RE, CE, TS>(t, Lt, Ut);
@@ -930,7 +930,7 @@ struct TiledLUppSolverStatic {
                         const int piv_stride, const T* TDLS_RESTRICT tile, const int k0,
                         const int i0, T* TDLS_RESTRICT y = nullptr,
                         const int rhs_stride = 1) noexcept {
-        T B[TS * TS] = {};
+        T B[TS * TS];
         load_tile_piv<IE, KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, i0, k0,
                                                              B);
         ll_correct_tile<IE, KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, i0, k0,
@@ -979,7 +979,7 @@ struct TiledLUppSolverStatic {
     ll_update_right_one(T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                         const int piv_stride, const T* TDLS_RESTRICT tile, const int k0,
                         const int j0) noexcept {
-        T B[TS * TS] = {};
+        T B[TS * TS];
         load_tile_piv<KE, JE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, j0,
                                                              B);
         ll_correct_tile<KE, JE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, j0,
@@ -1014,7 +1014,7 @@ struct TiledLUppSolverStatic {
             const int rhs_stride = 1) noexcept {
         const int k0 = k * TS;
 
-        T tile[TS * TS] = {};
+        T tile[TS * TS];
         load_tile_piv<KE, KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, k0,
                                                              tile);
         ll_correct_tile<KE, KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, k0,
@@ -1181,7 +1181,7 @@ struct TiledLUppSolverStatic {
     fwd_push_one(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                  const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
                  const int xcol_stride, const int k0, const int m0) noexcept {
-        T Lmk[TS * TS] = {};
+        T Lmk[TS * TS];
         load_tile_piv<ME, KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, m0, k0,
                                                              Lmk);
         if constexpr (TiledLUppSolverConfig::unroll_inner) {
@@ -1230,7 +1230,7 @@ struct TiledLUppSolverStatic {
              const int k) noexcept {
         const int k0 = k * TS;
 
-        T Lkk[TS * TS] = {};
+        T Lkk[TS * TS];
         load_tile_piv_lower<KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, k0,
                                                                Lkk);
 
@@ -1285,7 +1285,7 @@ struct TiledLUppSolverStatic {
     bwd_pull_one(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                  const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
                  const int xcol_stride, const int k0, const int m0) noexcept {
-        T Ukm[TS * TS] = {};
+        T Ukm[TS * TS];
         load_tile_piv<KE, ME, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, m0,
                                                              Ukm);
         if constexpr (TiledLUppSolverConfig::unroll_inner) {
@@ -1343,7 +1343,7 @@ struct TiledLUppSolverStatic {
                 A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, k0, F * TS);
 
         // In-tile upper solve
-        T Ukk[TS * TS] = {};
+        T Ukk[TS * TS];
         load_tile_piv_upper<KE, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, k0, k0,
                                                                Ukk);
 

@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Only a C++17 compiler is mandatory: the library itself has no
+Only a C++20 compiler is mandatory: the library itself has no
 dependency. Running every example additionally needs an OpenMP
 runtime and a CUDA or HIP toolchain.
 

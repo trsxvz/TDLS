@@ -1,7 +1,7 @@
 # Vanilla test suites of the TiledLUpp solvers: one executable per suite, each
 # registered in ctest under the "solvers" label. The suites use the
 # homemade harness of tests/common (no external test framework) and may
-# use C++20 even though the library floor is C++17.
+# use C++20, which is also the floor of the library.
 set(TDLS_TILEDLUPP_TEST_SUITES
     oracle_static
     oracle_dynamic
@@ -15,7 +15,8 @@ set(TDLS_TILEDLUPP_TEST_SUITES
     config_knobs
     adaptors
     cross_full
-    dynamic_edges)
+    dynamic_edges
+    constexpr)
 
 foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
     add_executable(tdls_test_tiledlupp_${suite} tiled_lupp/test_${suite}.cpp)
@@ -43,25 +44,6 @@ foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
     add_test(NAME solvers.tiledlupp.${suite} COMMAND tdls_test_tiledlupp_${suite})
     set_tests_properties(solvers.tiledlupp.${suite} PROPERTIES LABELS "solvers")
 endforeach()
-
-# Compile-time certificate suite: its static_asserts constant-evaluate
-# whole solves, which the standard requires to be free of undefined
-# behaviour - each assertion that compiles is a machine-checked UB
-# certificate for the exercised path. Deliberately compiled at the
-# C++17 floor of the library, not the C++20 of the other suites: the
-# constexpr contract must hold at the floor.
-add_executable(tdls_test_tiledlupp_constexpr tiled_lupp/test_constexpr.cpp)
-target_link_libraries(tdls_test_tiledlupp_constexpr PRIVATE tdls::tdls)
-target_include_directories(tdls_test_tiledlupp_constexpr
-                           PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../common")
-target_compile_features(tdls_test_tiledlupp_constexpr PRIVATE cxx_std_17)
-if(NOT MSVC)
-    target_compile_options(tdls_test_tiledlupp_constexpr PRIVATE
-        $<$<CONFIG:Release>:-O1> -Wall -Wextra -Wpedantic -Werror
-        $<$<BOOL:${TDLS_HAVE_WNO_C2Y_EXTENSIONS}>:-Wno-c2y-extensions>)
-endif()
-add_test(NAME solvers.tiledlupp.constexpr COMMAND tdls_test_tiledlupp_constexpr)
-set_tests_properties(solvers.tiledlupp.constexpr PROPERTIES LABELS "solvers")
 
 # Negative compilation tests of the configuration contracts: each
 # target must fail to build with the scalar-type diagnostic. ctest

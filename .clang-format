@@ -4,7 +4,7 @@
 # aligned assignment/macro columns, up to 3 blank lines between sections.
 # Comment blocks are hand-laid-out and must not be reflowed.
 # NOTE: "Standard" below only tells the formatter how to parse; the language
-# floor of the library headers is C++17 (tests/benchmarks may use C++20).
+# floor of the library is C++20.
 ---
 Language: Cpp
 Standard: Latest

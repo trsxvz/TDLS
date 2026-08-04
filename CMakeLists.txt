@@ -1,6 +1,6 @@
 # TDLS is header-only: this file compiles nothing for the library itself.
 # It declares the tdls::tdls INTERFACE target consumed through
-# add_subdirectory()/FetchContent (include path + C++17 floor), installs
+# add_subdirectory()/FetchContent (include path + C++20 floor), installs
 # the headers and a relocatable package config so a system install and
 # find_package(tdls) work too, and orchestrates the tests.
 cmake_minimum_required(VERSION 3.21)
@@ -23,7 +23,7 @@ add_library(tdls::tdls ALIAS tdls)
 target_include_directories(tdls INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_compile_features(tdls INTERFACE cxx_std_17)
+target_compile_features(tdls INTERFACE cxx_std_20)
 
 # Tests are built when tdls is the top-level project, and stay out of the
 # way when tdls is consumed by another build.
@@ -59,7 +59,7 @@ if(TDLS_BUILD_EXAMPLES)
 endif()
 
 # Installation and packaging. Header-only, so this installs the headers,
-# the INTERFACE target (its include path and C++17 floor) and a
+# the INTERFACE target (its include path and C++20 floor) and a
 # relocatable package config, so that `cmake --install` / `make install`
 # and a downstream find_package(tdls) all work. On by default only when
 # tdls is the top-level project, so a parent add_subdirectory() or

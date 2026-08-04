@@ -1,6 +1,6 @@
 # TDLS - Tiny Device-callable Linear Solvers
 
-TDLS is a header-only C++17 library of direct solvers for small
+TDLS is a header-only C++20 library of direct solvers for small
 general linear systems, written to be callable from device code: one thread
 solves one system, on CPU as well as inside a CUDA, HIP, SYCL, Kokkos,
 AdaptiveCpp, stdpar or OpenMP (host and offload) kernel. It has no

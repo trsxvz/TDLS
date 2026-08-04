@@ -43,8 +43,8 @@ if(TDLS_GPU_LANGUAGE)
         target_link_libraries(tdls_example_tiledlupp_${example} PRIVATE tdls::tdls)
         target_include_directories(tdls_example_tiledlupp_${example}
                                    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../common")
-        set_target_properties(tdls_example_tiledlupp_${example} PROPERTIES CUDA_STANDARD 17
-                                                                           HIP_STANDARD 17)
+        set_target_properties(tdls_example_tiledlupp_${example} PROPERTIES CUDA_STANDARD 20
+                                                                           HIP_STANDARD 20)
         add_test(NAME examples.tiledlupp.${example} COMMAND tdls_example_tiledlupp_${example})
         set_tests_properties(examples.tiledlupp.${example} PROPERTIES LABELS "examples"
                                                                       SKIP_RETURN_CODE 77)
