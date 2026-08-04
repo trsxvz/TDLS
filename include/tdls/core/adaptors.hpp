@@ -11,7 +11,8 @@
 /// BSD 3-Clause License (see the LICENSE file).
 ///
 /// The adaptors accept any object matching a small STRUCTURAL contract -
-/// no external library is named or included. Two families are recognized:
+/// no external library is named or included. Three families are
+/// recognized:
 ///
 ///   - contiguous fixed-size objects and views: expose data() and an
 ///     indexing_policy type whose extents are constexpr (this matches
@@ -20,13 +21,22 @@
 ///     through a data() member returning a (pointer, stride) pair (this
 ///     matches tfel::math StridedCoalescedView, i.e. the map_strided SoA
 ///     views) or through a stride() / getStride() member next to a plain
-///     data().
+///     data();
+///   - runtime-sized objects: their indexing policy carries its extents
+///     as data members, so its default-constructed instance reports a
+///     zero extent (this matches tfel::math matrix / vector). They also
+///     expose getIndexingPolicy(), from which the dimension is read at
+///     run time.
 ///
-/// The system dimension is deduced at compile time from the indexing
-/// policy, and the residency template booleans of the raw API are
-/// inferred from the argument types (contiguous object -> internal,
-/// strided view -> external). Each argument is unwrapped independently,
-/// so residencies can be mixed freely.
+/// A fixed-size matrix resolves the compile-time TiledLUpp solver, with the
+/// dimension deduced from the indexing policy and the residency
+/// template booleans of the raw API inferred from the argument types
+/// (contiguous object -> internal, strided view -> external), mixed
+/// freely. A runtime-sized matrix resolves the runtime TiledLUpp solver,
+/// every argument reduced to its (pointer, stride) pair. On that path
+/// the extents cannot be checked at compile time: the matrix must be
+/// square and every vector extent must match its dimension - unchecked
+/// preconditions, exactly as in the raw API.
 ///
 /// Two families are rejected at compile time with an explicit message:
 /// row-strided matrix views (sub-matrix views, whose stride between rows
@@ -46,6 +56,7 @@
 #include <type_traits>
 
 #include <tdls/core/macros.hpp>
+#include <tdls/solvers/tiled_lupp/solver_dynamic.hpp>
 #include <tdls/solvers/tiled_lupp/solver_static.hpp>
 
 
@@ -205,6 +216,20 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! API may then use the internal residency mode (direct indexing)
     static constexpr bool is_internal = (policy_stride == 1) && !has_runtime_stride;
 
+    //! \brief true when the extents are only known at run time: the
+    //! default-constructed indexing policy then reports a zero extent,
+    //! the signature of policies carrying their sizes as data members
+    static constexpr bool has_runtime_extents = (extent0 == 0);
+
+    //! \return the run-time extent along the first dimension, read from
+    //! the indexing policy instance of the object (only instantiated on
+    //! the runtime-sized path)
+    //! \param[in] o dense object
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    runtime_extent0(const DenseType& o) noexcept {
+        return static_cast<int>(o.getIndexingPolicy().size(0));
+    }
+
     //! \return the pointer to the first element (const-ness is erased;
     //! mutating entry points check is_mutable beforehand)
     //! \param[in] o dense object
@@ -251,26 +276,36 @@ struct adaptor_context {
     static_assert(std::is_floating_point_v<scalar>,
                   "tdls adaptors: the element type must be float or double");
     static_assert(mtraits::arity == 2, "tdls adaptors: A must be matrix-like");
-    static_assert(mtraits::extent0 == mtraits::extent1, "tdls adaptors: A must be square");
-    //! \brief system dimension
+    //! \brief true when the matrix is runtime-sized (dynamic solver path)
+    static constexpr bool runtime_sized = mtraits::has_runtime_extents;
+    static_assert(runtime_sized || mtraits::extent0 == mtraits::extent1,
+                  "tdls adaptors: A must be square");
+    //! \brief system dimension (fixed-size path; zero on the runtime path)
     static constexpr int N = mtraits::extent0;
     //! \brief resolved configuration
     using config =
         std::conditional_t<std::is_void_v<UserConfig>, TiledLUppDefaultConfig<scalar>, UserConfig>;
-    //! \brief resolved solver
+    //! \brief resolved compile-time solver (never instantiated on the
+    //! runtime path: the discarded if-constexpr branches keep it unused)
     using solver = TiledLUppSolverStatic<scalar, N, config>;
+    //! \brief resolved runtime solver (never instantiated on the
+    //! fixed-size path)
+    using dynamic_solver = TiledLUppSolverDynamic<scalar, config>;
 };
 
 /// \brief Checks that a vector-like argument matches the system: arity 1,
-/// extent N, same scalar type.
+/// extent N, same scalar type. The extent is only checkable when both
+/// the matrix and the vector are fixed-size; when either side is
+/// runtime-sized (N == 0, or a runtime-sized vector), the extent match
+/// is an unchecked precondition, as everywhere in the raw API.
 /// \tparam VectorType dense vector type
 /// \tparam Scalar     scalar type of the system
-/// \tparam N          system dimension
+/// \tparam N          system dimension (0 on the runtime path)
 template<typename VectorType, typename Scalar, int N>
 constexpr void check_vector() {
     using vtraits = storage_traits<std::remove_cv_t<VectorType>>;
     static_assert(vtraits::arity == 1, "tdls adaptors: expected a vector-like object");
-    static_assert(vtraits::extent0 == N,
+    static_assert(N == 0 || vtraits::has_runtime_extents || vtraits::extent0 == N,
                   "tdls adaptors: vector extent does not match the system dimension");
     static_assert(std::is_same_v<typename vtraits::value_type, Scalar>,
                   "tdls adaptors: mixed scalar types");
@@ -371,8 +406,13 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
                                                 "(factorize writes it)");
     static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
                                   "(factorize writes it)");
-    return ctx::solver::template factorize<pa::is_internal, mt::is_internal>(
-        mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv));
+    if constexpr (ctx::runtime_sized) {
+        return ctx::dynamic_solver::factorize(mt::runtime_extent0(A), mt::pointer(A), mt::stride(A),
+                                              pa::pointer(piv), pa::stride(piv));
+    } else {
+        return ctx::solver::template factorize<pa::is_internal, mt::is_internal>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv));
+    }
 }
 
 /// \brief Solve A x = b on dense objects: factorize + substitute.
@@ -400,9 +440,15 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
                   "tdls adaptors: A and x must not be const here (solve writes them)");
     static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
                                   "(solve writes it)");
-    return ctx::solver::template solve<xt::is_internal, pa::is_internal, mt::is_internal>(
-        mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
-        xt::pointer(x), xt::stride(x));
+    if constexpr (ctx::runtime_sized) {
+        return ctx::dynamic_solver::solve(mt::runtime_extent0(A), mt::pointer(A), mt::stride(A),
+                                          pa::pointer(piv), pa::stride(piv), bt::pointer(b),
+                                          xt::pointer(x), xt::stride(x));
+    } else {
+        return ctx::solver::template solve<xt::is_internal, pa::is_internal, mt::is_internal>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
+            xt::pointer(x), xt::stride(x));
+    }
 }
 
 /// \brief Solve A y = y on dense objects with the fused factorization
@@ -426,9 +472,16 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
                   "tdls adaptors: A and y must not be const here (solve_inplace writes them)");
     static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
                                   "(solve_inplace writes it)");
-    return ctx::solver::template solve_inplace<yt::is_internal, pa::is_internal, mt::is_internal>(
-        mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), yt::pointer(y),
-        yt::stride(y));
+    if constexpr (ctx::runtime_sized) {
+        return ctx::dynamic_solver::solve_inplace(mt::runtime_extent0(A), mt::pointer(A),
+                                                  mt::stride(A), pa::pointer(piv), pa::stride(piv),
+                                                  yt::pointer(y), yt::stride(y));
+    } else {
+        return ctx::solver::template solve_inplace<yt::is_internal, pa::is_internal,
+                                                   mt::is_internal>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), yt::pointer(y),
+            yt::stride(y));
+    }
 }
 
 /// \brief Solve x := U^-1 L^-1 P b on dense objects, from a prior
@@ -453,9 +506,15 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
     static_assert(xt::is_mutable, "tdls adaptors: substitute writes into x");
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute writes it)");
-    ctx::solver::template substitute<xt::is_internal, pa::is_internal, mt::is_internal>(
-        mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
-        xt::pointer(x), xt::stride(x));
+    if constexpr (ctx::runtime_sized) {
+        ctx::dynamic_solver::substitute(mt::runtime_extent0(A), mt::pointer(A), mt::stride(A),
+                                        pa::pointer(piv), pa::stride(piv), bt::pointer(b),
+                                        xt::pointer(x), xt::stride(x));
+    } else {
+        ctx::solver::template substitute<xt::is_internal, pa::is_internal, mt::is_internal>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
+            xt::pointer(x), xt::stride(x));
+    }
 }
 
 /// \brief Solve in place on dense objects: x holds the unpermuted
@@ -475,9 +534,15 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     static_assert(xt::is_mutable, "tdls adaptors: substitute_inplace writes into x");
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute_inplace writes it)");
-    ctx::solver::template substitute_inplace<xt::is_internal, pa::is_internal, mt::is_internal>(
-        mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), xt::pointer(x),
-        xt::stride(x));
+    if constexpr (ctx::runtime_sized) {
+        ctx::dynamic_solver::substitute_inplace(mt::runtime_extent0(A), mt::pointer(A),
+                                                mt::stride(A), pa::pointer(piv), pa::stride(piv),
+                                                xt::pointer(x), xt::stride(x));
+    } else {
+        ctx::solver::template substitute_inplace<xt::is_internal, pa::is_internal, mt::is_internal>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), xt::pointer(x),
+            xt::stride(x));
+    }
 }
 
 /// \brief Solve A x = e_col on dense objects, from a prior factorize -
@@ -498,9 +563,16 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
     static_assert(xt::is_mutable, "tdls adaptors: substitute_canonical writes into x");
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute_canonical writes it)");
-    ctx::solver::template substitute_canonical<xt::is_internal, pa::is_internal, mt::is_internal>(
-        mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col, xt::pointer(x),
-        xt::stride(x));
+    if constexpr (ctx::runtime_sized) {
+        ctx::dynamic_solver::substitute_canonical(mt::runtime_extent0(A), mt::pointer(A),
+                                                  mt::stride(A), pa::pointer(piv), pa::stride(piv),
+                                                  col, xt::pointer(x), xt::stride(x));
+    } else {
+        ctx::solver::template substitute_canonical<xt::is_internal, pa::is_internal,
+                                                   mt::is_internal>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col, xt::pointer(x),
+            xt::stride(x));
+    }
 }
 
 

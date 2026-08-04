@@ -2,19 +2,28 @@
 
 The free functions of `tdls/core/adaptors.hpp` accept dense math objects
 directly and infer everything the raw interface needs: the scalar
-type, the dimension, the strides and the residency booleans.
+type, the dimension (at compile time or at run time), the strides
+and, on the fixed-size path, the residency booleans.
 
 The detection is purely structural: TDLS names and includes no
-external library. Two shapes are recognized:
+external library. Three shapes are recognized:
 
 - contiguous fixed-size objects and views, exposing `data()` and an
   `indexing_policy` type with constexpr extents (this matches
   `tfel::math::tmatrix`, `tfel::math::tvector` and `tfel::math::View`,
-  among others);
+  among others): they resolve the compile-time TiledLUpp solver;
 - element-strided views, exposing their runtime stride either through
   a `data()` member returning a (pointer, stride) pair (this matches
   `tfel::math::StridedCoalescedView`) or through a `stride()` /
-  `getStride()` member next to a plain `data()`.
+  `getStride()` member next to a plain `data()`;
+- runtime-sized objects, whose indexing policy carries its extents as
+  data members and therefore reports a zero extent when
+  default-constructed (this matches `tfel::math::matrix` and
+  `tfel::math::vector`): they resolve the runtime TiledLUpp solver, the
+  dimension being read from the object. On this path the extents
+  cannot be checked at compile time: the matrix must be square and
+  every vector extent must match its dimension - unchecked
+  preconditions, as everywhere in the raw API.
 
 The elements of a `tfel::math::ViewsArray` (the result of `map_array`)
 are themselves `View` objects and are accepted individually.
@@ -63,4 +72,13 @@ tdls::solve_inplace(A, piv, y);
 auto As = tfel::math::map_strided<tfel::math::tmatrix<12, 12, double>>(a_base + s, stride);
 auto ys = tfel::math::map_strided<tfel::math::tvector<12, double>>(y_base + s, stride);
 tdls::solve_inplace(As, piv, ys);
+
+// Runtime-sized TFEL objects: the same call, resolved on the runtime
+// TiledLUpp solver, the dimension read from the objects. The extent
+// agreement is the caller's responsibility here - nothing is
+// checkable at compile time.
+tfel::math::matrix<double> Ar(n, n);
+tfel::math::vector<double> yr(n);
+tfel::math::vector<int> pivr(n);
+tdls::solve_inplace(Ar, pivr, yr);
 ```

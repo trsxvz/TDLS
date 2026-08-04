@@ -118,12 +118,80 @@ struct MockGatherView {
     double* pointers[N * N];
 };
 
+/// \brief Indexing policy of the runtime matrix mock: extents as data
+/// members, zero by default - the shape of tfel::math::matrix.
+struct MockRuntimeMatrixPolicy {
+    using size_type            = std::size_t;
+    static constexpr int arity = 2;
+    std::size_t rows           = 0;
+    std::size_t cols           = 0;
+    constexpr std::size_t size(const int d) const {
+        return d == 0 ? rows : cols;
+    }
+    constexpr std::size_t getIndex(const std::size_t i, const std::size_t j) const {
+        return i * cols + j;
+    }
+};
+
+/// \brief Indexing policy of the runtime vector mock.
+struct MockRuntimeVectorPolicy {
+    using size_type            = std::size_t;
+    static constexpr int arity = 1;
+    std::size_t len            = 0;
+    constexpr std::size_t size(const int) const {
+        return len;
+    }
+    constexpr std::size_t getIndex(const std::size_t i) const {
+        return i;
+    }
+};
+
+/// \brief Runtime-sized matrix mock: heap storage, policy instance.
+struct MockRuntimeMatrix {
+    using indexing_policy = MockRuntimeMatrixPolicy;
+    std::vector<double> v;
+    MockRuntimeMatrixPolicy policy;
+    explicit MockRuntimeMatrix(const std::size_t n) : v(n * n), policy{n, n} {
+    }
+    double* data() {
+        return v.data();
+    }
+    const double* data() const {
+        return v.data();
+    }
+    MockRuntimeMatrixPolicy getIndexingPolicy() const {
+        return policy;
+    }
+};
+
+/// \brief Runtime-sized vector mock.
+struct MockRuntimeVector {
+    using indexing_policy = MockRuntimeVectorPolicy;
+    std::vector<double> v;
+    MockRuntimeVectorPolicy policy;
+    explicit MockRuntimeVector(const std::size_t n) : v(n), policy{n} {
+    }
+    double* data() {
+        return v.data();
+    }
+    const double* data() const {
+        return v.data();
+    }
+    MockRuntimeVectorPolicy getIndexingPolicy() const {
+        return policy;
+    }
+};
+
 // Compile-time classification contract.
 static_assert(!tdls::detail::is_dense_v<MockGatherView>);
 static_assert(tdls::storage_traits<MockMatrix>::is_internal);
 static_assert(tdls::storage_traits<MockVector>::is_internal);
 static_assert(!tdls::storage_traits<MockPairMatrixView>::is_internal);
 static_assert(!tdls::storage_traits<MockGetStrideVectorView>::is_internal);
+static_assert(!tdls::storage_traits<MockMatrix>::has_runtime_extents);
+static_assert(!tdls::storage_traits<MockVector>::has_runtime_extents);
+static_assert(tdls::storage_traits<MockRuntimeMatrix>::has_runtime_extents);
+static_assert(tdls::storage_traits<MockRuntimeVector>::has_runtime_extents);
 
 using RawSolver = tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double, 3>>;
 
@@ -194,6 +262,69 @@ TDLS_TEST_CASE("tiledlupp/adaptors/dense-int-pivot") {
     TDLS_CHECK(ok == ok_raw);
     TDLS_CHECK_BITWISE(A.v, A_raw, static_cast<std::size_t>(N) * N);
     TDLS_CHECK_BITWISE(piv.v, piv_raw, static_cast<std::size_t>(N));
+}
+
+TDLS_TEST_CASE("tiledlupp/adaptors/runtime-sized-mocks-route-to-the-dynamic-solver") {
+    // A runtime-sized matrix resolves TiledLUppSolverDynamic: every call
+    // must reproduce the raw runtime API bitwise. The pivot mixes both
+    // accepted shapes (raw int pointer, then dense int storage through
+    // the same raw pointer path).
+    using RawDynamic = tdls::TiledLUppSolverDynamic<double>;
+    const int n      = 12;
+    tdls_tests::UniformGenerator gen(210500, 0.5);
+    for (int repeat = 0; repeat < 50; ++repeat) {
+        MockRuntimeMatrix A(n);
+        MockRuntimeVector b(n), x(n);
+        std::vector<double> A_raw(static_cast<std::size_t>(n) * n), b_raw(n), x_raw(n);
+        std::vector<int> piv(n), piv_raw(n);
+        for (int e = 0; e < n * n; ++e)
+            A.v[e] = A_raw[e] = gen.next();
+        for (int i = 0; i < n; ++i)
+            b.v[i] = b_raw[i] = gen.next();
+
+        int* piv_p    = piv.data();
+        const bool ok = tdls::solve(A, piv_p, b, x);
+        const bool ok_raw =
+            RawDynamic::solve(n, A_raw.data(), 1, piv_raw.data(), 1, b_raw.data(), x_raw.data(), 1);
+        TDLS_CHECK(ok == ok_raw);
+        TDLS_CHECK_BITWISE(A.v.data(), A_raw.data(), static_cast<std::size_t>(n) * n);
+        TDLS_CHECK_BITWISE(piv.data(), piv_raw.data(), static_cast<std::size_t>(n));
+        TDLS_CHECK_BITWISE(x.v.data(), x_raw.data(), static_cast<std::size_t>(n));
+
+        // The factored matrix is reusable: canonical columns and the
+        // in-place substitution must reproduce the raw calls too.
+        MockRuntimeVector z(n);
+        std::vector<double> z_raw(n);
+        for (int c = 0; c < n; ++c) {
+            tdls::substitute_canonical(A, piv_p, c, z);
+            RawDynamic::substitute_canonical(n, A_raw.data(), 1, piv_raw.data(), 1, c, z_raw.data(),
+                                             1);
+            TDLS_CHECK_BITWISE(z.v.data(), z_raw.data(), static_cast<std::size_t>(n));
+        }
+        for (int i = 0; i < n; ++i) {
+            z.v[i]   = b.v[i];
+            z_raw[i] = b_raw[i];
+        }
+        tdls::substitute_inplace(A, piv_p, z);
+        RawDynamic::substitute_inplace(n, A_raw.data(), 1, piv_raw.data(), 1, z_raw.data(), 1);
+        TDLS_CHECK_BITWISE(z.v.data(), z_raw.data(), static_cast<std::size_t>(n));
+    }
+
+    // The fused path on fresh systems.
+    MockRuntimeMatrix A2(n);
+    MockRuntimeVector y2(n);
+    std::vector<double> A2_raw(static_cast<std::size_t>(n) * n), y2_raw(n);
+    std::vector<int> piv2(n), piv2_raw(n);
+    for (int e = 0; e < n * n; ++e)
+        A2.v[e] = A2_raw[e] = gen.next();
+    for (int i = 0; i < n; ++i)
+        y2.v[i] = y2_raw[i] = gen.next();
+    int* piv2_p         = piv2.data();
+    const bool ok_fused = tdls::solve_inplace(A2, piv2_p, y2);
+    const bool ok_fused_raw =
+        RawDynamic::solve_inplace(n, A2_raw.data(), 1, piv2_raw.data(), 1, y2_raw.data(), 1);
+    TDLS_CHECK(ok_fused == ok_fused_raw);
+    TDLS_CHECK_BITWISE(y2.v.data(), y2_raw.data(), static_cast<std::size_t>(n));
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {
