@@ -13,8 +13,8 @@
 /// system; one omp parallel for distributes the instances and each
 /// thread reuses its own buffers. Every instance writes its outputs
 /// (manufactured error, central potential, success flag) into shared
-/// per-instance slots - the exact outputs of the GPU companion
-/// examples - and the self-checks run serially afterwards; the pragmas
+/// per-instance slots (the exact outputs of the GPU companion
+/// examples) and the self-checks run serially afterwards; the pragmas
 /// thus stay plain OpenMP 2.0 (no min/max reduction, which the default
 /// MSVC OpenMP runtime rejects).
 ///

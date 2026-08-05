@@ -22,7 +22,7 @@ external library. Three shapes are recognized:
   `tfel::math::vector`): they resolve the runtime TiledLUpp solver, the
   dimension being read from the object. On this path the extents
   cannot be checked at compile time: the matrix must be square and
-  every vector extent must match its dimension - unchecked
+  every vector extent must match its dimension. These are unchecked
   preconditions, as everywhere in the raw API.
 
 The elements of a `tfel::math::ViewsArray` (the result of `map_array`)
@@ -75,7 +75,7 @@ tdls::solve_inplace(As, piv, ys);
 
 // Runtime-sized TFEL objects: the same call, resolved on the runtime
 // TiledLUpp solver, the dimension read from the objects. The extent
-// agreement is the caller's responsibility here - nothing is
+// agreement is the caller's responsibility here: nothing is
 // checkable at compile time.
 tfel::math::matrix<double> Ar(n, n);
 tfel::math::vector<double> yr(n);
@@ -91,9 +91,9 @@ tfel::math::tmatrix<12, 4, double> X;
 tdls::solve(A2, piv, B, X);
 
 // By default all columns are solved in one pass: every tile of the
-// factorization is loaded once for the whole block. The template
-// parameter W cuts the substitution into passes of W columns instead
-// (the last pass takes the remainder) - a control knob for very wide
-// blocks.
+// factorization is loaded once for all the columns. The template
+// parameter pass_width cuts the substitution into passes instead, the
+// last pass taking the remainder: a working-set control knob for very
+// wide right-hand sides. Here, passes of 2 columns.
 tdls::solve<void, 2>(A2, piv, B, X);
 ```

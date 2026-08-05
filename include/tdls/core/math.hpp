@@ -26,7 +26,7 @@ namespace detail {
 /// \brief Absolute value usable in constant expressions.
 ///
 /// std::fabs is not constexpr before C++23, so constant evaluation
-/// falls back to a ternary - indistinguishable from std::fabs in the
+/// falls back to a ternary, indistinguishable from std::fabs in the
 /// magnitude comparisons of the solvers (signed zeros compare equal,
 /// NaNs propagate either way). At run time the function IS std::fabs:
 /// the naive ternary alone would forbid the single sign-bit

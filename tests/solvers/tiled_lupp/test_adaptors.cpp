@@ -122,7 +122,7 @@ struct MockGatherView {
 constexpr int M = 5;
 
 /// \brief Indexing policy of the fixed-size right-hand-side block mock:
-/// N x M, row-major contiguous - the shape of a tmatrix<N, M>.
+/// N x M, row-major contiguous: the shape of a tmatrix<N, M>.
 struct MockRhsMatrixPolicy {
     using size_type            = int;
     static constexpr int arity = 2;
@@ -147,7 +147,7 @@ struct MockRhsMatrix {
 };
 
 /// \brief Indexing policy of the runtime matrix mock: extents as data
-/// members, zero by default - the shape of tfel::math::matrix.
+/// members, zero by default: the shape of tfel::math::matrix.
 struct MockRuntimeMatrixPolicy {
     using size_type            = std::size_t;
     static constexpr int arity = 2;
@@ -357,9 +357,9 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-sized-mocks-route-to-the-dynamic-solv
     TDLS_CHECK_BITWISE(y2.v.data(), y2_raw.data(), static_cast<std::size_t>(n));
 }
 
-TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-block-entry-points") {
+TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-multirhs-entry-points") {
     // A matrix-like right-hand side (arity 2) is solved column by column
-    // against one factorization, through the _block raw entry points in
+    // against one factorization, through the _multirhs raw entry points in
     // external addressing (row stride M, column stride 1 for the
     // row-major mocks). Every call must reproduce the raw block API
     // bitwise, whatever the W cutting.
@@ -376,7 +376,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-block-entry-points")
     // One-call solve, all columns in one pass.
     TDLS_CHECK(tdls::solve(A, piv, B, X));
     TDLS_CHECK(
-        (RawSolver::solve_block<M, false, true, true>(A_raw, 1, piv_raw, 1, B.v, X_raw, M, 1)));
+        (RawSolver::solve_multirhs<M, false, true, true>(A_raw, 1, piv_raw, 1, B.v, X_raw, M, 1)));
     TDLS_CHECK_BITWISE(A.v, A_raw, static_cast<std::size_t>(N) * N);
     TDLS_CHECK_BITWISE(piv, piv_raw, static_cast<std::size_t>(N));
     TDLS_CHECK_BITWISE(X.v, X_raw, static_cast<std::size_t>(N) * M);
@@ -393,7 +393,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-block-entry-points")
     for (int e = 0; e < N * M; ++e)
         Y.v[e] = Y_raw[e] = B.v[e];
     tdls::substitute_inplace(A, piv, Y);
-    RawSolver::substitute_inplace_block<M, false, true, true>(A_raw, 1, piv_raw, 1, Y_raw, M, 1);
+    RawSolver::substitute_inplace_multirhs<M, false, true, true>(A_raw, 1, piv_raw, 1, Y_raw, M, 1);
     TDLS_CHECK_BITWISE(Y.v, Y_raw, static_cast<std::size_t>(N) * M);
 
     // One-call in-place solve on a fresh system, with a W cutting.
@@ -404,16 +404,14 @@ TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-block-entry-points")
     for (int e = 0; e < N * M; ++e)
         Y.v[e] = Y_raw[e] = B.v[e];
     TDLS_CHECK((tdls::solve_inplace<void, 3>(A2, piv, Y)));
-    TDLS_CHECK(
-        (RawSolver::solve_inplace_block<3, false, true, true>(A2_raw, 1, piv_raw, 1, Y_raw, M, 1)));
-    RawSolver::substitute_inplace_block<M - 3, false, true, true>(A2_raw, 1, piv_raw, 1, Y_raw + 3,
-                                                                  M, 1);
+    TDLS_CHECK((RawSolver::solve_inplace_multirhs<M, false, true, true, 3>(A2_raw, 1, piv_raw, 1,
+                                                                           Y_raw, M, 1)));
     TDLS_CHECK_BITWISE(Y.v, Y_raw, static_cast<std::size_t>(N) * M);
 }
 
-TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-blocks") {
+TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-multirhs") {
     // Runtime-sized matrix right-hand sides: the column count is read on
-    // the object and the dynamic _block entry points are resolved. Every
+    // the object and the dynamic _multirhs entry points are resolved. Every
     // call must reproduce the raw runtime block API bitwise.
     using RawDynamic = tdls::TiledLUppSolverDynamic<double>;
     const int n = 12, m = 5;
@@ -429,8 +427,8 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-bloc
 
     int* piv_p = piv.data();
     TDLS_CHECK(tdls::solve(A, piv_p, B, X));
-    TDLS_CHECK(RawDynamic::solve_block(n, m, A_raw.data(), 1, piv_raw.data(), 1, B.v.data(),
-                                       X_raw.data(), m, 1));
+    TDLS_CHECK(RawDynamic::solve_multirhs(n, m, 0, A_raw.data(), 1, piv_raw.data(), 1, B.v.data(),
+                                          X_raw.data(), m, 1));
     TDLS_CHECK_BITWISE(A.v.data(), A_raw.data(), static_cast<std::size_t>(n) * n);
     TDLS_CHECK_BITWISE(piv.data(), piv_raw.data(), static_cast<std::size_t>(n));
     TDLS_CHECK_BITWISE(X.v.data(), X_raw.data(), static_cast<std::size_t>(n) * m);
@@ -445,8 +443,8 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-bloc
     std::vector<double> Y_raw(B.v);
     Y.v = B.v;
     tdls::substitute_inplace(A, piv_p, Y);
-    RawDynamic::substitute_inplace_block(n, m, A_raw.data(), 1, piv_raw.data(), 1, Y_raw.data(), m,
-                                         1);
+    RawDynamic::substitute_inplace_multirhs(n, m, A_raw.data(), 1, piv_raw.data(), 1, Y_raw.data(),
+                                            m, 1);
     TDLS_CHECK_BITWISE(Y.v.data(), Y_raw.data(), static_cast<std::size_t>(n) * m);
 }
 

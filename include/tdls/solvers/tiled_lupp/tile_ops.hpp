@@ -14,7 +14,7 @@
 /// use the same storage with extent template parameters bounding every
 /// loop, so phantom slots are never read or written and cost nothing.
 ///
-/// These operate on register arrays only - remote-memory movement lives in
+/// These operate on register arrays only. Remote-memory movement lives in
 /// the TiledLUpp solvers (solver_static.hpp, solver_dynamic.hpp), next to the
 /// addressing macros.
 ///
@@ -93,7 +93,7 @@ struct TiledLUppTileOps {
     /// Extents <R, C> bound the active part of the tile.
     /// The RECIPROCAL of the pivot is stored at the diagonal slot: every
     /// downstream consumer (trsm_right, backward substitution, out-of-tile
-    /// replays) multiplies instead of dividing - the division is paid once
+    /// replays) multiplies instead of dividing. The division is paid once
     /// here, where it already had to happen.
     /// \tparam R active row extent of the tile
     /// \tparam C active column extent of the tile
@@ -156,7 +156,7 @@ struct TiledLUppTileOps {
     /// tile. U is KDxKD, B is RxKD.
     ///
     /// The diagonal of `lu` already holds the pivot reciprocals
-    /// (see eliminate_column) - no divisions here.
+    /// (see eliminate_column): no divisions here.
     /// \tparam KD extent of the factored diagonal tile
     /// \tparam R  row extent of B
     /// \param[in]     lu factored diagonal tile (L\\U, reciprocal diagonal)

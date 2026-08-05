@@ -10,10 +10,10 @@
 /// overflow fails the compilation. Each assertion that compiles is
 /// therefore a machine-checked certificate that the exercised path is
 /// free of undefined behaviour. The grid crosses the structural
-/// boundaries of the solver - divisible grids, trailing tiles, TS = N,
+/// boundaries of the solver: divisible grids, trailing tiles, TS = N,
 /// TS > N (single partial tile), the 1 x 1 corner, both schedules,
 /// internal and external residencies, the out-of-tile recovery, the
-/// entry-point equivalences and the singular verdict - on both the
+/// entry-point equivalences and the singular verdict. It covers both the
 /// compile-time and the runtime TiledLUpp solvers, plus the
 /// static/dynamic bitwise bridge, itself evaluated at compile time.
 /// The certificates are also re-run at run time, so the suite reports
@@ -237,7 +237,7 @@ constexpr bool fused_matches_solve_certificate(const unsigned seed) {
 }
 
 /// \brief Certificate: the canonical columns solve A x = e_col from one
-/// factorization - the tangent-operator path.
+/// factorization: the tangent-operator path.
 /// \tparam T  scalar type
 /// \tparam N  system dimension
 /// \tparam TS tile size
@@ -296,7 +296,7 @@ constexpr bool dynamic_solve_certificate(const unsigned seed, const double toler
 }
 
 /// \brief Certificate: the static and the dynamic TiledLUpp solvers produce
-/// bitwise-identical outputs at equal shape - the bridge invariant,
+/// bitwise-identical outputs at equal shape: the bridge invariant,
 /// checked here during constant evaluation.
 /// \tparam T  scalar type
 /// \tparam N  system dimension
@@ -333,8 +333,9 @@ constexpr bool bridge_certificate(const unsigned seed) {
 }
 
 /// \brief Certificate: the multi right-hand-side blocks hold their
-/// documented equivalences during constant evaluation - substitute_block
-/// matches W separate substitutes bitwise, substitute_inplace_block
+/// documented equivalences during constant evaluation, whatever the
+/// pass_width cutting: substitute_multirhs
+/// matches W separate substitutes bitwise, substitute_inplace_multirhs
 /// matches the two-buffer block, and the runtime solver's blocks match
 /// the compile-time solver's.
 /// \tparam T  scalar type
@@ -344,7 +345,7 @@ constexpr bool bridge_certificate(const unsigned seed) {
 /// \param[in] seed generator seed
 /// \return true when every output matches exactly
 template<typename T, int N, int TS, int W>
-constexpr bool block_certificate(const unsigned seed) {
+constexpr bool multirhs_certificate(const unsigned seed) {
     using Config  = tdls::TiledLUppConfig<T, TS>;
     using Static  = tdls::TiledLUppSolverStatic<T, N, Config>;
     using Dynamic = tdls::TiledLUppSolverDynamic<T, Config>;
@@ -361,20 +362,27 @@ constexpr bool block_certificate(const unsigned seed) {
     if (!Static::template factorize<true, true>(A, 1, piv, 1)) return false;
     for (int w = 0; w < W; ++w)
         Static::template substitute<true, true, true>(A, 1, piv, 1, B + w * N, X_ref + w * N, 1);
-    Static::template substitute_block<W, true, true, true>(A, 1, piv, 1, B, X, 1, 0);
+    Static::template substitute_multirhs<W, true, true, true>(A, 1, piv, 1, B, X, 1, 0);
     for (int e = 0; e < W * N; ++e)
         if (X[e] != X_ref[e]) return false;
     for (int e = 0; e < W * N; ++e)
         X[e] = B[e];
-    Static::template substitute_inplace_block<W, true, true, true>(A, 1, piv, 1, X, 1, 0);
+    Static::template substitute_inplace_multirhs<W, true, true, true>(A, 1, piv, 1, X, 1, 0);
     for (int e = 0; e < W * N; ++e)
         if (X[e] != X_ref[e]) return false;
-    Dynamic::substitute_block(N, W, A, 1, piv, 1, B, X, 1, N);
+    Dynamic::substitute_multirhs(N, W, A, 1, piv, 1, B, X, 1, N);
     for (int e = 0; e < W * N; ++e)
         if (X[e] != X_ref[e]) return false;
     for (int e = 0; e < W * N; ++e)
         X[e] = B[e];
-    Dynamic::substitute_inplace_block(N, W, A, 1, piv, 1, X, 1, N);
+    Dynamic::substitute_inplace_multirhs(N, W, A, 1, piv, 1, X, 1, N);
+    for (int e = 0; e < W * N; ++e)
+        if (X[e] != X_ref[e]) return false;
+    // The pass cutting must not change a single bit, on either solver.
+    Static::template substitute_multirhs<W, true, true, true, 2>(A, 1, piv, 1, B, X, 1, 0);
+    for (int e = 0; e < W * N; ++e)
+        if (X[e] != X_ref[e]) return false;
+    Dynamic::substitute_multirhs(N, W, A, 1, piv, 1, B, X, 1, N, 2);
     for (int e = 0; e < W * N; ++e)
         if (X[e] != X_ref[e]) return false;
     return true;
@@ -432,8 +440,8 @@ static_assert(dynamic_solve_certificate<double, 1, 1>(123, 1e-9));
 static_assert(bridge_certificate<double, 5, 3>(124));
 static_assert(bridge_certificate<double, 4, 2>(125));
 // The multi right-hand-side blocks, on both solvers.
-static_assert(block_certificate<double, 5, 3, 2>(130));
-static_assert(block_certificate<double, 4, 2, 4>(131));
+static_assert(multirhs_certificate<double, 5, 3, 2>(130));
+static_assert(multirhs_certificate<double, 4, 2, 4>(131));
 
 } // namespace
 
@@ -459,8 +467,8 @@ TDLS_TEST_CASE("tiledlupp/constexpr/certificates-also-hold-at-run-time") {
     TDLS_CHECK((dynamic_solve_certificate<double, 1, 1>(123, 1e-9)));
     TDLS_CHECK((bridge_certificate<double, 5, 3>(124)));
     TDLS_CHECK((bridge_certificate<double, 4, 2>(125)));
-    TDLS_CHECK((block_certificate<double, 5, 3, 2>(130)));
-    TDLS_CHECK((block_certificate<double, 4, 2, 4>(131)));
+    TDLS_CHECK((multirhs_certificate<double, 5, 3, 2>(130)));
+    TDLS_CHECK((multirhs_certificate<double, 4, 2, 4>(131)));
 }
 
 TDLS_TEST_MAIN

@@ -9,7 +9,7 @@
 /// means something if the metric can also report a *large* value on a
 /// wrong solution: a metric that returned ~0 unconditionally would turn
 /// every suite green while asserting nothing. This suite pins both ends
-/// of the instrument - the exact solution sits at the noise floor, and
+/// of the instrument: the exact solution sits at the noise floor, and
 /// two deliberately wrong solutions are flagged orders of magnitude
 /// above it.
 
@@ -56,7 +56,7 @@ TDLS_TEST_CASE("common/backward_error/discriminates-correct-from-wrong-solutions
 
         // Negative control 2: the exact solution with one entry bumped.
         // The bump is scaled to the solution so the flag holds whatever
-        // the system's conditioning, and it must dwarf the true error -
+        // the system's conditioning, and it must dwarf the true error:
         // real discriminating power, not a fixed offset.
         double x_max = 0.0;
         for (int i = 0; i < N; ++i)

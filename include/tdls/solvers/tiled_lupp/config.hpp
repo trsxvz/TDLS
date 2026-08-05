@@ -42,7 +42,7 @@ struct TiledLUppDefaultConfig {
 
     /// Tile extent: the matrix is processed as a grid of tile_size x
     /// tile_size register tiles. This is the main performance axis of the
-    /// solvers - tune it per system dimension (measured optima in the
+    /// solvers. Tune it per system dimension (measured optima in the
     /// source project: 3, 4 or 6 depending on N). Both TiledLUpp solvers only
     /// require tile_size >= 1. The tile size may exceed the dimension (the
     /// grid is then a single partial tile), and tile_size = 1 degenerates
@@ -67,7 +67,7 @@ struct TiledLUppDefaultConfig {
     /// floor only guards the recovery path (a pivot reaching oot_threshold
     /// is accepted directly), so it must not exceed oot_threshold; the
     /// solvers enforce this contract at compile time. `numeric_limits<T>::min()`
-    /// rejects only a zero/subnormal pivot - a genuine structural
+    /// rejects only a zero/subnormal pivot, a genuine structural
     /// singularity. A merely small pivot is kept on purpose: the loss of
     /// stability is surfaced by the backward error and overflow is caught
     /// downstream by the caller, whereas an absolute floor wrongly flags
@@ -78,8 +78,8 @@ struct TiledLUppDefaultConfig {
     /// stops at the first candidate whose corrected magnitude reaches
     /// oot_threshold instead of scanning the whole panel for the maximum;
     /// the running maximum is still kept as the fallback when no candidate
-    /// is acceptable. Cheaper in the OOT-heavy regime - especially
-    /// left-looking, where every candidate replays the prior tiles - at
+    /// is acceptable. Cheaper in the OOT-heavy regime (especially
+    /// left-looking, where every candidate replays the prior tiles), at
     /// the cost of a possibly smaller (but still >= oot_threshold) pivot.
     /// Set false to restore the full-panel partial-pivoting scan.
     static constexpr bool oot_first_acceptable = true;
@@ -87,10 +87,10 @@ struct TiledLUppDefaultConfig {
     /// Unroll policy of the in-tile scalar loops, applied through a
     /// two-branch `if constexpr` (the pragma dialect itself lives in
     /// core/macros.hpp). true: loops indexing register tiles carry a
-    /// forced-unroll pragma - the guard that keeps tiles in registers on
+    /// forced-unroll pragma, the guard that keeps tiles in registers on
     /// GPU backends, where a rolled loop indexes the tile dynamically and
-    /// demotes it to slow local memory. false: no unroll pragma anywhere -
-    /// faster compiles, GPU performance not guaranteed. Outer tile-sweep
+    /// demotes it to slow local memory. false: no unroll pragma anywhere,
+    /// for faster compiles, GPU performance not guaranteed. Outer tile-sweep
     /// loops never carry a pragma in either branch.
     static constexpr bool unroll_inner = true;
 };

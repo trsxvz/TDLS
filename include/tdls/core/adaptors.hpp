@@ -10,7 +10,7 @@
 /// \copyright Copyright (C) 2026 CEA. Released under the
 /// BSD 3-Clause License (see the LICENSE file).
 ///
-/// The adaptors accept any object matching a small STRUCTURAL contract -
+/// The adaptors accept any object matching a small STRUCTURAL contract:
 /// no external library is named or included. Three families are
 /// recognized:
 ///
@@ -35,14 +35,14 @@
 /// freely. A runtime-sized matrix resolves the runtime TiledLUpp solver,
 /// every argument reduced to its (pointer, stride) pair. On that path
 /// the extents cannot be checked at compile time: the matrix must be
-/// square and every vector extent must match its dimension - unchecked
-/// preconditions, exactly as in the raw API.
+/// square and every vector extent must match its dimension. These are
+/// unchecked preconditions, exactly as in the raw API.
 ///
 /// solve, solve_inplace, substitute and substitute_inplace also accept a
 /// matrix-like right-hand side holding one right-hand side per column:
 /// A X = B, every column solved against the one factorization through
-/// the _block entry points of the raw API. Their template parameter W
-/// cuts the substitution into passes of W columns (0, the default, means
+/// the _multirhs entry points of the raw API. Their template parameter pass_width
+/// cuts the substitution into passes (0, the default, means
 /// all columns in one pass; the last pass takes the remainder).
 ///
 /// Two families are rejected at compile time with an explicit message:
@@ -81,7 +81,7 @@ template<typename T>
 struct has_data<T, std::void_t<decltype(std::declval<const T&>().data())>>
     : std::is_pointer<decltype(std::declval<const T&>().data())> {};
 
-/// \brief Detects a data() member returning a (pointer, stride) pair -
+/// \brief Detects a data() member returning a (pointer, stride) pair:
 /// the shape of strided views, whose data pointer must not be mistaken
 /// for contiguous storage.
 template<typename T, typename = void>
@@ -140,7 +140,7 @@ template<typename T>
 struct has_indexing_policy<T, std::void_t<typename T::indexing_policy>> : std::true_type {};
 
 /// \brief A type is "dense" when it exposes both a data pointer and an
-/// indexing policy - the structural contract of the adaptors.
+/// indexing policy, the structural contract of the adaptors.
 template<typename T>
 inline constexpr bool is_dense_v =
     (has_data<T>::value || has_pair_data<T>::value) && has_indexing_policy<T>::value;
@@ -384,7 +384,7 @@ constexpr void check_rhs_pair() {
 /// \tparam Scalar       scalar type of the system
 /// \tparam N            system dimension (0 on the runtime path)
 template<typename RhsType, typename SolutionType, typename Scalar, int N>
-constexpr void check_rhs_block() {
+constexpr void check_multirhs_pair() {
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::arity == 2, "tdls adaptors: a matrix-like right-hand side requires a "
@@ -464,26 +464,26 @@ struct pivot_access {
     }
 };
 
-/// \brief Shared engine of the matrix right-hand-side entry points:
-/// substitution of a block of columns from a prior factorize, cut into
-/// passes of W columns (W = 0: all columns in one pass). Blocks are
-/// always routed through the external addressing of the raw API: the
-/// register-block convention of its internal mode is not the row-major
-/// layout of dense matrix objects.
-/// \tparam Ctx     adaptor context of the entry point
-/// \tparam W       columns per pass (0 = all at once)
-/// \tparam inplace false: read B, write X; true: overwrite X in place
-///                 (b is then ignored and may alias x)
-template<typename Ctx, int W, bool inplace, typename MatrixType, typename PivotType,
+/// \brief Shared translator of the matrix right-hand-side entry points:
+/// reduces the dense objects to raw arguments and forwards to the
+/// _multirhs entry points, which do the pass cutting themselves.
+/// Matrix right-hand sides are always routed through the external
+/// addressing of the raw API: the register convention of its internal
+/// mode is not the row-major layout of dense matrix objects.
+/// \tparam Ctx        adaptor context of the entry point
+/// \tparam pass_width columns per substitution pass (0 = all at once)
+/// \tparam inplace    false: read B, write X; true: overwrite X in
+///                    place (b is then ignored and may alias x)
+template<typename Ctx, int pass_width, bool inplace, typename MatrixType, typename PivotType,
          typename RhsType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
-substitute_block_dispatch(const MatrixType& A, const PivotType& piv, const RhsType& b,
-                          SolutionType& x) {
+substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const RhsType& b,
+                             SolutionType& x) {
     using mt = typename Ctx::mtraits;
     using pa = pivot_access<PivotType>;
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
-    static_assert(W >= 0, "tdls adaptors: W must be a non-negative column count");
+    static_assert(pass_width >= 0, "tdls adaptors: pass_width must not be negative");
     if constexpr (Ctx::runtime_sized) {
         const int n    = mt::runtime_extent0(A);
         const int m    = bt::has_runtime_extents ? bt::runtime_extent1(b) : bt::extent1;
@@ -493,51 +493,30 @@ substitute_block_dispatch(const MatrixType& A, const PivotType& piv, const RhsTy
         const int xcol = bt::has_runtime_extents
                              ? xt::runtime_col_stride(x) * xt::runtime_view_stride(x)
                              : xt::stride(x);
-        for (int c0 = 0; c0 < m; c0 += (W == 0 ? m : W)) {
-            const int cw = (W == 0 || W > m - c0) ? m - c0 : W;
-            if constexpr (inplace) {
-                Ctx::dynamic_solver::substitute_inplace_block(
-                    n, cw, mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                    xt::pointer(x) + unsigned(c0) * unsigned(xcol), rs, xcol);
-            } else {
-                Ctx::dynamic_solver::substitute_block(
-                    n, cw, mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                    bt::pointer(b) + unsigned(c0) * unsigned(xcol),
-                    xt::pointer(x) + unsigned(c0) * unsigned(xcol), rs, xcol);
-            }
+        if constexpr (inplace) {
+            Ctx::dynamic_solver::substitute_inplace_multirhs(n, m, mt::pointer(A), mt::stride(A),
+                                                             pa::pointer(piv), pa::stride(piv),
+                                                             xt::pointer(x), rs, xcol, pass_width);
+        } else {
+            Ctx::dynamic_solver::substitute_multirhs(
+                n, m, mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
+                bt::pointer(b), xt::pointer(x), rs, xcol, pass_width);
         }
     } else {
         constexpr int M = bt::extent1;
         static_assert(M >= 1, "tdls adaptors: B must have at least one column");
-        constexpr int C = (W == 0 || W > M) ? M : W;
-        const int rs    = xt::extent1 * xt::stride(x);
-        const int xcol  = xt::stride(x);
-        for (int c = 0; c < M / C; ++c) {
-            const unsigned off = unsigned(c) * unsigned(C) * unsigned(xcol);
-            if constexpr (inplace) {
-                Ctx::solver::template substitute_inplace_block<C, false, pa::is_internal,
-                                                               mt::is_internal>(
-                    mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                    xt::pointer(x) + off, rs, xcol);
-            } else {
-                Ctx::solver::template substitute_block<C, false, pa::is_internal, mt::is_internal>(
-                    mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                    bt::pointer(b) + off, xt::pointer(x) + off, rs, xcol);
-            }
-        }
-        if constexpr (M % C > 0) {
-            const unsigned off = unsigned(M - M % C) * unsigned(xcol);
-            if constexpr (inplace) {
-                Ctx::solver::template substitute_inplace_block<M % C, false, pa::is_internal,
-                                                               mt::is_internal>(
-                    mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                    xt::pointer(x) + off, rs, xcol);
-            } else {
-                Ctx::solver::template substitute_block<M % C, false, pa::is_internal,
-                                                       mt::is_internal>(
-                    mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                    bt::pointer(b) + off, xt::pointer(x) + off, rs, xcol);
-            }
+        const int rs   = xt::extent1 * xt::stride(x);
+        const int xcol = xt::stride(x);
+        if constexpr (inplace) {
+            Ctx::solver::template substitute_inplace_multirhs<M, false, pa::is_internal,
+                                                              mt::is_internal, pass_width>(
+                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), xt::pointer(x),
+                rs, xcol);
+        } else {
+            Ctx::solver::template substitute_multirhs<M, false, pa::is_internal, mt::is_internal,
+                                                      pass_width>(
+                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
+                xt::pointer(x), rs, xcol);
         }
     }
 }
@@ -574,12 +553,12 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
 /// \brief Solve A x = b on dense objects: factorize + substitute.
 ///
 /// With a matrix-like b (and x), all its columns are solved against the
-/// one factorization: A X = B. W then cuts the substitution into passes
-/// of W columns (0 = all columns in one pass; the last pass takes the
+/// one factorization: A X = B. pass_width then cuts the substitution
+/// into passes (0 = all columns in one pass; the last pass takes the
 /// remainder). The forward pass is not folded into the factorization on
-/// that path (see the raw solve_block).
+/// that path (see the raw solve_multirhs).
 /// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
-/// \tparam W          columns per substitution pass for a matrix-like b
+/// \tparam pass_width columns per substitution pass for a matrix-like b
 ///         (0 = all at once; must be 0 for a vector-like b)
 /// \param[in,out] A   matrix-like object (factored in place)
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
@@ -587,7 +566,7 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
 ///                matrix-like holding one right-hand side per column
 /// \param[out]    x   solution, of the same shape as b
 /// \return false on a singular matrix.
-template<typename UserConfig = void, int W = 0, typename MatrixType, typename PivotType,
+template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
          typename RhsType, typename SolutionType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
@@ -603,12 +582,13 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
     static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
                                   "(solve writes it)");
     if constexpr (bt::arity == 2) {
-        detail::check_rhs_block<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
+        detail::check_multirhs_pair<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
         if (!factorize<UserConfig>(A, piv)) return false;
-        detail::substitute_block_dispatch<ctx, W, false>(A, piv, b, x);
+        detail::substitute_multirhs_dispatch<ctx, pass_width, false>(A, piv, b, x);
         return true;
     } else {
-        static_assert(W == 0, "tdls adaptors: W only applies to matrix-like right-hand sides");
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
         detail::check_vector<RhsType, typename ctx::scalar, ctx::N>();
         detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
         detail::check_rhs_pair<RhsType, SolutionType>();
@@ -628,12 +608,12 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 /// (forward substitution folded into factorize, backward pass after).
 ///
 /// With a matrix-like y, all its columns are overwritten by the
-/// solutions against the one factorization. W then cuts the substitution
-/// into passes of W columns (0 = all columns in one pass; the last pass
+/// solutions against the one factorization. pass_width then cuts the
+/// substitution into passes (0 = all columns in one pass; the last pass
 /// takes the remainder). The forward pass is not folded into the
-/// factorization on that path (see the raw solve_inplace_block).
+/// factorization on that path (see the raw solve_inplace_multirhs).
 /// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
-/// \tparam W          columns per substitution pass for a matrix-like y
+/// \tparam pass_width columns per substitution pass for a matrix-like y
 ///         (0 = all at once; must be 0 for a vector-like y)
 /// \param[in,out] A   matrix-like object (factored in place)
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
@@ -642,7 +622,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 ///                side per column
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
-template<typename UserConfig = void, int W = 0, typename MatrixType, typename PivotType,
+template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
          typename VectorType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
@@ -657,12 +637,13 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
     static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
                                   "(solve_inplace writes it)");
     if constexpr (yt::arity == 2) {
-        detail::check_rhs_block<VectorType, VectorType, typename ctx::scalar, ctx::N>();
+        detail::check_multirhs_pair<VectorType, VectorType, typename ctx::scalar, ctx::N>();
         if (!factorize<UserConfig>(A, piv)) return false;
-        detail::substitute_block_dispatch<ctx, W, true>(A, piv, y, y);
+        detail::substitute_multirhs_dispatch<ctx, pass_width, true>(A, piv, y, y);
         return true;
     } else {
-        static_assert(W == 0, "tdls adaptors: W only applies to matrix-like right-hand sides");
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
         detail::check_vector<VectorType, typename ctx::scalar, ctx::N>();
         if constexpr (ctx::runtime_sized) {
             return ctx::dynamic_solver::solve_inplace(
@@ -681,18 +662,18 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 /// factorize. b and x must not alias.
 ///
 /// With a matrix-like b (and x), every column of b is solved into the
-/// matching column of x. W then cuts the substitution into passes of W
-/// columns (0 = all columns in one pass; the last pass takes the
+/// matching column of x. pass_width then cuts the substitution into
+/// passes (0 = all columns in one pass; the last pass takes the
 /// remainder).
 /// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
-/// \tparam W          columns per substitution pass for a matrix-like b
+/// \tparam pass_width columns per substitution pass for a matrix-like b
 ///         (0 = all at once; must be 0 for a vector-like b)
 /// \param[in]  A   factored matrix-like object
 /// \param[in]  piv pivot storage produced by factorize
 /// \param[in]  b   right-hand side, in original order: vector-like, or
 ///             matrix-like holding one right-hand side per column
 /// \param[out] x   solution, of the same shape as b
-template<typename UserConfig = void, int W = 0, typename MatrixType, typename PivotType,
+template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
          typename RhsType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, SolutionType& x) {
@@ -705,10 +686,11 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute writes it)");
     if constexpr (bt::arity == 2) {
-        detail::check_rhs_block<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
-        detail::substitute_block_dispatch<ctx, W, false>(A, piv, b, x);
+        detail::check_multirhs_pair<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
+        detail::substitute_multirhs_dispatch<ctx, pass_width, false>(A, piv, b, x);
     } else {
-        static_assert(W == 0, "tdls adaptors: W only applies to matrix-like right-hand sides");
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
         detail::check_vector<RhsType, typename ctx::scalar, ctx::N>();
         detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
         detail::check_rhs_pair<RhsType, SolutionType>();
@@ -727,17 +709,17 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
 /// \brief Solve in place on dense objects: x holds the unpermuted
 /// right-hand side on entry and the solution on exit.
 ///
-/// With a matrix-like x, every column is overwritten by its solution. W
-/// then cuts the substitution into passes of W columns (0 = all columns
+/// With a matrix-like x, every column is overwritten by its solution.
+/// pass_width then cuts the substitution into passes (0 = all columns
 /// in one pass; the last pass takes the remainder).
 /// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
-/// \tparam W          columns per substitution pass for a matrix-like x
+/// \tparam pass_width columns per substitution pass for a matrix-like x
 ///         (0 = all at once; must be 0 for a vector-like x)
 /// \param[in]     A   factored matrix-like object
 /// \param[in]     piv pivot storage produced by factorize
 /// \param[in,out] x   right-hand side, then solution: vector-like, or
 ///                matrix-like holding one right-hand side per column
-template<typename UserConfig = void, int W = 0, typename MatrixType, typename PivotType,
+template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
          typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
@@ -749,10 +731,11 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute_inplace writes it)");
     if constexpr (xt::arity == 2) {
-        detail::check_rhs_block<SolutionType, SolutionType, typename ctx::scalar, ctx::N>();
-        detail::substitute_block_dispatch<ctx, W, true>(A, piv, x, x);
+        detail::check_multirhs_pair<SolutionType, SolutionType, typename ctx::scalar, ctx::N>();
+        detail::substitute_multirhs_dispatch<ctx, pass_width, true>(A, piv, x, x);
     } else {
-        static_assert(W == 0, "tdls adaptors: W only applies to matrix-like right-hand sides");
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
         detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
         if constexpr (ctx::runtime_sized) {
             ctx::dynamic_solver::substitute_inplace(mt::runtime_extent0(A), mt::pointer(A),
@@ -767,7 +750,7 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     }
 }
 
-/// \brief Solve A x = e_col on dense objects, from a prior factorize -
+/// \brief Solve A x = e_col on dense objects, from a prior factorize:
 /// the consistent-tangent-operator path.
 /// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
 /// \param[in]  A   factored matrix-like object

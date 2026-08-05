@@ -7,7 +7,7 @@
 /// The equivalences documented by the TiledLUpp solvers are checked bitwise on
 /// identical inputs: solve() against factorize() + substitute(),
 /// solve_inplace() against factorize() + substitute_inplace(),
-/// substitute_canonical() against substitute_canonical_block<1>(), a
+/// substitute_canonical() against substitute_canonical_multirhs<1>(), a
 /// block of canonical columns against the same columns solved one by
 /// one, the reuse of one factorization across several right-hand sides,
 /// and the diagnostics-free overloads against the counting ones.
@@ -94,24 +94,24 @@ void entry_points_case(const int count, const double bound, const std::uint64_t 
             TDLS_CHECK_BITWISE(x_split, x_inplace, static_cast<std::size_t>(N));
         }
 
-        // substitute_canonical must alias substitute_canonical_block<1>,
+        // substitute_canonical must alias substitute_canonical_multirhs<1>,
         // and a block of columns must match the same columns solved one
         // by one.
         {
-            T x_one[N], x_alias[N], x_block[3 * N];
+            T x_one[N], x_alias[N], x_multi[3 * N];
             for (int c = 0; c < N; ++c) {
                 Solver::template substitute_canonical<true, true, false>(A_split.data(), 1,
                                                                          piv_split, 1, c, x_one, 1);
-                Solver::template substitute_canonical_block<1, true, true, false>(
+                Solver::template substitute_canonical_multirhs<1, true, true, false>(
                     A_split.data(), 1, piv_split, 1, c, x_alias, 1, 0);
                 TDLS_CHECK_BITWISE(x_one, x_alias, static_cast<std::size_t>(N));
             }
-            Solver::template substitute_canonical_block<3, true, true, false>(
-                A_split.data(), 1, piv_split, 1, 0, x_block, 1, 0);
+            Solver::template substitute_canonical_multirhs<3, true, true, false>(
+                A_split.data(), 1, piv_split, 1, 0, x_multi, 1, 0);
             for (int c = 0; c < 3; ++c) {
                 Solver::template substitute_canonical<true, true, false>(A_split.data(), 1,
                                                                          piv_split, 1, c, x_one, 1);
-                TDLS_CHECK_BITWISE(x_one, x_block + c * N, static_cast<std::size_t>(N));
+                TDLS_CHECK_BITWISE(x_one, x_multi + c * N, static_cast<std::size_t>(N));
             }
         }
 
