@@ -1346,9 +1346,16 @@ struct TiledLUppSolverDynamic {
                         const int* TDLS_RESTRICT piv, const int piv_stride,
                         const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
                         const int xcol_stride, const int pass_width = 0) noexcept {
-        const int p = (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 < nrhs; c0 += p) {
-            const int cw       = (p > nrhs - c0) ? nrhs - c0 : p;
+        // Single-pass fast path: pass_width is almost always a literal
+        // at the call site, so this branch folds and the loop below is
+        // compiled out (measured SASS-identical to the pass engine).
+        if (pass_width <= 0 || pass_width >= nrhs) {
+            substitute_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, b, x, rhs_stride,
+                                     xcol_stride);
+            return;
+        }
+        for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
+            const int cw       = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
             const unsigned off = unsigned(c0) * unsigned(xcol_stride);
             substitute_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, b + off, x + off,
                                      rhs_stride, xcol_stride);
@@ -1429,9 +1436,16 @@ struct TiledLUppSolverDynamic {
                                 const int A_stride, const int* TDLS_RESTRICT piv,
                                 const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
                                 const int xcol_stride, const int pass_width = 0) noexcept {
-        const int p = (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 < nrhs; c0 += p) {
-            const int cw       = (p > nrhs - c0) ? nrhs - c0 : p;
+        // Single-pass fast path: pass_width is almost always a literal
+        // at the call site, so this branch folds and the loop below is
+        // compiled out (measured SASS-identical to the pass engine).
+        if (pass_width <= 0 || pass_width >= nrhs) {
+            substitute_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                             xcol_stride);
+            return;
+        }
+        for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
+            const int cw       = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
             const unsigned off = unsigned(c0) * unsigned(xcol_stride);
             substitute_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
                                              rhs_stride, xcol_stride);
