@@ -81,4 +81,19 @@ tfel::math::matrix<double> Ar(n, n);
 tfel::math::vector<double> yr(n);
 tfel::math::vector<int> pivr(n);
 tdls::solve_inplace(Ar, pivr, yr);
+
+// A matrix as right-hand side: one system per column, all solved
+// against a single factorization (A X = B). Works with fixed-size and
+// runtime-sized objects alike, in place or with two buffers.
+tfel::math::tmatrix<12, 12, double> A2 = ...;
+tfel::math::tmatrix<12, 4, double> B = ...;
+tfel::math::tmatrix<12, 4, double> X;
+tdls::solve(A2, piv, B, X);
+
+// By default all columns are solved in one pass: every tile of the
+// factorization is loaded once for the whole block. The template
+// parameter W cuts the substitution into passes of W columns instead
+// (the last pass takes the remainder) - a control knob for very wide
+// blocks.
+tdls::solve<void, 2>(A2, piv, B, X);
 ```

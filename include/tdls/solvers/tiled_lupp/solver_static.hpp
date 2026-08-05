@@ -103,6 +103,12 @@ namespace tdls {
 #define TDLS_LUPP_XW(w, i)                                                                         \
     x[internal_rhs ? unsigned((w) * N + (i))                                                       \
                    : unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
+/// \def TDLS_LUPP_BW
+/// \brief Entry i of column w of a multi right-hand-side block of b,
+/// addressed exactly as TDLS_LUPP_XW (b and x share both strides).
+#define TDLS_LUPP_BW(w, i)                                                                         \
+    b[internal_rhs ? unsigned((w) * N + (i))                                                       \
+                   : unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
 /// \def TDLS_LUPP_Y
 /// \brief Entry i of the fused right-hand side of solve_inplace (y follows
 /// the matrix rows through pivoting).
@@ -123,6 +129,13 @@ namespace tdls {
 ///   - substitute_inplace:    idem with b == x (cycle-decomposition permute)
 ///   - solve:                 factorize + substitute
 ///   - solve_inplace:           factorize with the forward pass folded in
+///
+/// Each substitution and solve entry point has a _block twin taking W
+/// right-hand-side columns per call (substitute_block,
+/// substitute_inplace_block, solve_block, solve_inplace_block): every
+/// L/U tile is loaded once for the W columns, and per-column results
+/// match W single-column calls bitwise. W = 1 makes each twin collapse
+/// to its single-column form.
 ///
 /// factorize/substitute stay separate so a factorization can be reused
 /// across several right-hand sides. Substitution is schedule-independent:
@@ -1561,6 +1574,85 @@ struct TiledLUppSolverStatic {
                                                                 rhs_stride, xcol_stride);
     }
 
+    /// \brief W right-hand-side columns solved per tile visit from a prior
+    /// factorize: X := U^-1 L^-1 P B, column by column. b and x must not
+    /// alias (use substitute_inplace_block for the aliased single-buffer
+    /// pattern).
+    ///
+    /// Column w lives at b/x + w*N (internal) or b/x + w*xcol_stride
+    /// (remote); b and x share both strides, as they share rhs_stride in
+    /// substitute. Every L/U tile is loaded once for the block instead of
+    /// once per column; per-column arithmetic is identical to W separate
+    /// substitute calls, so results match them bitwise (W=1 collapses to
+    /// substitute exactly).
+    /// \tparam W number of right-hand-side columns solved together
+    /// \tparam internal_rhs residency of b and x
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]  A           factored matrix produced by factorize
+    /// \param[in]  A_stride    element stride of A (external mode)
+    /// \param[in]  piv         permutation produced by factorize
+    /// \param[in]  piv_stride  element stride of piv (external mode)
+    /// \param[in]  b           W right-hand-side columns, in original
+    ///             (unpermuted) order
+    /// \param[out] x           W solution columns
+    /// \param[in]  rhs_stride  element stride of b and x (external mode)
+    /// \param[in]  xcol_stride element stride between columns of b and x
+    ///             (external mode)
+    template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    substitute_block(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
+                     const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+                     const int rhs_stride, const int xcol_stride) noexcept {
+        if constexpr (internal_rhs) {
+            // Predicated gather, exactly as in substitute: b[piv[i]] would
+            // index the internal block with a runtime value and demote it
+            // to local memory.
+            if constexpr (TiledLUppSolverConfig::unroll_inner) {
+                TDLS_UNROLL_FORCE
+                for (int i = 0; i < N; ++i) {
+                    const int p = TDLS_LUPP_PIV(i);
+                    TDLS_UNROLL_FORCE
+                    for (int w = 0; w < W; ++w) {
+                        T v = T(0);
+                        TDLS_UNROLL_FORCE
+                        for (int j = 0; j < N; ++j)
+                            if (p == j) v = TDLS_LUPP_BW(w, j);
+                        TDLS_LUPP_XW(w, i) = v;
+                    }
+                }
+            } else {
+                for (int i = 0; i < N; ++i) {
+                    const int p = TDLS_LUPP_PIV(i);
+                    for (int w = 0; w < W; ++w) {
+                        T v = T(0);
+                        for (int j = 0; j < N; ++j)
+                            if (p == j) v = TDLS_LUPP_BW(w, j);
+                        TDLS_LUPP_XW(w, i) = v;
+                    }
+                }
+            }
+        } else {
+            if constexpr (TiledLUppSolverConfig::unroll_inner) {
+                TDLS_UNROLL_FORCE
+                for (int i = 0; i < N; ++i) {
+                    const int p = TDLS_LUPP_PIV(i);
+                    TDLS_UNROLL_FORCE
+                    for (int w = 0; w < W; ++w)
+                        TDLS_LUPP_XW(w, i) = TDLS_LUPP_BW(w, p);
+                }
+            } else {
+                for (int i = 0; i < N; ++i) {
+                    const int p = TDLS_LUPP_PIV(i);
+                    for (int w = 0; w < W; ++w)
+                        TDLS_LUPP_XW(w, i) = TDLS_LUPP_BW(w, p);
+                }
+            }
+        }
+        fwd_bwd<W, internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, x,
+                                                                rhs_stride, xcol_stride);
+    }
+
     /// \brief Solve in place: x already holds the unpermuted RHS on entry
     /// and the solution on exit.
     ///
@@ -1645,6 +1737,106 @@ struct TiledLUppSolverStatic {
                                                                 rhs_stride, 0);
     }
 
+    /// \brief W columns solved in place: x holds the W unpermuted
+    /// right-hand-side columns on entry and the W solutions on exit.
+    ///
+    /// The permutation is applied by the same cycle decomposition as
+    /// substitute_inplace, each move carrying the W column entries of its
+    /// row. Per-column values match W separate substitute_inplace calls
+    /// bitwise (W=1 collapses to substitute_inplace exactly).
+    /// \tparam W number of right-hand-side columns solved together
+    /// \tparam internal_rhs residency of x
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           W right-hand-side columns on entry, W
+    ///                solution columns on exit
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    ///                (external mode)
+    template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    substitute_inplace_block(const T* TDLS_RESTRICT A, const int A_stride,
+                             const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                             const int rhs_stride, const int xcol_stride) noexcept {
+        if constexpr (N <= 64) {
+            // Bitmask cycle decomposition, as in substitute_inplace; tmp
+            // widens to one entry per column.
+            using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
+            mask_t visited = mask_t(0);
+            if constexpr (TiledLUppSolverConfig::unroll_inner) {
+                TDLS_UNROLL_FORCE
+                for (int s = 0; s < N; ++s) {
+                    if ((visited >> s) & mask_t(1)) continue;
+                    T tmp[W];
+                    TDLS_UNROLL_FORCE
+                    for (int w = 0; w < W; ++w)
+                        tmp[w] = TDLS_LUPP_XW(w, s);
+                    int cur = s;
+                    int nxt = TDLS_LUPP_PIV(cur);
+                    while (nxt != s) {
+                        TDLS_UNROLL_FORCE
+                        for (int w = 0; w < W; ++w)
+                            TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
+                        visited |= mask_t(1) << cur;
+                        cur = nxt;
+                        nxt = TDLS_LUPP_PIV(cur);
+                    }
+                    TDLS_UNROLL_FORCE
+                    for (int w = 0; w < W; ++w)
+                        TDLS_LUPP_XW(w, cur) = tmp[w];
+                    visited |= mask_t(1) << cur;
+                }
+            } else {
+                for (int s = 0; s < N; ++s) {
+                    if ((visited >> s) & mask_t(1)) continue;
+                    T tmp[W];
+                    for (int w = 0; w < W; ++w)
+                        tmp[w] = TDLS_LUPP_XW(w, s);
+                    int cur = s;
+                    int nxt = TDLS_LUPP_PIV(cur);
+                    while (nxt != s) {
+                        for (int w = 0; w < W; ++w)
+                            TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
+                        visited |= mask_t(1) << cur;
+                        cur = nxt;
+                        nxt = TDLS_LUPP_PIV(cur);
+                    }
+                    for (int w = 0; w < W; ++w)
+                        TDLS_LUPP_XW(w, cur) = tmp[w];
+                    visited |= mask_t(1) << cur;
+                }
+            }
+        } else {
+            // Cycle-leader scan, as in substitute_inplace.
+            for (int s = 0; s < N; ++s) {
+                int probe = TDLS_LUPP_PIV(s);
+                while (probe > s)
+                    probe = TDLS_LUPP_PIV(probe);
+                if (probe != s) continue;
+
+                T tmp[W];
+                for (int w = 0; w < W; ++w)
+                    tmp[w] = TDLS_LUPP_XW(w, s);
+                int cur = s;
+                int nxt = TDLS_LUPP_PIV(cur);
+                while (nxt != s) {
+                    for (int w = 0; w < W; ++w)
+                        TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
+                    cur = nxt;
+                    nxt = TDLS_LUPP_PIV(cur);
+                }
+                for (int w = 0; w < W; ++w)
+                    TDLS_LUPP_XW(w, cur) = tmp[w];
+            }
+        }
+        fwd_bwd<W, internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, x,
+                                                                rhs_stride, xcol_stride);
+    }
+
     /* =====================================================================
        SOLVE - convenience wrappers.
        ===================================================================== */
@@ -1700,6 +1892,71 @@ struct TiledLUppSolverStatic {
         int unused = 0;
         return solve<internal_rhs, internal_piv, internal_matrix, false>(
             A, A_stride, piv, piv_stride, b, x, rhs_stride, unused);
+    }
+
+    /// \brief factorize + substitute_block in one call.
+    /// \tparam W number of right-hand-side columns solved together
+    /// \tparam internal_rhs residency of b and x
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \tparam oot_diag     compile the out-of-tile counter in or out
+    /// \param[in,out] A           on entry the matrix (pre-offset by the
+    ///                caller), on exit its factorization (usable for
+    ///                further substitute* calls)
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[out]    piv         permutation storage (always
+    ///                caller-provided)
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in]     b           W right-hand-side columns, in original
+    ///                order
+    /// \param[out]    x           W solution columns
+    /// \param[in]     rhs_stride  element stride of b and x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of b and
+    ///                x (external mode)
+    /// \param[out]    oot_count   number of columns that needed the
+    ///                out-of-tile pivot search
+    /// \return false on a singular matrix.
+    template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix,
+             bool oot_diag = true>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    solve_block(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+                const int rhs_stride, const int xcol_stride, int& oot_count) noexcept {
+        if (!factorize<internal_piv, internal_matrix, oot_diag>(A, A_stride, piv, piv_stride,
+                                                                oot_count))
+            return false;
+        substitute_block<W, internal_rhs, internal_piv, internal_matrix>(
+            A, A_stride, piv, piv_stride, b, x, rhs_stride, xcol_stride);
+        return true;
+    }
+
+    /// \brief Diagnostics-free solve_block overload: no out-of-tile
+    /// out-parameter at all.
+    /// \tparam W number of right-hand-side columns solved together
+    /// \tparam internal_rhs residency of b and x
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in,out] A           on entry the matrix (pre-offset by the
+    ///                caller), on exit its factorization
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[out]    piv         permutation storage (always
+    ///                caller-provided)
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in]     b           W right-hand-side columns, in original
+    ///                order
+    /// \param[out]    x           W solution columns
+    /// \param[in]     rhs_stride  element stride of b and x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of b and
+    ///                x (external mode)
+    /// \return false on a singular matrix.
+    template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    solve_block(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+                const int rhs_stride, const int xcol_stride) noexcept {
+        int unused = 0;
+        return solve_block<W, internal_rhs, internal_piv, internal_matrix, false>(
+            A, A_stride, piv, piv_stride, b, x, rhs_stride, xcol_stride, unused);
     }
 
     /// \brief Factorization with the forward substitution folded in.
@@ -1763,6 +2020,74 @@ struct TiledLUppSolverStatic {
             A, A_stride, piv, piv_stride, y, rhs_stride, unused);
     }
 
+    /// \brief factorize + substitute_inplace_block in one call: y holds
+    /// the W unpermuted right-hand-side columns on entry and the W
+    /// solutions on exit.
+    ///
+    /// Unlike solve_inplace, the forward pass is not folded into the
+    /// factorization: a block amortizes the forward tile loads across its
+    /// W columns, which removes most of what the folding saves.
+    /// \tparam W number of right-hand-side columns solved together
+    /// \tparam internal_rhs residency of y
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \tparam oot_diag     compile the out-of-tile counter in or out
+    /// \param[in,out] A           on entry the matrix (pre-offset by the
+    ///                caller), on exit its factorization
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[out]    piv         permutation storage (always
+    ///                caller-provided)
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] y           W right-hand-side columns on entry, W
+    ///                solution columns on exit
+    /// \param[in]     rhs_stride  element stride of y (external mode)
+    /// \param[in]     xcol_stride element stride between columns of y
+    ///                (external mode)
+    /// \param[out]    oot_count   number of columns that needed the
+    ///                out-of-tile pivot search
+    /// \return false on a singular matrix (y left untouched).
+    template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix,
+             bool oot_diag = true>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    solve_inplace_block(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                        const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                        const int xcol_stride, int& oot_count) noexcept {
+        if (!factorize<internal_piv, internal_matrix, oot_diag>(A, A_stride, piv, piv_stride,
+                                                                oot_count))
+            return false;
+        substitute_inplace_block<W, internal_rhs, internal_piv, internal_matrix>(
+            A, A_stride, piv, piv_stride, y, rhs_stride, xcol_stride);
+        return true;
+    }
+
+    /// \brief Diagnostics-free solve_inplace_block overload: no
+    /// out-of-tile out-parameter at all.
+    /// \tparam W number of right-hand-side columns solved together
+    /// \tparam internal_rhs residency of y
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in,out] A           on entry the matrix (pre-offset by the
+    ///                caller), on exit its factorization
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[out]    piv         permutation storage (always
+    ///                caller-provided)
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] y           W right-hand-side columns on entry, W
+    ///                solution columns on exit
+    /// \param[in]     rhs_stride  element stride of y (external mode)
+    /// \param[in]     xcol_stride element stride between columns of y
+    ///                (external mode)
+    /// \return false on a singular matrix (y left untouched).
+    template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    solve_inplace_block(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                        const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                        const int xcol_stride) noexcept {
+        int unused = 0;
+        return solve_inplace_block<W, internal_rhs, internal_piv, internal_matrix, false>(
+            A, A_stride, piv, piv_stride, y, rhs_stride, xcol_stride, unused);
+    }
+
     /* =====================================================================
        Note on pivot ownership: the pivot storage is ALWAYS caller-provided
        (internal array or remote scratch), for every entry point - one
@@ -1783,6 +2108,7 @@ struct TiledLUppSolverStatic {
 #undef TDLS_LUPP_X
 #undef TDLS_LUPP_B
 #undef TDLS_LUPP_XW
+#undef TDLS_LUPP_BW
 #undef TDLS_LUPP_Y
 
 

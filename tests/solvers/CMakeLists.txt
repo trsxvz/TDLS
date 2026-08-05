@@ -10,6 +10,7 @@ set(TDLS_TILEDLUPP_TEST_SUITES
     layouts
     entry_points
     inplace_paths
+    multirhs
     tile_sizes
     singular
     config_knobs

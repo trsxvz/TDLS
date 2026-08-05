@@ -118,6 +118,34 @@ struct MockGatherView {
     double* pointers[N * N];
 };
 
+//! \brief column count of the fixed-size right-hand-side blocks
+constexpr int M = 5;
+
+/// \brief Indexing policy of the fixed-size right-hand-side block mock:
+/// N x M, row-major contiguous - the shape of a tmatrix<N, M>.
+struct MockRhsMatrixPolicy {
+    using size_type            = int;
+    static constexpr int arity = 2;
+    constexpr int size(const int d) const {
+        return d == 0 ? N : M;
+    }
+    constexpr int getIndex(const int i, const int j) const {
+        return i * M + j;
+    }
+};
+
+/// \brief Fixed-size right-hand-side block mock, one system per column.
+struct MockRhsMatrix {
+    using indexing_policy = MockRhsMatrixPolicy;
+    double v[N * M];
+    double* data() {
+        return v;
+    }
+    const double* data() const {
+        return v;
+    }
+};
+
 /// \brief Indexing policy of the runtime matrix mock: extents as data
 /// members, zero by default - the shape of tfel::math::matrix.
 struct MockRuntimeMatrixPolicy {
@@ -152,6 +180,8 @@ struct MockRuntimeMatrix {
     std::vector<double> v;
     MockRuntimeMatrixPolicy policy;
     explicit MockRuntimeMatrix(const std::size_t n) : v(n * n), policy{n, n} {
+    }
+    MockRuntimeMatrix(const std::size_t r, const std::size_t c) : v(r * c), policy{r, c} {
     }
     double* data() {
         return v.data();
@@ -325,6 +355,99 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-sized-mocks-route-to-the-dynamic-solv
         RawDynamic::solve_inplace(n, A2_raw.data(), 1, piv2_raw.data(), 1, y2_raw.data(), 1);
     TDLS_CHECK(ok_fused == ok_fused_raw);
     TDLS_CHECK_BITWISE(y2.v.data(), y2_raw.data(), static_cast<std::size_t>(n));
+}
+
+TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-block-entry-points") {
+    // A matrix-like right-hand side (arity 2) is solved column by column
+    // against one factorization, through the _block raw entry points in
+    // external addressing (row stride M, column stride 1 for the
+    // row-major mocks). Every call must reproduce the raw block API
+    // bitwise, whatever the W cutting.
+    tdls_tests::UniformGenerator gen(210600, 0.5);
+    MockMatrix A;
+    MockRhsMatrix B, X;
+    double A_raw[N * N], X_raw[N * M];
+    int piv[N], piv_raw[N];
+    for (int e = 0; e < N * N; ++e)
+        A.v[e] = A_raw[e] = gen.next();
+    for (int e = 0; e < N * M; ++e)
+        B.v[e] = gen.next();
+
+    // One-call solve, all columns in one pass.
+    TDLS_CHECK(tdls::solve(A, piv, B, X));
+    TDLS_CHECK(
+        (RawSolver::solve_block<M, false, true, true>(A_raw, 1, piv_raw, 1, B.v, X_raw, M, 1)));
+    TDLS_CHECK_BITWISE(A.v, A_raw, static_cast<std::size_t>(N) * N);
+    TDLS_CHECK_BITWISE(piv, piv_raw, static_cast<std::size_t>(N));
+    TDLS_CHECK_BITWISE(X.v, X_raw, static_cast<std::size_t>(N) * M);
+
+    // W cutting: passes of 2 columns plus a remainder of 1 must land on
+    // the same solutions bitwise (per-column arithmetic is identical).
+    MockRhsMatrix Xw;
+    tdls::substitute<void, 2>(A, piv, B, Xw);
+    TDLS_CHECK_BITWISE(Xw.v, X_raw, static_cast<std::size_t>(N) * M);
+
+    // In-place block on the factored matrix.
+    MockRhsMatrix Y;
+    double Y_raw[N * M];
+    for (int e = 0; e < N * M; ++e)
+        Y.v[e] = Y_raw[e] = B.v[e];
+    tdls::substitute_inplace(A, piv, Y);
+    RawSolver::substitute_inplace_block<M, false, true, true>(A_raw, 1, piv_raw, 1, Y_raw, M, 1);
+    TDLS_CHECK_BITWISE(Y.v, Y_raw, static_cast<std::size_t>(N) * M);
+
+    // One-call in-place solve on a fresh system, with a W cutting.
+    MockMatrix A2;
+    double A2_raw[N * N];
+    for (int e = 0; e < N * N; ++e)
+        A2.v[e] = A2_raw[e] = A.v[e] * 0.5 + 0.25;
+    for (int e = 0; e < N * M; ++e)
+        Y.v[e] = Y_raw[e] = B.v[e];
+    TDLS_CHECK((tdls::solve_inplace<void, 3>(A2, piv, Y)));
+    TDLS_CHECK(
+        (RawSolver::solve_inplace_block<3, false, true, true>(A2_raw, 1, piv_raw, 1, Y_raw, M, 1)));
+    RawSolver::substitute_inplace_block<M - 3, false, true, true>(A2_raw, 1, piv_raw, 1, Y_raw + 3,
+                                                                  M, 1);
+    TDLS_CHECK_BITWISE(Y.v, Y_raw, static_cast<std::size_t>(N) * M);
+}
+
+TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-blocks") {
+    // Runtime-sized matrix right-hand sides: the column count is read on
+    // the object and the dynamic _block entry points are resolved. Every
+    // call must reproduce the raw runtime block API bitwise.
+    using RawDynamic = tdls::TiledLUppSolverDynamic<double>;
+    const int n = 12, m = 5;
+    tdls_tests::UniformGenerator gen(210700, 0.5);
+    MockRuntimeMatrix A(n), B(n, m), X(n, m);
+    std::vector<double> A_raw(static_cast<std::size_t>(n) * n),
+        X_raw(static_cast<std::size_t>(n) * m);
+    std::vector<int> piv(n), piv_raw(n);
+    for (int e = 0; e < n * n; ++e)
+        A.v[e] = A_raw[e] = gen.next();
+    for (int e = 0; e < n * m; ++e)
+        B.v[e] = gen.next();
+
+    int* piv_p = piv.data();
+    TDLS_CHECK(tdls::solve(A, piv_p, B, X));
+    TDLS_CHECK(RawDynamic::solve_block(n, m, A_raw.data(), 1, piv_raw.data(), 1, B.v.data(),
+                                       X_raw.data(), m, 1));
+    TDLS_CHECK_BITWISE(A.v.data(), A_raw.data(), static_cast<std::size_t>(n) * n);
+    TDLS_CHECK_BITWISE(piv.data(), piv_raw.data(), static_cast<std::size_t>(n));
+    TDLS_CHECK_BITWISE(X.v.data(), X_raw.data(), static_cast<std::size_t>(n) * m);
+
+    // W cutting on the runtime path.
+    MockRuntimeMatrix Xw(n, m);
+    tdls::substitute<void, 2>(A, piv_p, B, Xw);
+    TDLS_CHECK_BITWISE(Xw.v.data(), X_raw.data(), static_cast<std::size_t>(n) * m);
+
+    // In-place block on the factored matrix.
+    MockRuntimeMatrix Y(n, m);
+    std::vector<double> Y_raw(B.v);
+    Y.v = B.v;
+    tdls::substitute_inplace(A, piv_p, Y);
+    RawDynamic::substitute_inplace_block(n, m, A_raw.data(), 1, piv_raw.data(), 1, Y_raw.data(), m,
+                                         1);
+    TDLS_CHECK_BITWISE(Y.v.data(), Y_raw.data(), static_cast<std::size_t>(n) * m);
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {

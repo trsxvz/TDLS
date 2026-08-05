@@ -332,6 +332,54 @@ constexpr bool bridge_certificate(const unsigned seed) {
     return true;
 }
 
+/// \brief Certificate: the multi right-hand-side blocks hold their
+/// documented equivalences during constant evaluation - substitute_block
+/// matches W separate substitutes bitwise, substitute_inplace_block
+/// matches the two-buffer block, and the runtime solver's blocks match
+/// the compile-time solver's.
+/// \tparam T  scalar type
+/// \tparam N  system dimension
+/// \tparam TS tile size
+/// \tparam W  number of right-hand-side columns per block
+/// \param[in] seed generator seed
+/// \return true when every output matches exactly
+template<typename T, int N, int TS, int W>
+constexpr bool block_certificate(const unsigned seed) {
+    using Config  = tdls::TiledLUppConfig<T, TS>;
+    using Static  = tdls::TiledLUppSolverStatic<T, N, Config>;
+    using Dynamic = tdls::TiledLUppSolverDynamic<T, Config>;
+    T A[N * N];
+    T B[W * N];
+    T X_ref[W * N];
+    T X[W * N];
+    int piv[N];
+    unsigned s = seed;
+    for (int e = 0; e < N * N; ++e)
+        A[e] = static_cast<T>(lcg(s));
+    for (int e = 0; e < W * N; ++e)
+        B[e] = static_cast<T>(lcg(s));
+    if (!Static::template factorize<true, true>(A, 1, piv, 1)) return false;
+    for (int w = 0; w < W; ++w)
+        Static::template substitute<true, true, true>(A, 1, piv, 1, B + w * N, X_ref + w * N, 1);
+    Static::template substitute_block<W, true, true, true>(A, 1, piv, 1, B, X, 1, 0);
+    for (int e = 0; e < W * N; ++e)
+        if (X[e] != X_ref[e]) return false;
+    for (int e = 0; e < W * N; ++e)
+        X[e] = B[e];
+    Static::template substitute_inplace_block<W, true, true, true>(A, 1, piv, 1, X, 1, 0);
+    for (int e = 0; e < W * N; ++e)
+        if (X[e] != X_ref[e]) return false;
+    Dynamic::substitute_block(N, W, A, 1, piv, 1, B, X, 1, N);
+    for (int e = 0; e < W * N; ++e)
+        if (X[e] != X_ref[e]) return false;
+    for (int e = 0; e < W * N; ++e)
+        X[e] = B[e];
+    Dynamic::substitute_inplace_block(N, W, A, 1, piv, 1, X, 1, N);
+    for (int e = 0; e < W * N; ++e)
+        if (X[e] != X_ref[e]) return false;
+    return true;
+}
+
 /// \brief Certificate: a structurally singular matrix (all zeros) is
 /// rejected, with no division ever reached.
 /// \tparam T  scalar type
@@ -383,6 +431,9 @@ static_assert(dynamic_solve_certificate<double, 1, 1>(123, 1e-9));
 // The static/dynamic bitwise bridge, at compile time.
 static_assert(bridge_certificate<double, 5, 3>(124));
 static_assert(bridge_certificate<double, 4, 2>(125));
+// The multi right-hand-side blocks, on both solvers.
+static_assert(block_certificate<double, 5, 3, 2>(130));
+static_assert(block_certificate<double, 4, 2, 4>(131));
 
 } // namespace
 
@@ -408,6 +459,8 @@ TDLS_TEST_CASE("tiledlupp/constexpr/certificates-also-hold-at-run-time") {
     TDLS_CHECK((dynamic_solve_certificate<double, 1, 1>(123, 1e-9)));
     TDLS_CHECK((bridge_certificate<double, 5, 3>(124)));
     TDLS_CHECK((bridge_certificate<double, 4, 2>(125)));
+    TDLS_CHECK((block_certificate<double, 5, 3, 2>(130)));
+    TDLS_CHECK((block_certificate<double, 4, 2, 4>(131)));
 }
 
 TDLS_TEST_MAIN

@@ -70,6 +70,9 @@ using DynamicSolver = tdls::TiledLUppSolverDynamic<double, Config>;
 // - split: factorize once, then one substitute call per right-hand
 //   side, reusing the factorization;
 // - one-call: solve (two buffers) or solve_inplace (single buffer).
+// Each substitution and solve entry point also has a _block twin
+// taking several right-hand-side columns per call (A X = B), every
+// tile loaded once for the whole block.
 
 // Static variant, split interface, contiguous storage (stride 1).
 // substitute reads b and writes x; substitute_inplace overwrites its
