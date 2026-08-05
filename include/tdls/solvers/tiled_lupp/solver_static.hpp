@@ -61,6 +61,21 @@
 
 
 
+// The flow analysis of older gcc releases (observed on the 11.4 of
+// Ubuntu 22.04) cannot prove that the replay row of the out-of-tile
+// search is written before being read: L_row[p] is only read for
+// p < t, and slot t is written at the end of iteration t, a
+// loop-carried property validated by the oracle suites. The resulting
+// -Wmaybe-uninitialized reports are spurious; the suppression is
+// scoped to this header and to that warning only, exactly as in
+// solver_dynamic.hpp.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
+
+
 // clang reports a forced unrolling that the optimizer could not perform
 // through -Wpass-failed. The unrolling requested by TDLS_UNROLL_FORCE is
 // a performance hint: a failed hint does not affect correctness. The
@@ -2231,6 +2246,10 @@ struct TiledLUppSolverStatic {
 
 
 } // namespace tdls
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
