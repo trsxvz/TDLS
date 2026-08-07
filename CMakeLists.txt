@@ -70,6 +70,10 @@ option(TDLS_INSTALL "Generate the tdls install and package-config rules"
 if(TDLS_INSTALL)
     include(CMakePackageConfigHelpers)
 
+    # Nothing installed here needs a build, so avoid
+    # `make install` from building tests and examples.
+    set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY ON)
+
     install(TARGETS tdls EXPORT tdlsTargets)
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/tdls"
             DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
