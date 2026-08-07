@@ -34,8 +34,7 @@ jobs:
         working-directory: docs
         run: |
           mkdir -p _build
-          TDLS_VERSION=$(sed -n 's/.*TDLS_VERSION_STRING "\([0-9.]*\)".*/\1/p' ../include/tdls/core/version.hpp)
-          ( cat Doxyfile; echo "PROJECT_NUMBER = $TDLS_VERSION" ) | ../doxygen-1.12.0/bin/doxygen -
+          ../doxygen-1.12.0/bin/doxygen Doxyfile
       - name: Build the site
         run: sphinx-build -W -b html docs/sphinx _site
       - name: Attach the API reference

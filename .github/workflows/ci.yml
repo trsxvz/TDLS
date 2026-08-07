@@ -1,5 +1,5 @@
 # Builds the library, runs the test suites and the examples, and gates
-# the formatting and the documentation on every push and pull request.
+# the formatting on every push and pull request.
 # The GPU examples are opt-in (TDLS_BUILD_CUDA_EXAMPLES /
 # TDLS_BUILD_HIP_EXAMPLES) and stay disabled here: GitHub-hosted
 # runners have no GPU. They run on machines that have a device.
@@ -40,19 +40,3 @@ jobs:
         run: pip install "clang-format==22.*"
       - name: Check the formatting
         run: git ls-files '*.hpp' '*.cpp' '*.cu' | xargs clang-format --dry-run --Werror
-
-  doxygen:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install graphviz and doxygen
-        run: |
-          sudo apt-get update && sudo apt-get install -y graphviz
-          curl -sL https://github.com/doxygen/doxygen/releases/download/Release_1_12_0/doxygen-1.12.0.linux.bin.tar.gz | tar xz
-      - name: Build the API reference and fail on any warning
-        working-directory: docs
-        run: |
-          mkdir -p _build
-          TDLS_VERSION=$(sed -n 's/.*TDLS_VERSION_STRING "\([0-9.]*\)".*/\1/p' ../include/tdls/core/version.hpp)
-          ( cat Doxyfile; echo "PROJECT_NUMBER = $TDLS_VERSION" ) | ../doxygen-1.12.0/bin/doxygen - 2> warnings.txt
-          if [ -s warnings.txt ]; then cat warnings.txt; exit 1; fi

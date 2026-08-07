@@ -2,6 +2,7 @@
 
 [![ci](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml/badge.svg)](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml)
 [![docs](https://github.com/trsxvz/TDLS/actions/workflows/docs.yml/badge.svg)](https://trsxvz.github.io/TDLS/)
+[![doxygen](https://github.com/trsxvz/TDLS/actions/workflows/doxygen.yml/badge.svg)](https://trsxvz.github.io/TDLS/api/index.html)
 
 TDLS is a header-only C++20 library of direct solvers for small
 general linear systems. It is written to be callable from device code:
