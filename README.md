@@ -68,10 +68,13 @@ target_link_libraries(my_target PRIVATE tdls::tdls)
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build -L solvers    # library test suites
-ctest --test-dir build -L examples   # self-checking examples
+cmake --build build --target check   # build and run everything
+ctest --test-dir build -L solvers    # rerun the library test suites
+ctest --test-dir build -L examples   # rerun the self-checking examples
 ```
+
+Tests and examples stay out of the default `all` target, as in Eigen
+or TFEL: `check` builds and runs them, `buildtests` only builds them.
 
 The examples cover two scientific problems at four execution scales:
 sequential, OpenMP, and two GPU placements. The GPU examples are

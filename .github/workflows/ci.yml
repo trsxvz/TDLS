@@ -28,7 +28,7 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
       - name: Build
-        run: cmake --build build -j4
+        run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: ctest --test-dir build --output-on-failure
 

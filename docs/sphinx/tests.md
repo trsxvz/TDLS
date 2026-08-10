@@ -7,6 +7,7 @@ itself, `examples` runs the self-checking examples (see
 once that part exists.
 
 ```sh
+cmake --build build --target buildtests
 ctest --test-dir build -L solvers      # one space
 ctest --test-dir build -R oracle       # filter suites by name
 ./build/tests/solvers/tdls_test_tiledlupp_oracle_static N=12

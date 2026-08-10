@@ -50,6 +50,16 @@ option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" O
 
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
     enable_testing()
+    # Tests and examples are excluded from `all`. `buildtests` compiles
+    # them, `check` compiles and runs them. A parent project may already
+    # define these targets.
+    if(NOT TARGET buildtests)
+        add_custom_target(buildtests)
+    endif()
+    if(NOT TARGET check)
+        add_custom_target(check COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure)
+    endif()
+    add_dependencies(check buildtests)
 endif()
 if(TDLS_BUILD_TESTS)
     add_subdirectory(tests)

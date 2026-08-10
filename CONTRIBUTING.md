@@ -14,8 +14,7 @@ test suite passes:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build
+cmake --build build --target check
 ```
 
 By contributing, you agree that your contributions are licensed under

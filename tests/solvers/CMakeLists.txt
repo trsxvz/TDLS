@@ -20,7 +20,8 @@ set(TDLS_TILEDLUPP_TEST_SUITES
     constexpr)
 
 foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
-    add_executable(tdls_test_tiledlupp_${suite} tiled_lupp/test_${suite}.cpp)
+    add_executable(tdls_test_tiledlupp_${suite} EXCLUDE_FROM_ALL tiled_lupp/test_${suite}.cpp)
+    add_dependencies(buildtests tdls_test_tiledlupp_${suite})
     target_link_libraries(tdls_test_tiledlupp_${suite} PRIVATE tdls::tdls)
     target_include_directories(tdls_test_tiledlupp_${suite} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../common")
     target_compile_features(tdls_test_tiledlupp_${suite} PRIVATE cxx_std_20)
