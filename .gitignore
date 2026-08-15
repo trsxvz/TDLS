@@ -89,6 +89,9 @@ vcpkg_installed/
 # debug information files
 *.dwo
 
+# conference slides
+slides_ppam.pdf
+
 # test output & cache
 Testing/
 .cache/
