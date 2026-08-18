@@ -103,4 +103,5 @@ examples
 tests
 tfel_interoperability
 api_reference
+ai_usage
 ```
