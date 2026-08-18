@@ -91,6 +91,12 @@ while IFS= read -r tag; do
     fi
 done < <("$binary" --list "${extra[@]}")
 
+# The compile-time dataset of the build joins the measurements by tag.
+compile_log="$(dirname "$binary")/compile_times.csv"
+if [ -f "$compile_log" ]; then
+    cp "$compile_log" "$outdir/compile_times.csv"
+fi
+
 echo "end_utc   : $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$outdir/_meta.txt"
 echo "campaign done: $ran run, $skipped already done, $failed failed ($outdir)"
 [ "$failed" -eq 0 ]

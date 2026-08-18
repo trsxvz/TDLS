@@ -29,9 +29,15 @@ are mutually exclusive). `TDLS_BENCH_DIMS` selects the system
 dimensions compiled into the binary: `quick` (default:
 1 4 8 16 32 64 96 128), `full` (every dimension of [2, 32] plus
 48 64 80 96 112 128), or any explicit list (`-DTDLS_BENCH_DIMS="12;13"`,
-handy for fast iteration). The grid is sharded into one translation
-unit per dimension, so compilation parallelizes and large dimensions
-only cost when requested.
+handy for fast iteration). The grid enumeration lives in
+`cases/pure_lupp/generate_variants.cmake`, which emits ONE generated
+translation unit PER VARIANT into the build tree (never tracked):
+compilation parallelizes across every variant, incremental builds
+stay exact (a unit is only touched when its content changes, header
+edits propagate through depfiles, and units of variants that left the
+grid are removed), and the compile time of every variant becomes a
+recorded dataset (below). `-G Ninja` is a comfortable option for
+large campaign builds, not a requirement.
 
 ## Running
 
@@ -41,15 +47,31 @@ The binary is self-sufficient:
 ./build/benchmarks/tdls_bench_purelupp_cuda --list                # the variant tags
 ./build/benchmarks/tdls_bench_purelupp_cuda --meta                # device/build identity
 ./build/benchmarks/tdls_bench_purelupp_cuda \
-    --filter '^purelupp/static/n12/' --csv results.csv            # measure a slice
+    --filter '^purelupp/static/f64/n12/' --csv results.csv        # measure a slice
 ```
+
+Every variant measures `solve_inplace`, the production entry point
+(fused forward substitution, one right-hand-side buffer). The sweep
+crosses the solver axes (static/dynamic, float/double, tile size 1 to
+6, both schedules, the unroll knob) with the operand placements: the
+matrix in `reg` (thread-local), `dram` (the SoA batch in device
+memory) or `shm` (staged in shared memory), the rhs and pivot
+following the matrix or pinned thread-local through the `rreg` /
+`preg` tags. Batched storage is SoA throughout. The threads-per-block of every variant is selected
+by the O+W heuristic (occupancy plus wave fill, candidates
+32/64/96/128/256, sub-warp candidates when a shared footprint exceeds
+the budget of a full warp); `--ntpb` forces a value. Variants that
+cannot run are recorded as skipped rows (`status` column: `skip_smem`,
+`skip_dram`, `skip_host`, and `skip_offset32` when a batch exceeds
+the 32-bit addressing range of the solvers at that dimension), never
+as crashes.
 
 Protocol: one untimed warmup then 5 timed runs per variant (event
 timing, every run on pristine inputs), under two input distributions
-(`default`, entries in [-0.5, 0.5]; `stress`, entries in
-[-1.4e-10, 1.4e-10], just above the pivot acceptance threshold, so
-nearly every system fires the out-of-tile pivoting on about a third
-of its columns). Every row
+(`default`, entries in [-0.5, 0.5]; `stress`, entries within 1.4x
+the pivot acceptance threshold of the scalar type, so nearly every
+system fires the out-of-tile pivoting on about a third of its
+columns). Every row
 carries the backward error of a solution sample, the verdict parity of
 a smaller sample against the reference LU, the out-of-tile statistics,
 and the kernel metrics the runtime API self-reports (registers, local
@@ -59,8 +81,21 @@ one variant in depth, rerun it in isolation:
 
 ```sh
 ncu ./build/benchmarks/tdls_bench_purelupp_cuda \
-    --filter '^purelupp/static/n12/ts3/rl/u1/reg$' --runs 1
+    --filter '^purelupp/static/f64/n12/ts3/rl/u1/reg$' --runs 1
 ```
+
+## Compile times
+
+The build itself is a measurement: a compiler launcher times the
+compilation of every variant translation unit and appends
+`tag,compile_s,status` to `compile_times.csv` in the build tree (the
+log is append-only across rebuilds; the last row of a tag wins). This
+dataset joins `results.csv` by tag, so the tuning analysis can weigh
+performance against compile cost. Setting
+`TDLS_BENCH_COMPILE_TIMEOUT=<seconds>` at build time turns a
+too-expensive compilation into a recorded `compile_timeout` verdict:
+the unit is replaced by a stub, the build and the link still succeed,
+and the variant is simply absent from the binary.
 
 ## Campaigns
 
@@ -73,8 +108,9 @@ benchmarks/scripts/run_sweep.sh ./build/benchmarks/tdls_bench_purelupp_cuda \
     my_results -- --distribution both
 ```
 
-It produces `_meta.txt`, `_index.tsv` and `results.csv` in the output
-directory (default `results/<timestamp>`, git-ignored). Rerunning with
+It produces `_meta.txt`, `_index.tsv`, `results.csv` and a copy of
+`compile_times.csv` in the output directory (default
+`results/<timestamp>`, git-ignored). Rerunning with
 the same directory skips what already succeeded. For stable numbers on
 a desktop GPU, lock the clocks first (`nvidia-smi -lgc <MHz>`).
 

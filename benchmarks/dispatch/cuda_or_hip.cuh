@@ -36,11 +36,13 @@ using gpuDeviceProp_t                           = hipDeviceProp_t;
 using gpuFuncAttributes_t                       = hipFuncAttributes;
 using gpuEvent_t                                = hipEvent_t;
 constexpr gpuMemcpyKind gpuMemcpyDeviceToDevice = hipMemcpyDeviceToDevice;
+constexpr auto gpuFuncAttributeMaxDynSmem       = hipFuncAttributeMaxDynamicSharedMemorySize;
 #else
 using gpuDeviceProp_t                           = cudaDeviceProp;
 using gpuFuncAttributes_t                       = cudaFuncAttributes;
 using gpuEvent_t                                = cudaEvent_t;
 constexpr gpuMemcpyKind gpuMemcpyDeviceToDevice = cudaMemcpyDeviceToDevice;
+constexpr auto gpuFuncAttributeMaxDynSmem       = cudaFuncAttributeMaxDynamicSharedMemorySize;
 #endif
 
 
@@ -74,14 +76,15 @@ inline std::string compiler_string() {
 
 /// \brief Identity of the selected device, read from the runtime API.
 struct DeviceInfo {
-    std::string name;            ///< device name
-    std::string cc;              ///< compute capability, "major.minor"
-    int driver_version      = 0; ///< driver version
-    int runtime_version     = 0; ///< runtime library version
-    int sm_count            = 0; ///< multiprocessors
-    int max_threads_per_sm  = 0; ///< resident thread capacity per multiprocessor
-    std::size_t smem_per_sm = 0; ///< shared memory per multiprocessor
-    std::size_t total_mem   = 0; ///< device memory
+    std::string name;               ///< device name
+    std::string cc;                 ///< compute capability, "major.minor"
+    int driver_version         = 0; ///< driver version
+    int runtime_version        = 0; ///< runtime library version
+    int sm_count               = 0; ///< multiprocessors
+    int max_threads_per_sm     = 0; ///< resident thread capacity per multiprocessor
+    std::size_t smem_per_sm    = 0; ///< shared memory per multiprocessor
+    std::size_t smem_per_block = 0; ///< largest dynamic shared allocation of one block
+    std::size_t total_mem      = 0; ///< device memory
 };
 
 /// \return the DeviceInfo of the current device
@@ -95,9 +98,11 @@ inline DeviceInfo query_device_info() {
     info.max_threads_per_sm = prop.maxThreadsPerMultiProcessor;
     info.total_mem          = prop.totalGlobalMem;
 #if defined(__HIP__) || defined(__HIPCC__)
-    info.smem_per_sm = prop.maxSharedMemoryPerMultiProcessor;
+    info.smem_per_sm    = prop.maxSharedMemoryPerMultiProcessor;
+    info.smem_per_block = prop.sharedMemPerBlock;
 #else
-    info.smem_per_sm = prop.sharedMemPerMultiprocessor;
+    info.smem_per_sm    = prop.sharedMemPerMultiprocessor;
+    info.smem_per_block = prop.sharedMemPerBlockOptin;
 #endif
     GPU_CHECK(TDLS_EXAMPLES_GPU_API(DriverGetVersion)(&info.driver_version));
     GPU_CHECK(TDLS_EXAMPLES_GPU_API(RuntimeGetVersion)(&info.runtime_version));
@@ -110,6 +115,111 @@ inline std::size_t query_free_memory() {
     std::size_t total_bytes = 0;
     GPU_CHECK(TDLS_EXAMPLES_GPU_API(MemGetInfo)(&free_bytes, &total_bytes));
     return free_bytes;
+}
+
+/// \brief Non-fatal device allocation: an exhausted device memory is a
+/// legitimate campaign outcome (recorded as a skipped variant), not a
+/// crash.
+/// \tparam T element type
+/// \param[out] ptr   receives the device pointer (null on failure)
+/// \param[in]  bytes allocation size in bytes
+/// \return false when the allocation failed
+template<typename T>
+[[nodiscard]] inline bool gpu_try_malloc(T** ptr, const std::size_t bytes) {
+    *ptr = nullptr;
+    if (TDLS_EXAMPLES_GPU_API(Malloc)(reinterpret_cast<void**>(ptr), bytes) == gpuSuccess)
+        return true;
+    TDLS_EXAMPLES_GPU_API(GetLastError)(); // clear the sticky error state
+    *ptr = nullptr;
+    return false;
+}
+
+
+
+/// \brief Launch configuration selected for one variant.
+struct LaunchChoice {
+    bool feasible        = false; ///< false: the variant cannot run on this device
+    int ntpb             = 0;     ///< selected threads per block
+    std::size_t dyn_smem = 0;     ///< dynamic shared memory per block
+};
+
+/// \brief Selects the threads-per-block of a kernel: the candidate of
+/// {32, 64, 96, 128, 256} maximizing theoretical occupancy plus wave
+/// fill.
+///
+/// Shared-memory variants consume dyn_smem = ntpb x bytes_per_thread
+/// per block. When no candidate of the primary list fits the per-block
+/// budget (large dimensions), the sub-warp candidates {16, 8, 4, 2, 1}
+/// are probed instead; when even one thread per block does not fit,
+/// the variant is reported infeasible and the caller records a skip.
+/// A forced ntpb bypasses the scoring but keeps the feasibility check.
+/// \tparam Kernel kernel function-pointer type
+/// \param[in] kernel           the kernel
+/// \param[in] bytes_per_thread dynamic shared memory per thread (0: none)
+/// \param[in] batch            systems of the launch (wave-fill term)
+/// \param[in] device           device identity
+/// \param[in] forced_ntpb      0: apply the heuristic; else this value
+/// \return the selected launch configuration
+template<typename Kernel>
+inline LaunchChoice choose_launch(Kernel kernel, const std::size_t bytes_per_thread,
+                                  const int batch, const DeviceInfo& device,
+                                  const int forced_ntpb) {
+    if (bytes_per_thread > 0) {
+        // Raise the dynamic shared-memory cap of the kernel to the
+        // device limit (the default cap is lower on NVIDIA devices).
+        TDLS_EXAMPLES_GPU_API(FuncSetAttribute)(reinterpret_cast<const void*>(kernel),
+                                                gpuFuncAttributeMaxDynSmem,
+                                                static_cast<int>(device.smem_per_block));
+        TDLS_EXAMPLES_GPU_API(GetLastError)(); // tolerated on devices without the cap
+    }
+    const auto evaluate = [&](const int candidate, double& score, std::size_t& dyn_smem) {
+        dyn_smem = bytes_per_thread * static_cast<std::size_t>(candidate);
+        if (bytes_per_thread > 0 && dyn_smem > device.smem_per_block) return false;
+        int blocks_per_sm = 0;
+        if (TDLS_EXAMPLES_GPU_API(OccupancyMaxActiveBlocksPerMultiprocessor)(
+                &blocks_per_sm, kernel, candidate, dyn_smem) != gpuSuccess) {
+            TDLS_EXAMPLES_GPU_API(GetLastError)();
+            return false;
+        }
+        if (blocks_per_sm < 1) return false;
+        const double occupancy =
+            static_cast<double>(blocks_per_sm) * candidate / device.max_threads_per_sm;
+        const long blocks = (batch + candidate - 1) / candidate;
+        const long wave   = static_cast<long>(blocks_per_sm) * device.sm_count;
+        const long waves  = (blocks + wave - 1) / wave;
+        const double fill = static_cast<double>(blocks) / static_cast<double>(waves * wave);
+        score             = occupancy + fill;
+        return true;
+    };
+    LaunchChoice choice;
+    if (forced_ntpb > 0) {
+        double score         = 0.0;
+        std::size_t dyn_smem = 0;
+        if (evaluate(forced_ntpb, score, dyn_smem)) choice = {true, forced_ntpb, dyn_smem};
+        return choice;
+    }
+    constexpr int primary[] = {32, 64, 96, 128, 256};
+    constexpr int subwarp[] = {16, 8, 4, 2, 1};
+    double best_score       = -1.0;
+    for (const int candidate : primary) {
+        double score         = 0.0;
+        std::size_t dyn_smem = 0;
+        if (evaluate(candidate, score, dyn_smem) && score > best_score) {
+            best_score = score;
+            choice     = {true, candidate, dyn_smem};
+        }
+    }
+    if (!choice.feasible) {
+        for (const int candidate : subwarp) {
+            double score         = 0.0;
+            std::size_t dyn_smem = 0;
+            if (evaluate(candidate, score, dyn_smem) && score > best_score) {
+                best_score = score;
+                choice     = {true, candidate, dyn_smem};
+            }
+        }
+    }
+    return choice;
 }
 
 

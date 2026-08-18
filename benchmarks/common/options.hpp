@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 
@@ -34,12 +35,12 @@ namespace tdls_bench {
 /// \brief Input distribution of the generated systems.
 enum class Distribution {
     uniform, ///< entries in [-0.5, 0.5]: no out-of-tile pivoting triggers
-    stress   ///< entries in [-1.4e-10, 1.4e-10], 1.4x the pivot acceptance
-             ///< threshold: nearly every system fires the out-of-tile
+    stress   ///< entries within 1.4x the pivot acceptance threshold of the
+             ///< scalar type: nearly every system fires the out-of-tile
              ///< search, on about a third of its columns, and enough
              ///< candidates stay acceptable to exercise the early exit
-             ///< (measured at n = 12, TS = 3: 99.4% of the systems,
-             ///< 4.1 of 12 columns on average)
+             ///< (measured in double at n = 12, TS = 3: 99.4% of the
+             ///< systems, 4.1 of 12 columns on average)
 };
 
 /// \return the CSV name of a distribution
@@ -47,9 +48,14 @@ inline const char* distribution_name(const Distribution d) {
     return d == Distribution::uniform ? "default" : "stress";
 }
 
-/// \return the half-width of the entry distribution
-inline double distribution_bound(const Distribution d) {
-    return d == Distribution::uniform ? 0.5 : 1.4e-10;
+/// \return the half-width of the entry distribution. The stress bound
+/// follows the default acceptance threshold of the scalar type (1e-10
+/// in double, 1e-4 in float), scaled by the calibrated 1.4 factor.
+/// \tparam T scalar type of the benchmarked solver
+template<typename T>
+constexpr double distribution_bound(const Distribution d) {
+    if (d == Distribution::uniform) return 0.5;
+    return std::is_same_v<T, float> ? 1.4e-4 : 1.4e-10;
 }
 
 
@@ -63,7 +69,7 @@ struct Options {
     int batch               = 100000;      ///< systems per measurement
     int runs                = 5;           ///< timed kernel runs per variant
     int warmup              = 1;           ///< untimed warmup runs per variant
-    int ntpb                = 256;         ///< threads per block
+    int ntpb                = 0;           ///< threads per block (0: O+W heuristic)
     unsigned long long seed = 20260818ull; ///< generator seed of the batch
     int validate_sample     = 4096;        ///< systems checked for backward error (0: off)
     int parity_sample       = 32;          ///< systems checked against the reference LU (0: off)
@@ -82,7 +88,8 @@ inline void print_usage(const char* program) {
                 "  --batch <n>            systems per measurement (default 100000)\n"
                 "  --runs <n>             timed runs per variant (default 5)\n"
                 "  --warmup <n>           untimed warmup runs (default 1)\n"
-                "  --ntpb <n>             threads per block (default 256)\n"
+                "  --ntpb <n>             threads per block, 0 = auto by the O+W heuristic "
+                "(default 0)\n"
                 "  --seed <n>             batch generator seed (default 20260818)\n"
                 "  --validate <n>         systems checked for backward error, 0 = off "
                 "(default 4096)\n"
@@ -132,7 +139,7 @@ inline bool parse_options(const int argc, char* const* argv, Options& opt) {
             ok            = v != nullptr && integer(v, opt.warmup);
         } else if (std::strcmp(arg, "--ntpb") == 0) {
             const char* v = next();
-            ok            = v != nullptr && integer(v, opt.ntpb) && opt.ntpb >= 1;
+            ok            = v != nullptr && integer(v, opt.ntpb);
         } else if (std::strcmp(arg, "--seed") == 0) {
             const char* v = next();
             ok            = v != nullptr;

@@ -100,11 +100,16 @@ int main(int argc, char** argv) {
                 csv << tdls_bench::csv_row(record) << '\n';
                 csv.flush();
             }
-            const std::string parity = record.parity.empty() ? "" : "parity=" + record.parity;
-            std::printf("[%10.3f ms] %-46s %-7s %10.3e sys/s  be_max=%-9.3g %s\n",
-                        record.t_ms.median, record.tag.c_str(), record.distribution.c_str(),
-                        record.systems_per_s, record.be.empty ? 0.0 : record.be.max,
-                        parity.c_str());
+            if (record.status != "ok") {
+                std::printf("[   %-8s] %-46s %-7s\n", record.status.c_str(), record.tag.c_str(),
+                            record.distribution.c_str());
+            } else {
+                const std::string parity = record.parity.empty() ? "" : "parity=" + record.parity;
+                std::printf("[%10.3f ms] %-46s %-7s ntpb=%-4d %10.3e sys/s  be_max=%-9.3g %s\n",
+                            record.t_ms.median, record.tag.c_str(), record.distribution.c_str(),
+                            record.ntpb, record.systems_per_s,
+                            record.be.empty ? 0.0 : record.be.max, parity.c_str());
+            }
             std::fflush(stdout);
             ++measured;
         }

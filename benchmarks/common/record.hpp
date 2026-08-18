@@ -37,7 +37,7 @@ namespace tdls_bench {
 
 /// \brief Schema identifier written in every row; bump it on any column
 /// change so downstream scripts can dispatch.
-inline constexpr int csv_schema_version = 1;
+inline constexpr int csv_schema_version = 2;
 
 /// \brief One measurement: a variant under one distribution.
 struct Record {
@@ -46,21 +46,22 @@ struct Record {
     std::string tag;           ///< variant tag (primary key with distribution)
 
     // Sweep axes
-    std::string case_name;       ///< benchmark case (pure_lupp, ...)
-    std::string backend;         ///< dispatch backend (cuda, hip, ...)
-    std::string solver;          ///< static | dynamic
-    int n         = 0;           ///< system dimension
-    int tile_size = 0;           ///< TiledLUpp tile size
-    std::string schedule;        ///< rl | ll
-    std::string unroll_inner;    ///< 1 | 0 | empty (not applicable)
-    std::string res_matrix;      ///< reg | shmem | dram
-    std::string res_rhs;         ///< reg | shmem | dram
-    std::string res_piv;         ///< reg | shmem | dram
-    std::string layout;          ///< soa | aos | aosoa | empty (register residency)
-    std::string scalar;          ///< f64 | f32
-    std::string distribution;    ///< default | stress
-    int batch               = 0; ///< systems per measurement
-    unsigned long long seed = 0; ///< generator seed
+    std::string case_name;          ///< benchmark case (pure_lupp, ...)
+    std::string backend;            ///< dispatch backend (cuda, hip, ...)
+    std::string solver;             ///< static | dynamic
+    int n         = 0;              ///< system dimension
+    int tile_size = 0;              ///< TiledLUpp tile size
+    std::string schedule;           ///< rl | ll
+    std::string unroll_inner;       ///< 1 | 0 | empty (not applicable)
+    std::string res_matrix;         ///< reg | shmem | dram
+    std::string res_rhs;            ///< reg | shmem | dram
+    std::string res_piv;            ///< reg | shmem | dram
+    std::string layout;             ///< soa | aos | aosoa | empty (register residency)
+    std::string scalar;             ///< f64 | f32
+    std::string distribution;       ///< default | stress
+    int batch               = 0;    ///< systems per measurement
+    unsigned long long seed = 0;    ///< generator seed
+    std::string status      = "ok"; ///< ok | skip_smem | skip_dram | skip_host | skip_offset32
 
     // Launch configuration
     int ntpb                   = 0; ///< threads per block
@@ -113,7 +114,7 @@ inline std::string utc_timestamp() {
 inline std::string csv_header() {
     return "schema_version,timestamp_utc,tag,"
            "case,backend,solver,n,tile_size,schedule,unroll_inner,"
-           "res_matrix,res_rhs,res_piv,layout,scalar,distribution,batch,seed,"
+           "res_matrix,res_rhs,res_piv,layout,scalar,distribution,batch,seed,status,"
            "ntpb,blocks,dyn_smem_bytes,"
            "regs_per_thread,local_bytes_per_thread,static_smem_bytes,"
            "theoretical_occupancy_pct,wave_fill_pct,"
@@ -166,6 +167,7 @@ inline std::string csv_row(const Record& r) {
     add(r.distribution);
     add(std::to_string(r.batch));
     add(std::to_string(r.seed));
+    add(r.status);
     add(std::to_string(r.ntpb));
     add(std::to_string(r.blocks));
     add(std::to_string(r.dyn_smem_bytes));
