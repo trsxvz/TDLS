@@ -103,6 +103,10 @@ The documentation, including the Doxygen API reference, lives at
 
 ## License
 
-TDLS is designed to be embedded in
-[TFEL/MFront](https://github.com/thelfer/tfel); its BSD-3-Clause
+Copyright (C) 2026 CEA. All rights reserved.
+
+TDLS is publicly released under the BSD 3-Clause License (see the
+LICENSE file); CEA may also distribute it under specific licensing
+conditions. TDLS is designed to be embedded in
+[TFEL/MFront](https://github.com/thelfer/tfel); the BSD-3-Clause
 license places no meaningful restriction on such use.

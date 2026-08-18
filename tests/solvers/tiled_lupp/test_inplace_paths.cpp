@@ -1,8 +1,10 @@
 /// \file
 /// \brief Bridge suite: the in-place substitution paths are equivalent.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// substitute_inplace dispatches between three mechanisms depending on
 /// the dimension: a 32-bit visited mask (static, N <= 32), a 64-bit mask

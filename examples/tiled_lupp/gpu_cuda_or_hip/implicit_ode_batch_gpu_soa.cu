@@ -4,8 +4,10 @@
 /// layout and solved through the external residencies of the
 /// compile-time TiledLUpp solver.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// Companion of implicit_ode_batch_gpu.cu: same physics, same method,
 /// opposite residency choice. Here the residency booleans are false,

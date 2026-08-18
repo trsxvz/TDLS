@@ -1,8 +1,10 @@
 /// \file
 /// \brief Bridge suite of the multi right-hand-side blocks.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// The _multirhs entry points document one property: per-column
 /// results match the same columns solved one by one, bitwise, whatever

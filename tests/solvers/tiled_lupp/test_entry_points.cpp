@@ -1,8 +1,10 @@
 /// \file
 /// \brief Bridge suite: the entry points are mutually consistent.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// The equivalences documented by the TiledLUpp solvers are checked bitwise on
 /// identical inputs: solve() against factorize() + substitute(),

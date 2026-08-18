@@ -2,8 +2,10 @@
 /// \brief Negative compilation test: a pointer-to-const pivot passed to
 /// the factorizing adaptor entry points must be rejected.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// This translation unit must NOT compile. ctest builds it on purpose
 /// and passes only when the compiler emits the pivot-mutability

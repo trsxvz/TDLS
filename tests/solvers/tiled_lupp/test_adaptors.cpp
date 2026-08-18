@@ -1,8 +1,10 @@
 /// \file
 /// \brief Suite of the generic dense adaptors.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// The adaptors are structural: they accept any type exposing the dense
 /// contract, without naming any external library. The suite exercises the

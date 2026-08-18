@@ -6,6 +6,7 @@ from pathlib import Path
 
 project = "TDLS"
 author = "Tristan Chenaille"
+copyright = "2026 CEA"
 
 # The version is read from the library header so it cannot drift.
 _version_header = Path(__file__).resolve().parents[2] / "include/tdls/core/version.hpp"
@@ -17,5 +18,5 @@ myst_enable_extensions = ["colon_fence"]
 
 html_theme = "sphinx_rtd_theme"
 html_title = "TDLS"
-html_show_copyright = False
+html_show_copyright = True
 html_show_sphinx = True

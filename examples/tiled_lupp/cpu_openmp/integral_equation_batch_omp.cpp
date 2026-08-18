@@ -3,8 +3,10 @@
 /// dense Nystroem system per plate separation, parallelized with OpenMP
 /// on the runtime TiledLUpp solver.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// Companion of integral_equation.cpp at the next scale: the capacitor
 /// potential is computed for a whole sweep of plate separations d, the

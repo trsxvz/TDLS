@@ -1,8 +1,10 @@
 /// \file
 /// \brief Bridge suite: the eight residency combinations are equivalent.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// The internal_rhs / internal_piv / internal_matrix template booleans
 /// select where each component lives (caller-local array or strided

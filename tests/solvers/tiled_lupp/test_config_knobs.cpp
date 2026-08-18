@@ -1,8 +1,10 @@
 /// \file
 /// \brief Suite of the TiledLUppSolverConfig knobs.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// Each compile-time knob is checked through its observable contract:
 /// unroll_inner never changes any value (bitwise equivalence of both

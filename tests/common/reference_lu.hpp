@@ -7,8 +7,10 @@
 /// \brief Independent reference solver and error metric of the test
 /// suites, shared later with the benchmark harness.
 /// \author Tristan Chenaille
-/// \copyright Copyright (C) 2026 CEA. Released under the
-/// BSD 3-Clause License (see the LICENSE file).
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
 ///
 /// Deliberately naive dense LU with partial pivoting on contiguous
 /// row-major storage, written independently from the TiledLUpp solvers:
