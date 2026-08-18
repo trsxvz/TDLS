@@ -3,8 +3,9 @@
 The test tree is split into separated spaces, each tagged with a ctest
 label so they run independently: `solvers` validates the library
 itself, `examples` runs the self-checking examples (see
-{doc}`examples`), and `benchmarks` will validate the benchmark harness
-once that part exists.
+{doc}`examples`), and `benchmarks` smoke-tests the opt-in benchmark
+harness (`benchmarks/README.md`), whose real validation is built into
+every measurement it takes.
 
 ```sh
 cmake --build build --target buildtests

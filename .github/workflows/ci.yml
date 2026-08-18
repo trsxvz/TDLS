@@ -39,4 +39,4 @@ jobs:
       - name: Install clang-format
         run: pip install "clang-format==22.*"
       - name: Check the formatting
-        run: git ls-files '*.hpp' '*.cpp' '*.cu' | xargs clang-format --dry-run --Werror
+        run: git ls-files '*.hpp' '*.cpp' '*.cu' '*.cuh' | xargs clang-format --dry-run --Werror

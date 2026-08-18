@@ -1,0 +1,41 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "Header-only library, tests and examples (top-level defaults)",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "bench-cuda",
+            "displayName": "GPU benchmark harness, CUDA toolchain",
+            "inherits": "default",
+            "binaryDir": "${sourceDir}/build-bench",
+            "cacheVariables": {
+                "TDLS_BUILD_TESTS": "OFF",
+                "TDLS_BUILD_EXAMPLES": "OFF",
+                "TDLS_BUILD_CUDA_BENCHMARKS": "ON"
+            }
+        },
+        {
+            "name": "bench-hip",
+            "displayName": "GPU benchmark harness, HIP toolchain",
+            "inherits": "bench-cuda",
+            "cacheVariables": {
+                "TDLS_BUILD_CUDA_BENCHMARKS": "OFF",
+                "TDLS_BUILD_HIP_BENCHMARKS": "ON"
+            }
+        },
+        {
+            "name": "bench-cuda-dev",
+            "displayName": "GPU benchmark harness, CUDA, single dimension for fast iteration",
+            "inherits": "bench-cuda",
+            "cacheVariables": {
+                "TDLS_BENCH_DIMS": "12"
+            }
+        }
+    ]
+}

@@ -48,6 +48,12 @@ endif()
 option(TDLS_BUILD_CUDA_EXAMPLES "Build the GPU examples with the CUDA toolchain" OFF)
 option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" OFF)
 
+# The GPU benchmark harness follows the same opt-in rules as the GPU
+# examples: nothing probes for a toolchain unless one of these is ON,
+# and the two are mutually exclusive.
+option(TDLS_BUILD_CUDA_BENCHMARKS "Build the GPU benchmark harness with the CUDA toolchain" OFF)
+option(TDLS_BUILD_HIP_BENCHMARKS "Build the GPU benchmark harness with the HIP toolchain" OFF)
+
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
     enable_testing()
     # Tests and examples are excluded from `all`. `buildtests` compiles
@@ -66,6 +72,10 @@ if(TDLS_BUILD_TESTS)
 endif()
 if(TDLS_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+if(TDLS_BUILD_CUDA_BENCHMARKS OR TDLS_BUILD_HIP_BENCHMARKS)
+    enable_testing()
+    add_subdirectory(benchmarks)
 endif()
 
 # Installation and packaging. Header-only, so this installs the headers,

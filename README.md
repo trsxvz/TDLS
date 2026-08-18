@@ -92,6 +92,8 @@ the GPU switches always default to OFF):
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
 | `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
 | `TDLS_BUILD_HIP_EXAMPLES` | build the GPU examples with HIP (the toolchain becomes required) |
+| `TDLS_BUILD_CUDA_BENCHMARKS` | build the GPU benchmark harness with CUDA (see `benchmarks/README.md`) |
+| `TDLS_BUILD_HIP_BENCHMARKS` | build the GPU benchmark harness with HIP (see `benchmarks/README.md`) |
 | `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
 | `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
 | `CMAKE_HIP_COMPILER` | HIP compiler of the AMD toolchain |
