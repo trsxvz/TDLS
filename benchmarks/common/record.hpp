@@ -61,7 +61,7 @@ struct Record {
     std::string distribution;       ///< default | stress
     int batch               = 0;    ///< systems per measurement
     unsigned long long seed = 0;    ///< generator seed
-    std::string status      = "ok"; ///< ok | skip_smem | skip_dram | skip_host | skip_offset32
+    std::string status      = "ok"; ///< ok, or a skip_* / error_* verdict (see the README)
 
     // Launch configuration
     int ntpb                   = 0; ///< threads per block

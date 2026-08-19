@@ -61,10 +61,20 @@ following the matrix or pinned thread-local through the `rreg` /
 by the O+W heuristic (occupancy plus wave fill, candidates
 32/64/96/128/256, sub-warp candidates when a shared footprint exceeds
 the budget of a full warp); `--ntpb` forces a value. Variants that
-cannot run are recorded as skipped rows (`status` column: `skip_smem`,
-`skip_dram`, `skip_host`, and `skip_offset32` when a batch exceeds
-the 32-bit addressing range of the solvers at that dimension), never
-as crashes.
+cannot run are recorded as rows with a non-ok `status`, never as
+crashes: `skip_smem` (shared footprint over the per-block budget even
+at one thread per block), `skip_dram` (device memory, checked
+predictively against the free memory and reactively at every
+allocation), `skip_host`, `skip_offset32` (batch beyond the 32-bit
+addressing range of the solvers at that dimension), `error_launch`
+(the launch probe was rejected by the device).
+
+The input batches are materialized in place on the device by a
+counter-based generator (`common/batch.hpp`, SplitMix64): no host
+batch, no host-to-device transfer, and the in-place restores between
+timed runs are device-side regenerations. The validation regenerates
+its sampled systems on the host with the same function, so any
+host/device divergence of the generator fails the parity check.
 
 Protocol: one untimed warmup then 5 timed runs per variant (event
 timing, every run on pristine inputs), under two input distributions

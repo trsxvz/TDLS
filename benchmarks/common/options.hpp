@@ -39,8 +39,8 @@ enum class Distribution {
              ///< scalar type: nearly every system fires the out-of-tile
              ///< search, on about a third of its columns, and enough
              ///< candidates stay acceptable to exercise the early exit
-             ///< (measured in double at n = 12, TS = 3: 99.4% of the
-             ///< systems, 4.1 of 12 columns on average)
+             ///< (calibrated in double at n = 12, TS = 3: roughly 99% of the
+             ///< systems, about a third of the columns)
 };
 
 /// \return the CSV name of a distribution

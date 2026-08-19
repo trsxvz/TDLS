@@ -51,28 +51,33 @@
 /// at one thread per block, device or host memory exhausted by the
 /// batch) are recorded as skipped rows, never as crashes.
 ///
-/// Between timed runs, the consumed inputs are restored, never inside
-/// the timing: the matrix batch when it is factored in place (dram
-/// family; device-to-device when a pristine copy fits, from the host
-/// otherwise) and the in-place right-hand side when it lives in the
-/// batch.
+/// The input batches are materialized in place on the device by the
+/// counter-based generator (common/batch.hpp): no host batch exists
+/// and nothing crosses the PCIe bus. Between timed runs, the consumed
+/// inputs are restored, never inside the timing: the matrix batch when
+/// it is factored in place (dram family, restored by device-side
+/// regeneration) and the in-place right-hand side when it lives in the
+/// batch (copied back from the pristine b_d). The validation
+/// regenerates its sampled inputs on the host with the same function,
+/// which doubles as the host/device identity check of the generator.
 
 
 
 #include <cstddef>
+#include <cstdint>
 #include <new>
 #include <string>
 #include <vector>
 
 #include <tdls/tdls.hpp>
 
+#include "common/batch.hpp"
 #include "common/options.hpp"
 #include "common/record.hpp"
 #include "common/registry.hpp"
 #include "common/stats.hpp"
 #include "common/validate.hpp"
 #include "dispatch/cuda_or_hip.cuh"
-#include "generators.hpp"
 
 #ifndef TDLS_BENCH_GIT_COMMIT
 #define TDLS_BENCH_GIT_COMMIT "unknown"
@@ -199,6 +204,48 @@ struct BenchConfig : tdls::TiledLUppConfig<T, TS, S> {
    buffer y for validation.
    ===================================================================== */
 
+/// \brief Materializes the SoA matrix batch in place on the device
+/// from the counter-based generator, one thread per element. Also the
+/// restore path of the dram family: regenerating is cheaper than any
+/// copy, and no pristine duplicate ever exists.
+/// \tparam T scalar type
+/// \param[in]  n     system dimension
+/// \param[in]  batch number of systems
+/// \param[in]  seed  campaign seed
+/// \param[in]  bound half-width of the input distribution
+/// \param[out] A     matrix batch, SoA (element stride = batch)
+template<typename T>
+__global__ void kernel_generate_matrices(const int n, const int batch, const std::uint64_t seed,
+                                         const double bound, T* TDLS_RESTRICT A) {
+    const long long t     = static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const long long total = static_cast<long long>(batch) * n * n;
+    if (t >= total) return;
+    const int s                                = static_cast<int>(t / (n * n));
+    const int e                                = static_cast<int>(t % (n * n));
+    A[static_cast<std::size_t>(e) * batch + s] = static_cast<T>(
+        counter_draw(seed, matrix_stream, static_cast<std::uint64_t>(s) * n * n + e, bound));
+}
+
+/// \brief Materializes the SoA right-hand-side batch in place on the
+/// device, one thread per entry.
+/// \tparam T scalar type
+/// \param[in]  n     system dimension
+/// \param[in]  batch number of systems
+/// \param[in]  seed  campaign seed
+/// \param[in]  bound half-width of the input distribution
+/// \param[out] b     right-hand-side batch, SoA (element stride = batch)
+template<typename T>
+__global__ void kernel_generate_rhs(const int n, const int batch, const std::uint64_t seed,
+                                    const double bound, T* TDLS_RESTRICT b) {
+    const long long t     = static_cast<long long>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const long long total = static_cast<long long>(batch) * n;
+    if (t >= total) return;
+    const int s                                = static_cast<int>(t / n);
+    const int i                                = static_cast<int>(t % n);
+    b[static_cast<std::size_t>(i) * batch + s] = static_cast<T>(
+        counter_draw(seed, rhs_stream, static_cast<std::uint64_t>(s) * n + i, bound));
+}
+
 /// \brief Static solver, thread-local operands (internal residencies).
 template<typename T, int N, int TS, tdls::TiledLUppSchedule S, bool U>
 __global__ void kernel_static_reg(const int batch, const T* TDLS_RESTRICT A_in,
@@ -210,19 +257,34 @@ __global__ void kernel_static_reg(const int batch, const T* TDLS_RESTRICT A_in,
     T A[N * N];
     T y[N];
     int piv[N];
-    // Compile-time-indexed gathers: the local system only stays in
-    // registers if these loops fully unroll, like the solver's own.
+    // The gathers follow the unroll knob through the two-branch trick
+    // of the solvers: under u1 they must fully unroll (compile-time
+    // indexing keeps the local system in registers), under u0 the
+    // solver indexes dynamically anyway and the twin variants must
+    // differ by the solver knob alone, so no pragma is emitted at all.
+    if constexpr (U) {
 #pragma unroll
-    for (int e = 0; e < N * N; ++e)
-        A[e] = A_in[static_cast<std::size_t>(e) * batch + s];
+        for (int e = 0; e < N * N; ++e)
+            A[e] = A_in[static_cast<std::size_t>(e) * batch + s];
 #pragma unroll
-    for (int i = 0; i < N; ++i)
-        y[i] = b_in[static_cast<std::size_t>(i) * batch + s];
+        for (int i = 0; i < N; ++i)
+            y[i] = b_in[static_cast<std::size_t>(i) * batch + s];
+    } else {
+        for (int e = 0; e < N * N; ++e)
+            A[e] = A_in[static_cast<std::size_t>(e) * batch + s];
+        for (int i = 0; i < N; ++i)
+            y[i] = b_in[static_cast<std::size_t>(i) * batch + s];
+    }
     int count       = 0;
     const bool good = Solver::template solve_inplace<true, true, true>(A, 1, piv, 1, y, 1, count);
+    if constexpr (U) {
 #pragma unroll
-    for (int i = 0; i < N; ++i)
-        y_out[static_cast<std::size_t>(i) * batch + s] = y[i];
+        for (int i = 0; i < N; ++i)
+            y_out[static_cast<std::size_t>(i) * batch + s] = y[i];
+    } else {
+        for (int i = 0; i < N; ++i)
+            y_out[static_cast<std::size_t>(i) * batch + s] = y[i];
+    }
     ok[s]  = good ? 1 : 0;
     oot[s] = count;
 }
@@ -240,8 +302,11 @@ __global__ void kernel_static_dram(const int batch, T* TDLS_RESTRICT A, const T*
     bool good;
     T yl[N];
     int pl[N];
-    if constexpr (RLOCAL) {
+    if constexpr (RLOCAL && U) {
 #pragma unroll
+        for (int i = 0; i < N; ++i)
+            yl[i] = b_in[static_cast<std::size_t>(i) * batch + s];
+    } else if constexpr (RLOCAL) {
         for (int i = 0; i < N; ++i)
             yl[i] = b_in[static_cast<std::size_t>(i) * batch + s];
     }
@@ -251,8 +316,11 @@ __global__ void kernel_static_dram(const int batch, T* TDLS_RESTRICT A, const T*
     const int piv_stride = PLOCAL ? 1 : batch;
     good = Solver::template solve_inplace<RLOCAL, PLOCAL, false>(A + s, batch, piv_arg, piv_stride,
                                                                  y_arg, y_stride, count);
-    if constexpr (RLOCAL) {
+    if constexpr (RLOCAL && U) {
 #pragma unroll
+        for (int i = 0; i < N; ++i)
+            y[static_cast<std::size_t>(i) * batch + s] = yl[i];
+    } else if constexpr (RLOCAL) {
         for (int i = 0; i < N; ++i)
             y[static_cast<std::size_t>(i) * batch + s] = yl[i];
     }
@@ -282,8 +350,11 @@ __global__ void kernel_static_shm(const int batch, const T* TDLS_RESTRICT A_in,
     bool good;
     T yl[N];
     int pl[N];
-    if constexpr (RLOCAL) {
+    if constexpr (RLOCAL && U) {
 #pragma unroll
+        for (int i = 0; i < N; ++i)
+            yl[i] = b_in[static_cast<std::size_t>(i) * batch + s];
+    } else if constexpr (RLOCAL) {
         for (int i = 0; i < N; ++i)
             yl[i] = b_in[static_cast<std::size_t>(i) * batch + s];
     } else {
@@ -296,8 +367,11 @@ __global__ void kernel_static_shm(const int batch, const T* TDLS_RESTRICT A_in,
     const int piv_stride = PLOCAL ? 1 : width;
     good                 = Solver::template solve_inplace<RLOCAL, PLOCAL, false>(
         Ms + tid, width, piv_arg, piv_stride, y_arg, y_stride, count);
-    if constexpr (RLOCAL) {
+    if constexpr (RLOCAL && U) {
 #pragma unroll
+        for (int i = 0; i < N; ++i)
+            y_out[static_cast<std::size_t>(i) * batch + s] = yl[i];
+    } else if constexpr (RLOCAL) {
         for (int i = 0; i < N; ++i)
             y_out[static_cast<std::size_t>(i) * batch + s] = yl[i];
     } else {
@@ -537,45 +611,39 @@ Record run_variant(const Options& opt, const Distribution dist) {
     r.blocks         = blocks;
     r.dyn_smem_bytes = launch_choice.dyn_smem;
 
-    // Reproducible inputs, scattered to the SoA staging buffers; an
-    // exhausted host memory is a recorded skip.
-    tdls_tests::SystemBatch<T> host;
-    std::vector<T> A_soa;
-    std::vector<T> b_soa;
-    try {
-        host = tdls_tests::make_batch<T>(N, batch, opt.seed, distribution_bound<T>(dist));
-        A_soa.resize(static_cast<std::size_t>(N) * N * batch);
-        b_soa.resize(static_cast<std::size_t>(N) * batch);
-    } catch (const std::bad_alloc&) {
-        r.status = "skip_host";
+    const std::size_t A_size = static_cast<std::size_t>(N) * N * batch * sizeof(T);
+    const std::size_t v_size = static_cast<std::size_t>(N) * batch * sizeof(T);
+
+    // Device budget, checked predictively against the free memory
+    // (with a safety margin) before anything is allocated. The
+    // non-fatal allocations below remain the authoritative verdict:
+    // they see fragmentation, and the free memory can move under us.
+    std::size_t required = A_size + 2 * v_size + 2 * sizeof(int) * static_cast<std::size_t>(batch);
+    if constexpr (MS == Space::dram && !PLOCAL)
+        required += sizeof(int) * static_cast<std::size_t>(N) * batch;
+    if (required + (64ull << 20) > query_free_memory()) {
+        r.status = "skip_dram";
         return r;
     }
-    for (int s = 0; s < batch; ++s) {
-        for (int e = 0; e < N * N; ++e)
-            A_soa[static_cast<std::size_t>(e) * batch + s] = host.matrix(s)[e];
-        for (int i = 0; i < N; ++i)
-            b_soa[static_cast<std::size_t>(i) * batch + s] = host.rhs(s)[i];
-    }
-    const std::size_t A_size = A_soa.size() * sizeof(T);
-    const std::size_t v_size = b_soa.size() * sizeof(T);
 
     // Device buffers; an exhausted device memory is a recorded skip.
-    // b_d holds the pristine right-hand sides; y_d receives the
-    // solutions, and doubles as the in-place working buffer when the
-    // rhs lives in the batch (restored from b_d before every run).
-    // Only the dram family factors the matrix in place and needs its
-    // restore and a device pivot buffer.
+    // The inputs are materialized in place by the generation kernels:
+    // no host batch exists, and nothing crosses the PCIe bus. b_d
+    // holds the pristine right-hand sides; y_d receives the solutions,
+    // and doubles as the in-place working buffer when the rhs lives in
+    // the batch (restored from b_d before every run). Only the dram
+    // family factors the matrix in place and needs its restore (a
+    // device-side regeneration) and a device pivot buffer.
     T* A_d             = nullptr;
-    T* A_pristine_d    = nullptr;
     T* b_d             = nullptr;
     T* y_d             = nullptr;
     int* piv_d         = nullptr;
     int* ok_d          = nullptr;
     int* oot_d         = nullptr;
     const auto release = [&]() {
-        for (void* p : {static_cast<void*>(A_d), static_cast<void*>(A_pristine_d),
-                        static_cast<void*>(b_d), static_cast<void*>(y_d), static_cast<void*>(piv_d),
-                        static_cast<void*>(ok_d), static_cast<void*>(oot_d)})
+        for (void* p :
+             {static_cast<void*>(A_d), static_cast<void*>(b_d), static_cast<void*>(y_d),
+              static_cast<void*>(piv_d), static_cast<void*>(ok_d), static_cast<void*>(oot_d)})
             if (p != nullptr) GPU_CHECK(gpuFree(p));
     };
     bool allocated = gpu_try_malloc(&A_d, A_size) && gpu_try_malloc(&b_d, v_size) &&
@@ -590,27 +658,30 @@ Record run_variant(const Options& opt, const Distribution dist) {
         r.status = "skip_dram";
         return r;
     }
-    GPU_CHECK(gpuMemcpy(A_d, A_soa.data(), A_size, gpuMemcpyHostToDevice));
-    GPU_CHECK(gpuMemcpy(b_d, b_soa.data(), v_size, gpuMemcpyHostToDevice));
-    if constexpr (MS == Space::dram) {
-        if (query_free_memory() > A_size + (A_size / 8)) {
-            if (gpu_try_malloc(&A_pristine_d, A_size))
-                GPU_CHECK(gpuMemcpy(A_pristine_d, A_d, A_size, gpuMemcpyDeviceToDevice));
-        }
+    const double bound    = distribution_bound<T>(dist);
+    const auto generate_A = [&]() {
+        const long long total = static_cast<long long>(batch) * N * N;
+        const int gen_blocks  = static_cast<int>((total + 255) / 256);
+        kernel_generate_matrices<T><<<gen_blocks, 256>>>(N, batch, opt.seed, bound, A_d);
+        GPU_CHECK(gpuGetLastError());
+    };
+    {
+        const long long total = static_cast<long long>(batch) * N;
+        const int gen_blocks  = static_cast<int>((total + 255) / 256);
+        kernel_generate_rhs<T><<<gen_blocks, 256>>>(N, batch, opt.seed, bound, b_d);
+        GPU_CHECK(gpuGetLastError());
     }
+    generate_A();
+    GPU_CHECK(gpuDeviceSynchronize());
     const auto restore = [&]() {
         if constexpr (MS == Space::dram) {
-            if (A_pristine_d != nullptr) {
-                GPU_CHECK(gpuMemcpy(A_d, A_pristine_d, A_size, gpuMemcpyDeviceToDevice));
-            } else {
-                GPU_CHECK(gpuMemcpy(A_d, A_soa.data(), A_size, gpuMemcpyHostToDevice));
-            }
+            generate_A(); // in-place regeneration, cheaper than any copy
             if constexpr (!RLOCAL) {
                 GPU_CHECK(gpuMemcpy(y_d, b_d, v_size, gpuMemcpyDeviceToDevice));
             }
         }
     };
-    const auto launch = [&]() {
+    const auto launch_raw = [&]() {
         const std::size_t dyn = launch_choice.dyn_smem;
         if constexpr (K == SolverKind::static_ && MS == Space::reg) {
             kernel_static_reg<T, N, TS, S, U><<<blocks, ntpb>>>(batch, A_d, b_d, y_d, ok_d, oot_d);
@@ -629,12 +700,28 @@ Record run_variant(const Options& opt, const Distribution dist) {
             kernel_dynamic_shm<T, N, TS, S, RLOCAL, PLOCAL>
                 <<<blocks, ntpb, dyn>>>(N, batch, A_d, b_d, y_d, ok_d, oot_d);
         }
+    };
+    const auto launch = [&]() {
+        launch_raw();
         GPU_CHECK(gpuGetLastError());
     };
 
-    // Protocol: untimed warmups, then the timed runs, every run on
-    // pristine inputs.
-    for (int w = 0; w < opt.warmup; ++w) {
+    // Launch probe: a configuration the device rejects surfaces here
+    // as a recorded row, never as an abort (each variant runs in its
+    // own process, so the sticky error state dies with it).
+    restore();
+    launch_raw();
+    if (TDLS_EXAMPLES_GPU_API(GetLastError)() != gpuSuccess ||
+        TDLS_EXAMPLES_GPU_API(DeviceSynchronize)() != gpuSuccess) {
+        TDLS_EXAMPLES_GPU_API(GetLastError)(); // clear the sticky state
+        release();
+        r.status = "error_launch";
+        return r;
+    }
+
+    // Protocol: untimed warmups (the probe already ran the first),
+    // then the timed runs, every run on pristine inputs.
+    for (int w = 1; w < opt.warmup; ++w) {
         restore();
         launch();
         GPU_CHECK(gpuDeviceSynchronize());
@@ -651,10 +738,21 @@ Record run_variant(const Options& opt, const Distribution dist) {
     const KernelMetrics metrics =
         kernel_metrics(kernel, ntpb, launch_choice.dyn_smem, blocks, device);
 
-    // Outputs of the last run.
-    std::vector<T> y_soa(b_soa.size());
-    std::vector<int> ok(batch);
-    std::vector<int> oot(batch);
+    // Outputs of the last run; these host buffers are small (batch
+    // vectors, never a matrix batch), an allocation failure is still a
+    // recorded skip.
+    std::vector<T> y_soa;
+    std::vector<int> ok;
+    std::vector<int> oot;
+    try {
+        y_soa.resize(static_cast<std::size_t>(N) * batch);
+        ok.resize(batch);
+        oot.resize(batch);
+    } catch (const std::bad_alloc&) {
+        release();
+        r.status = "skip_host";
+        return r;
+    }
     GPU_CHECK(gpuMemcpy(y_soa.data(), y_d, v_size, gpuMemcpyDeviceToHost));
     GPU_CHECK(gpuMemcpy(ok.data(), ok_d, sizeof(int) * batch, gpuMemcpyDeviceToHost));
     GPU_CHECK(gpuMemcpy(oot.data(), oot_d, sizeof(int) * batch, gpuMemcpyDeviceToHost));
@@ -671,8 +769,9 @@ Record run_variant(const Options& opt, const Distribution dist) {
     r.systems_per_s             = r.t_ms.median > 0.0 ? batch / (r.t_ms.median / 1000.0) : 0.0;
     for (const int flag : ok)
         r.solved += flag;
-    r.parity = verdict_parity_sample(host, ok, opt.parity_sample);
-    r.be     = backward_error_sample(host, y_soa, ok, opt.validate_sample, r.validated_systems);
+    r.parity = verdict_parity_sample<T>(N, batch, opt.seed, bound, ok, opt.parity_sample);
+    r.be     = backward_error_sample<T>(N, batch, opt.seed, bound, y_soa, ok, opt.validate_sample,
+                                        r.validated_systems);
     std::vector<double> oot_values(oot.begin(), oot.end());
     r.oot = compute_stats(std::move(oot_values));
     for (const int count : oot)
