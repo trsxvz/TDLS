@@ -32,6 +32,28 @@ jobs:
       - name: Run the test suites and the examples
         run: ctest --test-dir build --output-on-failure
 
+  sanitizers:
+    name: tests (g++, ASan+UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the LLVM OpenMP runtime
+        run: sudo apt-get update && sudo apt-get install -y libomp-dev
+      - name: Configure
+        # Release keeps the tests' own -O1: at -O2 and above, gcc's flow
+        # analysis emits spurious array-bounds warnings under sanitizer
+        # instrumentation, which the tests' -Werror makes fatal.
+        # -fno-sanitize-recover makes every UBSan finding fatal too, so
+        # ctest actually fails instead of passing over printed errors.
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=g++
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
+      - name: Build
+        run: cmake --build build -j4 --target buildtests
+      - name: Run the test suites and the examples
+        run: UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build --output-on-failure
+
   format:
     runs-on: ubuntu-latest
     steps:
