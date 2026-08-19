@@ -71,6 +71,7 @@ struct Options {
     int warmup              = 1;           ///< untimed warmup runs per variant
     int ntpb                = 0;           ///< threads per block (0: O+W heuristic)
     unsigned long long seed = 20260818ull; ///< generator seed of the batch
+    double budget_s         = 0.0;         ///< per-variant time budget, seconds (0: off)
     int validate_sample     = 4096;        ///< systems checked for backward error (0: off)
     int parity_sample       = 32;          ///< systems checked against the reference LU (0: off)
     std::vector<Distribution> distributions = {Distribution::uniform,
@@ -91,6 +92,9 @@ inline void print_usage(const char* program) {
                 "  --ntpb <n>             threads per block, 0 = auto by the O+W heuristic "
                 "(default 0)\n"
                 "  --seed <n>             batch generator seed (default 20260818)\n"
+                "  --budget <s>           per-variant time budget in seconds: a variant whose\n"
+                "                         probe prices the protocol above it gets fewer timed\n"
+                "                         runs, never fewer than one (default 0 = off)\n"
                 "  --validate <n>         systems checked for backward error, 0 = off "
                 "(default 4096)\n"
                 "  --parity <n>           systems checked against the reference LU, 0 = off "
@@ -140,6 +144,14 @@ inline bool parse_options(const int argc, char* const* argv, Options& opt) {
         } else if (std::strcmp(arg, "--ntpb") == 0) {
             const char* v = next();
             ok            = v != nullptr && integer(v, opt.ntpb);
+        } else if (std::strcmp(arg, "--budget") == 0) {
+            const char* v = next();
+            ok            = v != nullptr;
+            if (ok) {
+                char* end    = nullptr;
+                opt.budget_s = std::strtod(v, &end);
+                ok           = end != v && *end == '\0' && opt.budget_s >= 0.0;
+            }
         } else if (std::strcmp(arg, "--seed") == 0) {
             const char* v = next();
             ok            = v != nullptr;

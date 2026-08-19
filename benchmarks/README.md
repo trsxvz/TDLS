@@ -77,7 +77,14 @@ its sampled systems on the host with the same function, so any
 host/device divergence of the generator fails the parity check.
 
 Protocol: one untimed warmup then 5 timed runs per variant (event
-timing, every run on pristine inputs), under two input distributions
+timing, every run on pristine inputs). `--budget <s>` bounds the cost
+of that protocol per variant: the launch probe doubles as a price
+check, and when it projects the protocol above the budget the extra
+warmups are dropped and the timed runs are cut to what fits, never
+below one (a shortened row simply lists fewer raw runs in its
+`t_runs_ms` cell). Fast variants are unaffected; the long tail of a
+campaign no longer repeats multi-second kernels five times.
+Measurements run under two input distributions
 (`default`, entries in [-0.5, 0.5]; `stress`, entries within 1.4x
 the pivot acceptance threshold of the scalar type, so nearly every
 system fires the out-of-tile pivoting on about a third of its

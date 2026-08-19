@@ -63,6 +63,7 @@
 
 
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -708,8 +709,11 @@ Record run_variant(const Options& opt, const Distribution dist) {
 
     // Launch probe: a configuration the device rejects surfaces here
     // as a recorded row, never as an abort (each variant runs in its
-    // own process, so the sticky error state dies with it).
+    // own process, so the sticky error state dies with it). The probe
+    // is also timed (host clock, synchronous): it prices the variant
+    // for the budget policy below.
     restore();
+    const auto probe_start = std::chrono::steady_clock::now();
     launch_raw();
     if (TDLS_EXAMPLES_GPU_API(GetLastError)() != gpuSuccess ||
         TDLS_EXAMPLES_GPU_API(DeviceSynchronize)() != gpuSuccess) {
@@ -719,17 +723,38 @@ Record run_variant(const Options& opt, const Distribution dist) {
         return r;
     }
 
+    const double probe_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - probe_start)
+            .count();
+
+    // Budget policy: when a per-variant time budget is set and the
+    // probe prices the full protocol above it, the remaining warmups
+    // are dropped and the timed runs are cut to what fits, never
+    // below one. No schema change: a shortened row simply lists fewer
+    // raw runs in its t_runs_ms cell. Long kernels are run-to-run
+    // stable, so repetition is cut exactly where it informs least.
+    int warmups = opt.warmup;
+    int runs    = opt.runs;
+    if (opt.budget_s > 0.0) {
+        const double projected = probe_ms * (warmups - 1 + runs);
+        if (projected > opt.budget_s * 1000.0) {
+            warmups       = 1;
+            const int fit = static_cast<int>(opt.budget_s * 1000.0 / probe_ms);
+            runs          = fit < 1 ? 1 : (fit > opt.runs ? opt.runs : fit);
+        }
+    }
+
     // Protocol: untimed warmups (the probe already ran the first),
     // then the timed runs, every run on pristine inputs.
-    for (int w = 1; w < opt.warmup; ++w) {
+    for (int w = 1; w < warmups; ++w) {
         restore();
         launch();
         GPU_CHECK(gpuDeviceSynchronize());
     }
     GpuTimer timer;
     std::vector<double> times;
-    times.reserve(static_cast<std::size_t>(opt.runs));
-    for (int run = 0; run < opt.runs; ++run) {
+    times.reserve(static_cast<std::size_t>(runs));
+    for (int run = 0; run < runs; ++run) {
         restore();
         times.push_back(timer.time_ms(launch));
     }
