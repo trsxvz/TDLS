@@ -17,14 +17,7 @@
 
 namespace {
 
-struct EpsAboveThresholdConfig {
-    static constexpr int tile_size                    = 3;
-    static constexpr tdls::TiledLUppSchedule schedule = tdls::TiledLUppSchedule::RightLooking;
-    static constexpr double oot_threshold             = 1e-10;
-    static constexpr double singular_eps              = 1e-4;
-    static constexpr bool oot_first_acceptable        = true;
-    static constexpr bool unroll_inner                = true;
-};
+constexpr auto config = tdls::TiledLUppConfig<double>{.oot_threshold = 1e-10, .singular_eps = 1e-4};
 
 } // namespace
 
@@ -32,6 +25,6 @@ int main() {
     double M[81];
     double y[9];
     int piv[9];
-    using Solver = tdls::TiledLUppSolverStatic<double, 9, EpsAboveThresholdConfig>;
+    using Solver = tdls::TiledLUppSolverStatic<double, 9, config>;
     return Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1) ? 0 : 1;
 }

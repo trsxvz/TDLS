@@ -11,10 +11,17 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 ///
-/// Every knob is a `static constexpr` member of a config type passed as the
-/// `TiledLUppSolverConfig` template argument of the TiledLUpp solvers. TiledLUppDefaultConfig holds the
-/// tuned defaults; a caller overrides them by providing its own type with
-/// the same members.
+/// Every knob is a member of the TiledLUppConfig aggregate. A constexpr
+/// instance of it is passed as the `Config` non-type template argument
+/// of the TiledLUpp solvers. The default-constructed value carries the
+/// tuned defaults; a caller overrides individual knobs with designated
+/// initializers, in declaration order:
+///
+///   constexpr auto config = tdls::TiledLUppConfig<double>{.tile_size = 4};
+///
+/// The aggregate is a structural type, as class-type non-type template
+/// parameters require: every member is public, and two configurations
+/// with equal members name the same solver instantiation.
 
 
 
@@ -37,10 +44,11 @@ enum class TiledLUppSchedule {
 
 
 
-/// \brief Default compile-time knobs of the TiledLUpp solvers.
+/// \brief Compile-time knobs of the TiledLUpp solvers, carrying the tuned
+/// defaults.
 /// \tparam T scalar type (float or double)
 template<typename T>
-struct TiledLUppDefaultConfig {
+struct TiledLUppConfig {
 
     /// Tile extent: the matrix is processed as a grid of tile_size x
     /// tile_size register tiles. This is the main performance axis of the
@@ -49,20 +57,19 @@ struct TiledLUppDefaultConfig {
     /// require tile_size >= 1. The tile size may exceed the dimension (the
     /// grid is then a single partial tile), and tile_size = 1 degenerates
     /// into an untiled scalar elimination.
-    static constexpr int tile_size = 3;
+    int tile_size = 3;
 
     /// Elimination schedule of the tiled factorization, see
     /// TiledLUppSchedule.
-    static constexpr TiledLUppSchedule schedule = TiledLUppSchedule::RightLooking;
+    TiledLUppSchedule schedule = TiledLUppSchedule::RightLooking;
 
     /// Acceptable-pivot threshold of the out-of-tile search. Both
-    /// thresholds must have the scalar type T; the solvers enforce this
-    /// contract at compile time. An in-tile
+    /// thresholds carry the scalar type T by construction. An in-tile
     /// pivot candidate whose magnitude reaches this value is accepted
     /// without looking outside the tile; below it, the search extends to
     /// the rows under the tile (out-of-tile pivoting) and the best
     /// corrected candidate wins.
-    static constexpr T oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
+    T oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
 
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it. The
@@ -74,7 +81,7 @@ struct TiledLUppDefaultConfig {
     /// stability is surfaced by the backward error and overflow is caught
     /// downstream by the caller, whereas an absolute floor wrongly flags
     /// well-conditioned matrices at small scale.
-    static constexpr T singular_eps = std::numeric_limits<T>::min();
+    T singular_eps = std::numeric_limits<T>::min();
 
     /// Out-of-tile pivot search strategy. When true, the below-tile scan
     /// stops at the first candidate whose corrected magnitude reaches
@@ -84,7 +91,7 @@ struct TiledLUppDefaultConfig {
     /// left-looking, where every candidate replays the prior tiles), at
     /// the cost of a possibly smaller (but still >= oot_threshold) pivot.
     /// Set false to restore the full-panel partial-pivoting scan.
-    static constexpr bool oot_first_acceptable = true;
+    bool oot_first_acceptable = true;
 
     /// Unroll policy of the in-tile scalar loops, applied through a
     /// two-branch `if constexpr` (the pragma dialect itself lives in
@@ -94,21 +101,7 @@ struct TiledLUppDefaultConfig {
     /// demotes it to slow local memory. false: no unroll pragma anywhere,
     /// for faster compiles, GPU performance not guaranteed. Outer tile-sweep
     /// loops never carry a pragma in either branch.
-    static constexpr bool unroll_inner = true;
-};
-
-
-
-/// \brief Convenience configuration selecting the tile size and the
-/// schedule while keeping every other knob at its default.
-/// \tparam T     scalar type (float or double)
-/// \tparam TS    tile size (int)
-/// \tparam Schedule elimination schedule (RightLooking or LeftLooking)
-template<typename T, int TS, TiledLUppSchedule Schedule = TiledLUppSchedule::RightLooking>
-struct TiledLUppConfig : TiledLUppDefaultConfig<T> {
-    static constexpr int tile_size = TS; ///< tile size (int)
-    static constexpr TiledLUppSchedule schedule =
-        Schedule; ///< elimination schedule (RightLooking or LeftLooking)
+    bool unroll_inner = true;
 };
 
 

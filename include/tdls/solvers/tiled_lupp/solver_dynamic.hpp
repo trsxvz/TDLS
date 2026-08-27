@@ -16,14 +16,14 @@
 /// format, right- and left-looking schedules. The difference is that the
 /// system dimension n
 /// is a runtime function parameter instead of a template parameter. Only
-/// the tile size (TiledLUppSolverConfig::tile_size) stays compile-time:
+/// the tile size (Config.tile_size) stays compile-time:
 /// register tiles keep a fixed TSxTS footprint, while all loop bounds
 /// over tiles and inside partial tiles are runtime values.
 ///
 /// Deliberate differences with the compile-time solver:
 ///   - No unroll pragma anywhere: with runtime bounds nothing can be
 ///     register-resident by full unrolling, so the unroll_inner knob of
-///     TiledLUppSolverConfig is ignored.
+///     TiledLUppConfig is ignored.
 ///   - No internal_rhs / internal_piv / internal_matrix booleans: without
 ///     unrolling, the internal residency mode degenerates into "external
 ///     with stride 1", so every array is plain pointer + stride. The
@@ -33,7 +33,7 @@
 ///     same for every lane): a 64-bit visited bitmask up to n = 64, a
 ///     cycle-leader scan beyond: zero extra storage and no ceiling on n.
 ///
-/// For equal shapes (same n, TS, schedule, TiledLUppSolverConfig thresholds), results are
+/// For equal shapes (same n, TS, schedule, TiledLUppConfig thresholds), results are
 /// bitwise identical to the compile-time solver: the arithmetic sequence
 /// is the same, only addressing and loop mechanics differ.
 ///
@@ -130,24 +130,20 @@ namespace tdls {
 /// in TiledLUppSolverStatic: a factorization produced here must be consumed by the
 /// substitution routines of this family.
 ///
-/// \tparam T                 scalar type (float or double)
-/// \tparam TiledLUppSolverConfig compile-time knobs: tile size (may exceed
-///         n), schedule, pivoting thresholds; see TiledLUppDefaultConfig and
+/// \tparam T      scalar type (float or double)
+/// \tparam Config compile-time knobs, passed as a constexpr value: tile
+///         size (may exceed n), schedule, pivoting thresholds; see
 ///         TiledLUppConfig (unroll_inner is ignored by this variant)
-template<typename T, typename TiledLUppSolverConfig = TiledLUppDefaultConfig<T>>
+template<typename T, TiledLUppConfig<T> Config = TiledLUppConfig<T>{}>
 struct TiledLUppSolverDynamic {
 
-    static constexpr int TS = TiledLUppSolverConfig::tile_size; ///< tile size (int)
+    static constexpr int TS = Config.tile_size; ///< tile size (int)
     static constexpr TiledLUppSchedule Schedule =
-        TiledLUppSolverConfig::schedule; ///< elimination schedule (RightLooking or LeftLooking)
+        Config.schedule; ///< elimination schedule (RightLooking or LeftLooking)
 
-    static_assert(TiledLUppSolverConfig::singular_eps <= TiledLUppSolverConfig::oot_threshold,
+    static_assert(Config.singular_eps <= Config.oot_threshold,
                   "TiledLUppSolverDynamic: singular_eps must not exceed oot_threshold (the "
                   "floor applies to the out-of-tile recovery path)");
-    static_assert(
-        std::is_same_v<std::remove_cv_t<decltype(TiledLUppSolverConfig::oot_threshold)>, T> &&
-            std::is_same_v<std::remove_cv_t<decltype(TiledLUppSolverConfig::singular_eps)>, T>,
-        "TiledLUppSolverDynamic: the config thresholds must have the scalar type T");
     static_assert(TS >= 1, "TiledLUppSolverDynamic: tile size must be >= 1");
 
     /// \brief Number of tiles per dimension (last one possibly partial).
@@ -445,20 +441,20 @@ struct TiledLUppSolverDynamic {
 
         int piv_row; // winning global (logical) row
 
-        if (best >= TiledLUppSolverConfig::oot_threshold) {
+        if (best >= Config.oot_threshold) {
             piv_row = k0 + best_r;
         } else if (ke < TS) {
             // Trailing tile: no rows below to recover from. Diagnostic
             // order: singularity verdict first, then count the weak pivot
             // (full tiles count before the verdict).
-            if (best < TiledLUppSolverConfig::singular_eps) return false;
+            if (best < Config.singular_eps) return false;
             if constexpr (oot_diag) ++oot_count;
             piv_row = k0 + best_r;
         } else {
             // Out-of-tile recovery: scan the rows below the tile and
             // evaluate each candidate as if it had received the
             // eliminations it is missing, keeping the best (or, with
-            // TiledLUppSolverConfig::oot_first_acceptable, the first to reach the threshold).
+            // Config.oot_first_acceptable, the first to reach the threshold).
             if constexpr (oot_diag) ++oot_count;
             T gbest       = best;
             int gbest_row = k0 + best_r;
@@ -500,11 +496,11 @@ struct TiledLUppSolverDynamic {
                 // First-acceptable out-of-tile pivot: a candidate that
                 // reaches the threshold already beats the sub-threshold
                 // in-tile pivot, so stop scanning.
-                if constexpr (TiledLUppSolverConfig::oot_first_acceptable)
-                    if (v >= TiledLUppSolverConfig::oot_threshold) break;
+                if constexpr (Config.oot_first_acceptable)
+                    if (v >= Config.oot_threshold) break;
             }
 
-            if (gbest < TiledLUppSolverConfig::singular_eps) return false;
+            if (gbest < Config.singular_eps) return false;
             piv_row = gbest_row;
         }
 

@@ -35,7 +35,8 @@ constexpr int species = 3;                ///< fixed by the Robertson mechanism
 constexpr int stages  = 3;                ///< fixed by the Radau IIA method
 constexpr int N       = stages * species; ///< Newton system dimension
 
-using Solver = tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double, 3>>;
+using Solver =
+    tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 3}>;
 
 /// \brief Right-hand side of the Robertson kinetics, the classical stiff
 /// benchmark: a slow reaction feeding two fast ones.

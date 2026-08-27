@@ -35,23 +35,27 @@ constexpr int TS = 3;
 /// \param[in] b0       right-hand side
 /// \param[in] solvable expected verdict
 void check_verdicts(const double* A0, const double* b0, const bool solvable) {
-    using ConfigRL = tdls::TiledLUppConfig<double, TS, tdls::TiledLUppSchedule::RightLooking>;
-    using ConfigLL = tdls::TiledLUppConfig<double, TS, tdls::TiledLUppSchedule::LeftLooking>;
+    constexpr auto config_rl = tdls::TiledLUppConfig<double>{
+        .tile_size = TS, .schedule = tdls::TiledLUppSchedule::RightLooking};
+    constexpr auto config_ll = tdls::TiledLUppConfig<double>{
+        .tile_size = TS, .schedule = tdls::TiledLUppSchedule::LeftLooking};
     std::vector<double> A(N * N), x(N);
     std::vector<int> piv(N);
 
     std::copy(A0, A0 + N * N, A.begin());
-    const bool ok_rl = tdls::TiledLUppSolverStatic<double, N, ConfigRL>::solve<false, false, false>(
-        A.data(), 1, piv.data(), 1, b0, x.data(), 1);
+    const bool ok_rl =
+        tdls::TiledLUppSolverStatic<double, N, config_rl>::solve<false, false, false>(
+            A.data(), 1, piv.data(), 1, b0, x.data(), 1);
     TDLS_CHECK(ok_rl == solvable);
 
     std::copy(A0, A0 + N * N, A.begin());
-    const bool ok_ll = tdls::TiledLUppSolverStatic<double, N, ConfigLL>::solve<false, false, false>(
-        A.data(), 1, piv.data(), 1, b0, x.data(), 1);
+    const bool ok_ll =
+        tdls::TiledLUppSolverStatic<double, N, config_ll>::solve<false, false, false>(
+            A.data(), 1, piv.data(), 1, b0, x.data(), 1);
     TDLS_CHECK(ok_ll == solvable);
 
     std::copy(A0, A0 + N * N, A.begin());
-    const bool ok_dyn = tdls::TiledLUppSolverDynamic<double, ConfigRL>::solve(
+    const bool ok_dyn = tdls::TiledLUppSolverDynamic<double, config_rl>::solve(
         N, A.data(), 1, piv.data(), 1, b0, x.data(), 1);
     TDLS_CHECK(ok_dyn == solvable);
 

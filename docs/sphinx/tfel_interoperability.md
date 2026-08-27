@@ -95,5 +95,5 @@ tdls::solve(A2, piv, B, X);
 // parameter pass_width cuts the substitution into passes instead, the
 // last pass taking the remainder: a working-set control knob for very
 // wide right-hand sides. Here, passes of 2 columns.
-tdls::solve<void, 2>(A2, piv, B, X);
+tdls::solve<2>(A2, piv, B, X);
 ```

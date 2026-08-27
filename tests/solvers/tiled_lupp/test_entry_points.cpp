@@ -36,7 +36,8 @@ namespace {
 /// \param[in] seed  generator seed
 template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
 void entry_points_case(const int count, const double bound, const std::uint64_t seed) {
-    using Solver     = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
+    using Solver = tdls::TiledLUppSolverStatic<
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     std::vector<T> A_split(N * N), A_other(N * N);

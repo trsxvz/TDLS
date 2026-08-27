@@ -31,7 +31,8 @@ namespace {
 /// \param[in] seed      generator seed
 template<int TS>
 void anchor(const int n, const int count, const double tolerance, const std::uint64_t seed) {
-    using Solver     = tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double, TS>>;
+    using Solver =
+        tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double>{.tile_size = TS}>;
     const auto batch = tdls_tests::make_batch<double>(n, count, seed, 0.5);
     std::vector<double> A(static_cast<std::size_t>(n) * n), x(n);
     std::vector<int> piv(n);
@@ -48,7 +49,7 @@ void anchor(const int n, const int count, const double tolerance, const std::uin
 } // namespace
 
 TDLS_TEST_CASE("tiledlupp/dynamic-edges/tile-grid-helpers") {
-    using S4 = tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double, 4>>;
+    using S4 = tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double>{.tile_size = 4}>;
     // Divisible, partial-tile and single-tile grids.
     TDLS_CHECK(S4::num_tiles(4) == 1);
     TDLS_CHECK(S4::num_tiles(8) == 2);
@@ -58,7 +59,7 @@ TDLS_TEST_CASE("tiledlupp/dynamic-edges/tile-grid-helpers") {
     TDLS_CHECK(S4::tile_extent(4, 9) == 4);
     TDLS_CHECK(S4::tile_extent(8, 9) == 1);
     TDLS_CHECK(S4::tile_extent(0, 2) == 2);
-    using S6 = tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double, 6>>;
+    using S6 = tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double>{.tile_size = 6}>;
     TDLS_CHECK(S6::num_tiles(13) == 3);
     TDLS_CHECK(S6::tile_extent(12, 13) == 1);
 }

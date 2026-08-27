@@ -41,9 +41,7 @@ constexpr double lcg(unsigned& state) {
 /// \tparam T  scalar type
 /// \tparam TS tile size
 template<typename T, int TS>
-struct NoUnrollConfig : tdls::TiledLUppConfig<T, TS> {
-    static constexpr bool unroll_inner = false; ///< no pragma anywhere
-};
+constexpr auto no_unroll_config = tdls::TiledLUppConfig<T>{.tile_size = TS, .unroll_inner = false};
 
 /// \brief Normwise backward error |A0 x - b| / (|A0| |x| + |b|),
 /// accumulated in double and computable during constant evaluation.
@@ -85,7 +83,7 @@ constexpr double backward_error(const T* A0, const T* x, const T* b) {
 /// \return true when the solve succeeded within the tolerance
 template<typename T, int N, int TS>
 constexpr bool no_unroll_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, NoUnrollConfig<T, TS>>;
+    using Solver = tdls::TiledLUppSolverStatic<T, N, no_unroll_config<T, TS>>;
     T A[N * N]   = {};
     T A0[N * N]  = {};
     T b[N]       = {};
@@ -113,13 +111,14 @@ constexpr bool no_unroll_certificate(const unsigned seed, const double tolerance
 /// \return true when the solve succeeded within the tolerance
 template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
 constexpr bool solve_internal_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
-    T A[N * N]   = {};
-    T A0[N * N]  = {};
-    T b[N]       = {};
-    T x[N]       = {};
-    int piv[N]   = {};
-    unsigned s   = seed;
+    using Solver = tdls::TiledLUppSolverStatic<
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+    T A[N * N]  = {};
+    T A0[N * N] = {};
+    T b[N]      = {};
+    T x[N]      = {};
+    int piv[N]  = {};
+    unsigned s  = seed;
     for (int e = 0; e < N * N; ++e) {
         A[e]  = static_cast<T>(lcg(s));
         A0[e] = A[e];
@@ -141,7 +140,8 @@ constexpr bool solve_internal_certificate(const unsigned seed, const double tole
 /// \return true when the solve succeeded within the tolerance
 template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
 constexpr bool solve_external_certificate(const unsigned seed, const double tolerance) {
-    using Solver   = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
+    using Solver = tdls::TiledLUppSolverStatic<
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
     T A[2 * N * N] = {};
     T A0[N * N]    = {};
     T b[2 * N]     = {};
@@ -170,9 +170,8 @@ constexpr bool solve_external_certificate(const unsigned seed, const double tole
 /// \tparam T  scalar type
 /// \tparam TS tile size
 template<typename T, int TS>
-struct AlwaysOotConfig : tdls::TiledLUppConfig<T, TS> {
-    static constexpr T oot_threshold = T(1e30); ///< unreachable threshold
-};
+constexpr auto always_oot_config =
+    tdls::TiledLUppConfig<T>{.tile_size = TS, .oot_threshold = T(1e30)};
 
 /// \brief Certificate: the out-of-tile recovery path (candidate replay
 /// included) is exercised on every column.
@@ -184,7 +183,7 @@ struct AlwaysOotConfig : tdls::TiledLUppConfig<T, TS> {
 /// \return true when the solve succeeded within the tolerance
 template<typename T, int N, int TS>
 constexpr bool oot_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, AlwaysOotConfig<T, TS>>;
+    using Solver = tdls::TiledLUppSolverStatic<T, N, always_oot_config<T, TS>>;
     T A[N * N]   = {};
     T A0[N * N]  = {};
     T b[N]       = {};
@@ -211,15 +210,16 @@ constexpr bool oot_certificate(const unsigned seed, const double tolerance) {
 /// \return true when every output matches exactly
 template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
 constexpr bool fused_matches_solve_certificate(const unsigned seed) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
-    T As[N * N]  = {};
-    T Af[N * N]  = {};
-    T b[N]       = {};
-    T x[N]       = {};
-    T y[N]       = {};
-    int pivs[N]  = {};
-    int pivf[N]  = {};
-    unsigned s   = seed;
+    using Solver = tdls::TiledLUppSolverStatic<
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+    T As[N * N] = {};
+    T Af[N * N] = {};
+    T b[N]      = {};
+    T x[N]      = {};
+    T y[N]      = {};
+    int pivs[N] = {};
+    int pivf[N] = {};
+    unsigned s  = seed;
     for (int e = 0; e < N * N; ++e) {
         As[e] = static_cast<T>(lcg(s));
         Af[e] = As[e];
@@ -248,7 +248,7 @@ constexpr bool fused_matches_solve_certificate(const unsigned seed) {
 /// \return true when every column stayed within the tolerance
 template<typename T, int N, int TS>
 constexpr bool canonical_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS>>;
+    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
     T A[N * N]   = {};
     T A0[N * N]  = {};
     T x[N]       = {};
@@ -280,7 +280,7 @@ constexpr bool canonical_certificate(const unsigned seed, const double tolerance
 /// \return true when the solve succeeded within the tolerance
 template<typename T, int N, int TS>
 constexpr bool dynamic_solve_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T, TS>>;
+    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
     T A[N * N]   = {};
     T A0[N * N]  = {};
     T b[N]       = {};
@@ -307,17 +307,17 @@ constexpr bool dynamic_solve_certificate(const unsigned seed, const double toler
 /// \return true when every output matches exactly
 template<typename T, int N, int TS>
 constexpr bool bridge_certificate(const unsigned seed) {
-    using Config  = tdls::TiledLUppConfig<T, TS>;
-    using Static  = tdls::TiledLUppSolverStatic<T, N, Config>;
-    using Dynamic = tdls::TiledLUppSolverDynamic<T, Config>;
-    T As[N * N]   = {};
-    T Ad[N * N]   = {};
-    T b[N]        = {};
-    T xs[N]       = {};
-    T xd[N]       = {};
-    int ps[N]     = {};
-    int pd[N]     = {};
-    unsigned s    = seed;
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
+    using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
+    T As[N * N]           = {};
+    T Ad[N * N]           = {};
+    T b[N]                = {};
+    T xs[N]               = {};
+    T xd[N]               = {};
+    int ps[N]             = {};
+    int pd[N]             = {};
+    unsigned s            = seed;
     for (int e = 0; e < N * N; ++e) {
         As[e] = static_cast<T>(lcg(s));
         Ad[e] = As[e];
@@ -348,9 +348,9 @@ constexpr bool bridge_certificate(const unsigned seed) {
 /// \return true when every output matches exactly
 template<typename T, int N, int TS, int W>
 constexpr bool multirhs_certificate(const unsigned seed) {
-    using Config  = tdls::TiledLUppConfig<T, TS>;
-    using Static  = tdls::TiledLUppSolverStatic<T, N, Config>;
-    using Dynamic = tdls::TiledLUppSolverDynamic<T, Config>;
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
+    using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     T A[N * N];
     T B[W * N];
     T X_ref[W * N];
@@ -398,7 +398,7 @@ constexpr bool multirhs_certificate(const unsigned seed) {
 /// \return true when the solver reports the singularity
 template<typename T, int N, int TS>
 constexpr bool singular_rejected_certificate() {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS>>;
+    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
     T A[N * N]   = {};
     T b[N]       = {};
     T x[N]       = {};

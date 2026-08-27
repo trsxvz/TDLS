@@ -55,14 +55,16 @@ localizes a divergence exactly.
 | `constexpr` | compile-time certificates: constant-evaluated solves the standard requires to be free of undefined behaviour, on both solvers |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
-| `reject_config_*` | negative compilation tests of the configuration contracts |
+| `reject_*` | negative compilation tests of the compile-time contracts |
 
-The `reject_config_*` entries deserve a word: they compile, on
-purpose, translation units that must be rejected by the compile-time
-contracts of the configuration (scalar type of the thresholds, in both
-directions, and threshold ordering). Each test passes only when the
-compiler emits the exact diagnostic of its contract, so a silently
-dropped contract turns the suite red.
+The `reject_*` entries deserve a word: they compile, on purpose,
+translation units that must be rejected by the compile-time contracts
+(threshold ordering, const-ness of the adaptor arguments, and the
+match between the config scalar and the matrix scalar). Each test
+passes only when the compiler emits the exact diagnostic of its
+contract, so a silently dropped contract turns the suite red. The
+scalar type of the thresholds needs no test anymore: the configuration
+members carry it by construction.
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in

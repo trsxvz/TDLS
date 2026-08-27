@@ -41,7 +41,8 @@ namespace {
 template<typename T, int TS, tdls::TiledLUppSchedule Schedule>
 void anchor_case(const int n, const int count, const double bound, const double tolerance,
                  const std::uint64_t seed) {
-    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T, TS, Schedule>>;
+    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T>{.tile_size = TS,
+                                                                            .schedule  = Schedule}>;
     auto batch   = tdls_tests::make_batch<T>(n, count, seed, bound);
     tdls_tests::zero_column(batch, 0, 0);
 

@@ -3,8 +3,11 @@
 ## Requirements
 
 Only a C++20 compiler is mandatory: the library itself has no
-dependency. Running every example additionally needs an OpenMP
-runtime and a CUDA or HIP toolchain.
+dependency. The solver configuration travels as a class-type non-type
+template parameter, a C++20 feature with uneven early support; GCC 10,
+Clang 17, Visual Studio 2022 and CUDA 12 are recent enough. Running
+every example additionally needs an OpenMP runtime and a CUDA or HIP
+toolchain.
 
 ## Consuming the library
 

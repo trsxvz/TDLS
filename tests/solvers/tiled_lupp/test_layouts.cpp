@@ -140,7 +140,8 @@ void layouts_case(const int count, const double bound, const std::uint64_t seed)
 /// \brief Static-solver front end of layouts_case.
 template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
 void layouts_case_static(const int count, const double bound, const std::uint64_t seed) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
+    using Solver = tdls::TiledLUppSolverStatic<
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
     layouts_case<Solver, T, N>(count, bound, seed);
 }
 
@@ -148,7 +149,7 @@ void layouts_case_static(const int count, const double bound, const std::uint64_
 /// by run_layout, so both solvers share the same layout plumbing.
 template<typename T, int N, int TS>
 struct DynamicFrontEnd {
-    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T, TS>>;
+    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
     template<bool, bool>
     static bool factorize(T* A, const int a_stride, int* piv, const int piv_stride) {
         return Solver::factorize(N, A, a_stride, piv, piv_stride);

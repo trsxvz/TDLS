@@ -41,7 +41,8 @@ constexpr int species = 3;                ///< fixed by the Robertson mechanism
 constexpr int stages  = 3;                ///< fixed by the Radau IIA method
 constexpr int N       = stages * species; ///< Newton system dimension
 
-using Solver = tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double, 3>>;
+using Solver =
+    tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 3}>;
 
 /// \brief Deterministic map from a cell index to a value in [0, 1),
 /// used on the host to synthesize the per-cell input data.

@@ -38,10 +38,10 @@ namespace {
 /// \param[in] seed  generator seed
 template<typename T, int N, int TS>
 void inplace_case(const int count, const double bound, const std::uint64_t seed) {
-    using Config     = tdls::TiledLUppConfig<T, TS>;
-    using Static     = tdls::TiledLUppSolverStatic<T, N, Config>;
-    using Dynamic    = tdls::TiledLUppSolverDynamic<T, Config>;
-    const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
+    using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
+    const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     std::vector<T> A_static(static_cast<std::size_t>(N) * N);
     std::vector<T> A_dynamic(static_cast<std::size_t>(N) * N);

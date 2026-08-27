@@ -44,27 +44,30 @@ A taste of the interface:
 
 #include <tdls/tdls.hpp>
 
-// Solver configuration, shared by both variants, every knob spelled out.
-// tdls::TiledLUppDefaultConfig<T> provides ready-made defaults.
-struct Config {
-    // Size of the tiles used for the LU factorization
-    static constexpr int tile_size = 3;
-    // Elimination schedule, RightLooking or LeftLooking
-    static constexpr tdls::TiledLUppSchedule schedule = tdls::TiledLUppSchedule::RightLooking;
-    // A pivot at least this large is accepted without searching outside the tile
-    static constexpr double oot_threshold = 1e-10;
-    // The factorization is declared singular when the best pivot falls below this floor
-    static constexpr double singular_eps = std::numeric_limits<double>::min();
-    // The out-of-tile search stops at the first acceptable pivot
-    static constexpr bool oot_first_acceptable = true;
-    // Forced unrolling of the in-tile loops
-    static constexpr bool unroll_inner = true;
-};
+// Solver configuration, shared by both variants: a constexpr value,
+// every knob spelled out. Designated initializers override individual
+// knobs; tdls::TiledLUppConfig<double>{} alone keeps the ready-made
+// defaults.
+constexpr tdls::TiledLUppConfig<double> config{
+    // int: size of the tiles used for the LU factorization
+    .tile_size = 3,
+    // tdls::TiledLUppSchedule: elimination schedule, RightLooking or LeftLooking
+    .schedule = tdls::TiledLUppSchedule::RightLooking,
+    // double (the scalar type T): a pivot at least this large is accepted
+    // without searching outside the tile
+    .oot_threshold = 1e-10,
+    // double (the scalar type T): the factorization is declared singular
+    // when the best pivot falls below this floor
+    .singular_eps = std::numeric_limits<double>::min(),
+    // bool: the out-of-tile search stops at the first acceptable pivot
+    .oot_first_acceptable = true,
+    // bool: forced unrolling of the in-tile loops
+    .unroll_inner = true};
 
 // LUpp solver with compile-time matrix size.
-using StaticSolver  = tdls::TiledLUppSolverStatic<double, 9, Config>;
+using StaticSolver  = tdls::TiledLUppSolverStatic<double, 9, config>;
 // LUpp solver with runtime matrix size.
-using DynamicSolver = tdls::TiledLUppSolverDynamic<double, Config>;
+using DynamicSolver = tdls::TiledLUppSolverDynamic<double, config>;
 
 // Both variants offer two interfaces:
 // - split: factorize once, then one substitute call per right-hand

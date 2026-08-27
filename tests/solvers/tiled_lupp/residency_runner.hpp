@@ -73,7 +73,8 @@ struct ResidencyRunner {
     /// \return false on a singular matrix.
     [[nodiscard]] static bool run(const T* A0, const T* b0, const SolvePath path, T* A_out,
                                   int* piv_out, T* x_out, int& oot) {
-        using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T, TS, Schedule>>;
+        using Solver = tdls::TiledLUppSolverStatic<
+            T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
 
         // Matrix storage.
         [[maybe_unused]] T A_local[N * N];

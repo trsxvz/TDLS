@@ -39,10 +39,10 @@ namespace {
 /// \param[in] seed  generator seed
 template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
 void bridge_case(const int count, const double bound, const std::uint64_t seed) {
-    using Config  = tdls::TiledLUppConfig<T, TS, Schedule>;
-    using Static  = tdls::TiledLUppSolverStatic<T, N, Config>;
-    using Dynamic = tdls::TiledLUppSolverDynamic<T, Config>;
-    auto batch    = tdls_tests::make_batch<T>(N, count, seed, bound);
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule};
+    using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
+    using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
+    auto batch            = tdls_tests::make_batch<T>(N, count, seed, bound);
     tdls_tests::zero_column(batch, 0, 0);
 
     bool verdicts_agree = true;

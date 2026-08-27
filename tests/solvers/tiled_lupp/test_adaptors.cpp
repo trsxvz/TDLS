@@ -12,7 +12,9 @@
 /// object, strided view returning a (pointer, stride) pair, strided view
 /// with a separate getStride()), checks the residency classification at
 /// compile time, rejects a gather-like type, and requires every adaptor
-/// call to reproduce the raw pointer API bitwise.
+/// call to reproduce the raw pointer API bitwise. An explicit
+/// configuration value passed through the adaptors is bridged against
+/// the raw API configured with the same value, on both solvers.
 
 #include <cstddef>
 #include <cstdint>
@@ -225,7 +227,8 @@ static_assert(!tdls::storage_traits<MockVector>::has_runtime_extents);
 static_assert(tdls::storage_traits<MockRuntimeMatrix>::has_runtime_extents);
 static_assert(tdls::storage_traits<MockRuntimeVector>::has_runtime_extents);
 
-using RawSolver = tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double, 3>>;
+using RawSolver =
+    tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 3}>;
 
 } // namespace
 
@@ -386,7 +389,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-multirhs-entry-point
     // W cutting: passes of 2 columns plus a remainder of 1 must land on
     // the same solutions bitwise (per-column arithmetic is identical).
     MockRhsMatrix Xw;
-    tdls::substitute<void, 2>(A, piv, B, Xw);
+    tdls::substitute<2>(A, piv, B, Xw);
     TDLS_CHECK_BITWISE(Xw.v, X_raw, static_cast<std::size_t>(N) * M);
 
     // In-place block on the factored matrix.
@@ -405,7 +408,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-multirhs-entry-point
         A2.v[e] = A2_raw[e] = A.v[e] * 0.5 + 0.25;
     for (int e = 0; e < N * M; ++e)
         Y.v[e] = Y_raw[e] = B.v[e];
-    TDLS_CHECK((tdls::solve_inplace<void, 3>(A2, piv, Y)));
+    TDLS_CHECK((tdls::solve_inplace<3>(A2, piv, Y)));
     TDLS_CHECK((RawSolver::solve_inplace_multirhs<M, false, true, true, 3>(A2_raw, 1, piv_raw, 1,
                                                                            Y_raw, M, 1)));
     TDLS_CHECK_BITWISE(Y.v, Y_raw, static_cast<std::size_t>(N) * M);
@@ -437,7 +440,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-mult
 
     // W cutting on the runtime path.
     MockRuntimeMatrix Xw(n, m);
-    tdls::substitute<void, 2>(A, piv_p, B, Xw);
+    tdls::substitute<2>(A, piv_p, B, Xw);
     TDLS_CHECK_BITWISE(Xw.v.data(), X_raw.data(), static_cast<std::size_t>(n) * m);
 
     // In-place block on the factored matrix.
@@ -499,6 +502,53 @@ TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {
         RawSolver::solve_inplace<true, true, true>(A2_raw, 1, piv_raw, 1, z_raw, 1);
     TDLS_CHECK(ok_fused == ok_fused_raw);
     TDLS_CHECK_BITWISE(z.v, z_raw, static_cast<std::size_t>(N));
+}
+
+TDLS_TEST_CASE("tiledlupp/adaptors/explicit-config-value-reproduces-raw") {
+    // An explicit configuration value passed to the adaptors must
+    // resolve the same solver as the raw API configured with the same
+    // value, on both the fixed-size and the runtime paths.
+    constexpr auto config = tdls::TiledLUppConfig<double>{
+        .tile_size = 4, .schedule = tdls::TiledLUppSchedule::LeftLooking};
+    using RawTuned = tdls::TiledLUppSolverStatic<double, N, config>;
+    tdls_tests::UniformGenerator gen(210800, 0.5);
+    for (int repeat = 0; repeat < 50; ++repeat) {
+        MockMatrix A;
+        MockVector b, x;
+        double A_raw[N * N], b_raw[N], x_raw[N];
+        int piv[N], piv_raw[N];
+        for (int e = 0; e < N * N; ++e)
+            A.v[e] = A_raw[e] = gen.next();
+        for (int i = 0; i < N; ++i)
+            b.v[i] = b_raw[i] = gen.next();
+        const bool ok = tdls::solve<config>(A, piv, b, x);
+        const bool ok_raw =
+            RawTuned::solve<true, true, true>(A_raw, 1, piv_raw, 1, b_raw, x_raw, 1);
+        TDLS_CHECK(ok == ok_raw);
+        TDLS_CHECK_BITWISE(A.v, A_raw, static_cast<std::size_t>(N) * N);
+        TDLS_CHECK_BITWISE(piv, piv_raw, static_cast<std::size_t>(N));
+        TDLS_CHECK_BITWISE(x.v, x_raw, static_cast<std::size_t>(N));
+    }
+
+    // The runtime path resolves the dynamic solver on the same value.
+    using RawDynamicTuned = tdls::TiledLUppSolverDynamic<double, config>;
+    const int n           = 12;
+    MockRuntimeMatrix A(n);
+    MockRuntimeVector b(n), x(n);
+    std::vector<double> A_raw(static_cast<std::size_t>(n) * n), b_raw(n), x_raw(n);
+    std::vector<int> piv(n), piv_raw(n);
+    for (int e = 0; e < n * n; ++e)
+        A.v[e] = A_raw[e] = gen.next();
+    for (int i = 0; i < n; ++i)
+        b.v[i] = b_raw[i] = gen.next();
+    int* piv_p        = piv.data();
+    const bool ok     = tdls::solve<config>(A, piv_p, b, x);
+    const bool ok_raw = RawDynamicTuned::solve(n, A_raw.data(), 1, piv_raw.data(), 1, b_raw.data(),
+                                               x_raw.data(), 1);
+    TDLS_CHECK(ok == ok_raw);
+    TDLS_CHECK_BITWISE(A.v.data(), A_raw.data(), static_cast<std::size_t>(n) * n);
+    TDLS_CHECK_BITWISE(piv.data(), piv_raw.data(), static_cast<std::size_t>(n));
+    TDLS_CHECK_BITWISE(x.v.data(), x_raw.data(), static_cast<std::size_t>(n));
 }
 
 TDLS_TEST_MAIN

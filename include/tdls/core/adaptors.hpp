@@ -56,8 +56,11 @@
 /// The detection can be overridden for exotic types by specializing
 /// tdls::storage_traits.
 ///
-/// The entry points currently dispatch to the TiledLUpp solver family;
-/// a family selection parameter can join when another family lands.
+/// Every entry point comes in two overloads: a default-configuration
+/// form, and an explicit-configuration form taking a constexpr
+/// TiledLUppConfig value of the matrix scalar type as its first template
+/// argument. Only the TiledLUpp family exists today; a configuration
+/// value of another family can select it when one lands.
 
 
 
@@ -310,12 +313,53 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
 
 namespace detail {
 
-/// \brief Common compile-time context of the adaptor entry points:
-/// resolves the scalar type, the dimension and the TiledLUpp solver from the
-/// matrix argument.
-/// \tparam UserConfig user configuration (void = TiledLUppDefaultConfig)
+/// \brief Scalar type of a dense matrix argument, read from its storage
+/// description.
 /// \tparam MatrixType dense matrix type
-template<typename UserConfig, typename MatrixType>
+template<typename MatrixType>
+using matrix_scalar = typename storage_traits<std::remove_cv_t<MatrixType>>::value_type;
+
+/// \brief Detects the configuration value types accepted by the entry
+/// points. Only the TiledLUpp family exists today; a specialization per
+/// family can join when another one lands.
+/// \tparam ConfigType candidate configuration type
+template<typename ConfigType>
+struct is_solver_config : std::false_type {};
+/// \brief TiledLUppConfig values are accepted.
+/// \tparam Scalar scalar type of the configuration
+template<typename Scalar>
+struct is_solver_config<TiledLUppConfig<Scalar>> : std::true_type {};
+
+/// \brief Concept gating the explicit-configuration entry points.
+///
+/// The constraint is load-bearing: it removes those overloads when the
+/// first explicit template argument is not a configuration value, so a
+/// lone pass_width argument reaches the default-configuration overloads
+/// instead. remove_cvref_t absorbs the reference-flavoured type some
+/// compilers (nvcc) report for class-type non-type template parameters.
+/// \tparam ConfigType candidate configuration type
+template<typename ConfigType>
+concept solver_config = is_solver_config<std::remove_cvref_t<ConfigType>>::value;
+
+/// \brief Validates a user configuration value against the matrix scalar
+/// type and returns it with its concrete type.
+/// \tparam MatrixType dense matrix type
+/// \tparam UserConfig user configuration value
+/// \return the configuration value
+template<typename MatrixType, auto UserConfig>
+consteval auto checked_config() {
+    static_assert(std::is_same_v<std::remove_cvref_t<decltype(UserConfig)>,
+                                 TiledLUppConfig<matrix_scalar<MatrixType>>>,
+                  "tdls adaptors: the config scalar type must match the matrix element type");
+    return UserConfig;
+}
+
+/// \brief Common compile-time context of the adaptor entry points:
+/// resolves the scalar type, the dimension and the TiledLUpp solvers from
+/// the matrix argument and the configuration value.
+/// \tparam MatrixType dense matrix type
+/// \tparam Config     configuration value, validated by checked_config
+template<typename MatrixType, TiledLUppConfig<matrix_scalar<MatrixType>> Config>
 struct adaptor_context {
     //! \brief storage description of the matrix
     using mtraits = storage_traits<std::remove_cv_t<MatrixType>>;
@@ -330,15 +374,12 @@ struct adaptor_context {
                   "tdls adaptors: A must be square");
     //! \brief system dimension (fixed-size path; zero on the runtime path)
     static constexpr int N = mtraits::extent0;
-    //! \brief resolved configuration
-    using config =
-        std::conditional_t<std::is_void_v<UserConfig>, TiledLUppDefaultConfig<scalar>, UserConfig>;
     //! \brief resolved compile-time solver (never instantiated on the
     //! runtime path: the discarded if-constexpr branches keep it unused)
-    using solver = TiledLUppSolverStatic<scalar, N, config>;
+    using solver = TiledLUppSolverStatic<scalar, N, Config>;
     //! \brief resolved runtime solver (never instantiated on the
     //! fixed-size path)
-    using dynamic_solver = TiledLUppSolverDynamic<scalar, config>;
+    using dynamic_solver = TiledLUppSolverDynamic<scalar, Config>;
 };
 
 /// \brief Checks that a vector-like argument matches the system: arity 1,
@@ -528,16 +569,18 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
 
 
 /// \brief Factor a dense matrix object in place, A := P*L*U.
-/// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
 /// \param[in,out] A   matrix-like object (factored in place)
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
 /// \return false on a singular matrix.
-template<typename UserConfig = void, typename MatrixType, typename PivotType>
+template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
                                                                          PivotType& piv) {
-    using ctx = detail::adaptor_context<UserConfig, MatrixType>;
-    using mt  = typename ctx::mtraits;
-    using pa  = detail::pivot_access<PivotType>;
+    using ctx =
+        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
+    using mt = typename ctx::mtraits;
+    using pa = detail::pivot_access<PivotType>;
     static_assert(mt::is_mutable, "tdls adaptors: factorize writes into A");
     static_assert(!std::is_const_v<MatrixType>, "tdls adaptors: A must not be const here "
                                                 "(factorize writes it)");
@@ -552,6 +595,16 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
     }
 }
 
+/// \brief Default-configuration overload of factorize.
+/// \param[in,out] A   matrix-like object (factored in place)
+/// \param[in,out] piv pivot storage: int pointer/array or dense int object
+/// \return false on a singular matrix.
+template<typename MatrixType, typename PivotType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
+                                                                         PivotType& piv) {
+    return factorize<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv);
+}
+
 /// \brief Solve A x = b on dense objects: factorize + substitute.
 ///
 /// With a matrix-like b (and x), all its columns are solved against the
@@ -559,7 +612,8 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
 /// into passes (0 = all columns in one pass; the last pass takes the
 /// remainder). The forward pass is not folded into the factorization on
 /// that path (see the raw solve_multirhs).
-/// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like b
 ///         (0 = all at once; must be 0 for a vector-like b)
 /// \param[in,out] A   matrix-like object (factored in place)
@@ -568,15 +622,16 @@ template<typename UserConfig = void, typename MatrixType, typename PivotType>
 ///                matrix-like holding one right-hand side per column
 /// \param[out]    x   solution, of the same shape as b
 /// \return false on a singular matrix.
-template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
-         typename RhsType, typename SolutionType>
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename RhsType, typename SolutionType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
-    using ctx = detail::adaptor_context<UserConfig, MatrixType>;
-    using mt  = typename ctx::mtraits;
-    using pa  = detail::pivot_access<PivotType>;
-    using bt  = storage_traits<std::remove_cv_t<RhsType>>;
-    using xt  = storage_traits<std::remove_cv_t<SolutionType>>;
+    using ctx =
+        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
+    using mt = typename ctx::mtraits;
+    using pa = detail::pivot_access<PivotType>;
+    using bt = storage_traits<std::remove_cv_t<RhsType>>;
+    using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(mt::is_mutable, "tdls adaptors: solve factors A in place");
     static_assert(xt::is_mutable, "tdls adaptors: solve writes into x");
     static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<SolutionType>,
@@ -606,6 +661,22 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
     }
 }
 
+/// \brief Default-configuration overload of solve.
+/// \tparam pass_width columns per substitution pass for a matrix-like b
+///         (0 = all at once; must be 0 for a vector-like b)
+/// \param[in,out] A   matrix-like object (factored in place)
+/// \param[in,out] piv pivot storage: int pointer/array or dense int object
+/// \param[in]     b   right-hand side, in original order: vector-like, or
+///                matrix-like holding one right-hand side per column
+/// \param[out]    x   solution, of the same shape as b
+/// \return false on a singular matrix.
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
+         typename SolutionType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
+    return solve<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x);
+}
+
 /// \brief Solve A y = y on dense objects with the fused factorization
 /// (forward substitution folded into factorize, backward pass after).
 ///
@@ -614,7 +685,8 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 /// substitution into passes (0 = all columns in one pass; the last pass
 /// takes the remainder). The forward pass is not folded into the
 /// factorization on that path (see the raw solve_inplace_multirhs).
-/// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like y
 ///         (0 = all at once; must be 0 for a vector-like y)
 /// \param[in,out] A   matrix-like object (factored in place)
@@ -624,14 +696,15 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 ///                side per column
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
-template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
-         typename VectorType>
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename VectorType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
-    using ctx = detail::adaptor_context<UserConfig, MatrixType>;
-    using mt  = typename ctx::mtraits;
-    using pa  = detail::pivot_access<PivotType>;
-    using yt  = storage_traits<std::remove_cv_t<VectorType>>;
+    using ctx =
+        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
+    using mt = typename ctx::mtraits;
+    using pa = detail::pivot_access<PivotType>;
+    using yt = storage_traits<std::remove_cv_t<VectorType>>;
     static_assert(mt::is_mutable, "tdls adaptors: solve_inplace factors A in place");
     static_assert(yt::is_mutable, "tdls adaptors: solve_inplace writes into y");
     static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<VectorType>,
@@ -660,6 +733,23 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
     }
 }
 
+/// \brief Default-configuration overload of solve_inplace.
+/// \tparam pass_width columns per substitution pass for a matrix-like y
+///         (0 = all at once; must be 0 for a vector-like y)
+/// \param[in,out] A   matrix-like object (factored in place)
+/// \param[in,out] piv pivot storage: int pointer/array or dense int object
+/// \param[in,out] y   right-hand side on entry, solution on exit:
+///                vector-like, or matrix-like holding one right-hand
+///                side per column
+/// \return false on a singular matrix (y left partially updated with a
+///         vector-like y, untouched with a matrix-like y).
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename VectorType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
+    return solve_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv,
+                                                                                           y);
+}
+
 /// \brief Solve x := U^-1 L^-1 P b on dense objects, from a prior
 /// factorize. b and x must not alias.
 ///
@@ -667,7 +757,8 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 /// matching column of x. pass_width then cuts the substitution into
 /// passes (0 = all columns in one pass; the last pass takes the
 /// remainder).
-/// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like b
 ///         (0 = all at once; must be 0 for a vector-like b)
 /// \param[in]  A   factored matrix-like object
@@ -675,15 +766,16 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 /// \param[in]  b   right-hand side, in original order: vector-like, or
 ///             matrix-like holding one right-hand side per column
 /// \param[out] x   solution, of the same shape as b
-template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
-         typename RhsType, typename SolutionType>
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename RhsType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, SolutionType& x) {
-    using ctx = detail::adaptor_context<UserConfig, MatrixType>;
-    using mt  = typename ctx::mtraits;
-    using pa  = detail::pivot_access<PivotType>;
-    using bt  = storage_traits<std::remove_cv_t<RhsType>>;
-    using xt  = storage_traits<std::remove_cv_t<SolutionType>>;
+    using ctx =
+        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
+    using mt = typename ctx::mtraits;
+    using pa = detail::pivot_access<PivotType>;
+    using bt = storage_traits<std::remove_cv_t<RhsType>>;
+    using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute writes into x");
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute writes it)");
@@ -708,27 +800,44 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
     }
 }
 
+/// \brief Default-configuration overload of substitute.
+/// \tparam pass_width columns per substitution pass for a matrix-like b
+///         (0 = all at once; must be 0 for a vector-like b)
+/// \param[in]  A   factored matrix-like object
+/// \param[in]  piv pivot storage produced by factorize
+/// \param[in]  b   right-hand side, in original order: vector-like, or
+///             matrix-like holding one right-hand side per column
+/// \param[out] x   solution, of the same shape as b
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
+         typename SolutionType>
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, SolutionType& x) {
+    substitute<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x);
+}
+
 /// \brief Solve in place on dense objects: x holds the unpermuted
 /// right-hand side on entry and the solution on exit.
 ///
 /// With a matrix-like x, every column is overwritten by its solution.
 /// pass_width then cuts the substitution into passes (0 = all columns
 /// in one pass; the last pass takes the remainder).
-/// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like x
 ///         (0 = all at once; must be 0 for a vector-like x)
 /// \param[in]     A   factored matrix-like object
 /// \param[in]     piv pivot storage produced by factorize
 /// \param[in,out] x   right-hand side, then solution: vector-like, or
 ///                matrix-like holding one right-hand side per column
-template<typename UserConfig = void, int pass_width = 0, typename MatrixType, typename PivotType,
-         typename SolutionType>
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
-    using ctx = detail::adaptor_context<UserConfig, MatrixType>;
-    using mt  = typename ctx::mtraits;
-    using pa  = detail::pivot_access<PivotType>;
-    using xt  = storage_traits<std::remove_cv_t<SolutionType>>;
+    using ctx =
+        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
+    using mt = typename ctx::mtraits;
+    using pa = detail::pivot_access<PivotType>;
+    using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_inplace writes into x");
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute_inplace writes it)");
@@ -752,19 +861,35 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     }
 }
 
+/// \brief Default-configuration overload of substitute_inplace.
+/// \tparam pass_width columns per substitution pass for a matrix-like x
+///         (0 = all at once; must be 0 for a vector-like x)
+/// \param[in]     A   factored matrix-like object
+/// \param[in]     piv pivot storage produced by factorize
+/// \param[in,out] x   right-hand side, then solution: vector-like, or
+///                matrix-like holding one right-hand side per column
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename SolutionType>
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
+    substitute_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, x);
+}
+
 /// \brief Solve A x = e_col on dense objects, from a prior factorize:
 /// the consistent-tangent-operator path.
-/// \tparam UserConfig compile-time knobs (void = TiledLUppDefaultConfig)
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
 /// \param[in]  A   factored matrix-like object
 /// \param[in]  piv pivot storage produced by factorize
 /// \param[in]  col index of the canonical column e_col
 /// \param[out] x   vector-like solution
-template<typename UserConfig = void, typename MatrixType, typename PivotType, typename SolutionType>
+template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType,
+         typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
-    using ctx = detail::adaptor_context<UserConfig, MatrixType>;
-    using mt  = typename ctx::mtraits;
-    using pa  = detail::pivot_access<PivotType>;
+    using ctx =
+        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
+    using mt = typename ctx::mtraits;
+    using pa = detail::pivot_access<PivotType>;
     detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_canonical writes into x");
@@ -780,6 +905,17 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
             mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col, xt::pointer(x),
             xt::stride(x));
     }
+}
+
+/// \brief Default-configuration overload of substitute_canonical.
+/// \param[in]  A   factored matrix-like object
+/// \param[in]  piv pivot storage produced by factorize
+/// \param[in]  col index of the canonical column e_col
+/// \param[out] x   vector-like solution
+template<typename MatrixType, typename PivotType, typename SolutionType>
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
+    substitute_canonical<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv, col, x);
 }
 
 

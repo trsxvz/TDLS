@@ -38,10 +38,10 @@ namespace {
 template<typename T, int N, int TS>
 void tile_size_case(const int count, const double bound, const double tolerance,
                     const std::uint64_t seed) {
-    using Config     = tdls::TiledLUppConfig<T, TS>;
-    using Static     = tdls::TiledLUppSolverStatic<T, N, Config>;
-    using Dynamic    = tdls::TiledLUppSolverDynamic<T, Config>;
-    const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
+    using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
+    const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     double be_max = 0.0;
     std::vector<T> A_static(static_cast<std::size_t>(N) * N);
