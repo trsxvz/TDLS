@@ -5,6 +5,15 @@
 # register themselves as self-checking tests from examples/
 # ("examples"); tests/benchmarks will validate the benchmark harness
 # once that part exists.
+
+# Optimization flag of the test suites in the Release configuration.
+# The suites are correctness tests whose checks do not depend on the
+# level, while the fully-unrolled solver templates dominate compile
+# time at high levels, so -O1 is the fast default. The CI also builds
+# the suites at -O3 (optimizer coverage) and at -O2 under the
+# sanitizers.
+set(TDLS_TESTS_OPTIMIZATION "-O1" CACHE STRING
+    "Optimization flag of the test suites in the Release configuration")
 # Clang >=22 flags the harness's __COUNTER__ (unique test-case ids) under
 # -Wc2y-extensions, which the tests' -Werror turns fatal. Suppress just
 # that diagnostic - but only where the compiler recognises the flag: older

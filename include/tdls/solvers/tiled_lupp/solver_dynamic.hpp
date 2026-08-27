@@ -58,10 +58,22 @@
 // out-of-tile search is written before being read (the loop structure
 // guarantees it, a property validated bitwise against the static
 // solver), and emits spurious -Wmaybe-uninitialized warnings at -O2.
-// The suppression is scoped to this header and to that warning only.
+//
+// Under UBSan instrumentation (-fsanitize=undefined) at -O2 and
+// above, gcc additionally loses the value ranges of the loop indices
+// and reports impossible subscripts through -Warray-bounds: the
+// unsigned cast of a provably non-negative index read as a wrapped
+// negative, or a loop counter assumed below its own loop guard.
+// Observed from gcc 12 to gcc 16; plain builds and clang are clean,
+// and the exercised paths are certified free of out-of-bounds
+// accesses by the constexpr suite.
+//
+// Both suppressions are scoped to this header and to those warnings
+// only, exactly as in solver_static.hpp.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
 
 namespace tdls {

@@ -26,15 +26,16 @@ foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
     target_include_directories(tdls_test_tiledlupp_${suite} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../common")
     target_compile_features(tdls_test_tiledlupp_${suite} PRIVATE cxx_std_20)
     # These are correctness tests, not benchmarks. In the Release config
-    # the CI builds, the fully-unrolled solver templates expand into
-    # large functions whose -O3 optimisation dominates compile time
-    # (test_cross_full alone: ~20s at -O3 vs ~6s at -O1 under g++), while
-    # the bitwise and backward-error checks are unaffected by the level.
-    # Drop the tests to -O1 there - the -O1 trails the Release -O3 and
-    # wins - but only in Release, so a Debug build stays steppable.
+    # the fully-unrolled solver templates expand into large functions
+    # whose high-level optimisation dominates compile time
+    # (test_cross_full alone: ~20s at -O3 vs ~6s at -O1 under g++),
+    # while the bitwise and backward-error checks are unaffected by the
+    # level. The suites therefore compile at TDLS_TESTS_OPTIMIZATION
+    # (default -O1; it trails the Release -O3 and wins), but only in
+    # Release, so a Debug build stays steppable.
     if(NOT MSVC)
         target_compile_options(tdls_test_tiledlupp_${suite} PRIVATE
-            $<$<CONFIG:Release>:-O1> -Wall -Wextra -Wpedantic -Werror
+            $<$<CONFIG:Release>:${TDLS_TESTS_OPTIMIZATION}> -Wall -Wextra -Wpedantic -Werror
             # The harness derives unique test-case ids from __COUNTER__, a
             # ubiquitous extension (GCC/Clang/MSVC; standard in C2y). Clang
             # >=22 flags it under -Wc2y-extensions, which -Werror makes

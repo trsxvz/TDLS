@@ -13,12 +13,17 @@ on:
 
 jobs:
   tests:
-    name: tests (${{ matrix.compiler }})
+    # The optimization axis matters: each level is a different binary,
+    # and the levels catch different problems. -O1 is what the check
+    # target gives users and keeps the fast signal; -O3 covers the
+    # aggressive-optimizer codegen. The matrix jobs run in parallel.
+    name: tests (${{ matrix.compiler }}, ${{ matrix.optimization }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         compiler: [g++, clang++]
+        optimization: [-O1, -O3]
     steps:
       - uses: actions/checkout@v4
       - name: Install the LLVM OpenMP runtime
@@ -27,27 +32,29 @@ jobs:
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
+          -DTDLS_TESTS_OPTIMIZATION=${{ matrix.optimization }}
       - name: Build
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: ctest --test-dir build --output-on-failure
 
   sanitizers:
-    name: tests (g++, ASan+UBSan)
+    name: tests (g++, ASan+UBSan, -O2)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install the LLVM OpenMP runtime
         run: sudo apt-get update && sudo apt-get install -y libomp-dev
       - name: Configure
-        # Release keeps the tests' own -O1: at -O2 and above, gcc's flow
-        # analysis emits spurious array-bounds warnings under sanitizer
-        # instrumentation, which the tests' -Werror makes fatal.
+        # -O2 is the sanitizer sweet spot: enough optimization to
+        # exercise the paths the instrumentation perturbs, while higher
+        # levels elide memory accesses and the ASan checks with them.
         # -fno-sanitize-recover makes every UBSan finding fatal too, so
         # ctest actually fails instead of passing over printed errors.
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=g++
+          -DTDLS_TESTS_OPTIMIZATION=-O2
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
       - name: Build
         run: cmake --build build -j4 --target buildtests

@@ -9,7 +9,7 @@ target_include_directories(tdls_test_common_backward_error PRIVATE "${CMAKE_CURR
 target_compile_features(tdls_test_common_backward_error PRIVATE cxx_std_20)
 if(NOT MSVC)
     target_compile_options(tdls_test_common_backward_error PRIVATE
-    $<$<CONFIG:Release>:-O1> -Wall -Wextra -Wpedantic -Werror
+    $<$<CONFIG:Release>:${TDLS_TESTS_OPTIMIZATION}> -Wall -Wextra -Wpedantic -Werror
     # Clang >=22 flags __COUNTER__ (harness ids) under -Wc2y-extensions;
     # -Werror makes it fatal. Suppress it where the compiler knows the flag
     # (probed in ../CMakeLists.txt).
