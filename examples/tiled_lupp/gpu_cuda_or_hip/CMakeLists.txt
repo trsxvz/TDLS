@@ -44,8 +44,18 @@ if(TDLS_GPU_LANGUAGE)
         target_link_libraries(tdls_example_tiledlupp_${example} PRIVATE tdls::tdls)
         target_include_directories(tdls_example_tiledlupp_${example}
                                    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../common")
-        set_target_properties(tdls_example_tiledlupp_${example} PROPERTIES CUDA_STANDARD 20
-                                                                           HIP_STANDARD 20)
+        # CMake only learned to request C++20 from nvcc in 3.26; an older
+        # release would silently drop the standard property to C++17, so
+        # the flag is passed by hand there. REQUIRED keeps the property
+        # path from ever compiling an older standard either.
+        if(TDLS_GPU_LANGUAGE STREQUAL "CUDA" AND CMAKE_VERSION VERSION_LESS 3.26)
+            target_compile_options(tdls_example_tiledlupp_${example}
+                                   PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-std=c++20>)
+        else()
+            set_target_properties(tdls_example_tiledlupp_${example}
+                                  PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON
+                                             HIP_STANDARD 20 HIP_STANDARD_REQUIRED ON)
+        endif()
         add_test(NAME examples.tiledlupp.${example} COMMAND tdls_example_tiledlupp_${example})
         set_tests_properties(examples.tiledlupp.${example} PROPERTIES LABELS "examples"
                                                                       SKIP_RETURN_CODE 77)

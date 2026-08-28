@@ -67,11 +67,13 @@ jobs:
     # Cross-compilation of the GPU examples with the oldest CUDA
     # release the headers support. The container pins nvcc and its
     # host compiler together, and the CPU suites run in it as usual.
-    name: gpu examples (nvcc 12.0, gcc 11)
+    name: gpu examples build only (nvcc 12.0, gcc 11)
     runs-on: ubuntu-latest
     container: nvidia/cuda:12.0.1-devel-ubuntu22.04
     steps:
       - name: Install cmake and git
+        # The CMake of Ubuntu 22.04 (3.22) predates CUDA 12: this job
+        # also covers the by-hand C++20 request of the examples.
         run: apt-get update && apt-get install -y cmake git
       - uses: actions/checkout@v4
       - name: Configure
@@ -91,8 +93,10 @@ jobs:
     # a GitHub-hosted image (5.3 on Ubuntu 22.04, clang 15). Only the
     # HIP compiler, runtime and device libraries are installed, and
     # the examples go through the HIP language of CMake.
-    name: gpu examples (ROCm 5.3, clang 15)
+    name: gpu examples build only (ROCm 5.3, clang 15)
     runs-on: ubuntu-22.04
+    env:
+      ROCM_PATH: /opt/rocm
     steps:
       - uses: actions/checkout@v4
       - name: Install the ROCm 5.3 HIP toolchain
@@ -104,6 +108,7 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/rocm.list
           sudo apt-get update
           sudo apt-get install -y hip-dev hip-runtime-amd rocm-device-libs
+          echo "/opt/rocm/bin" >> "$GITHUB_PATH"
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -111,6 +116,13 @@ jobs:
           -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++
           -DCMAKE_HIP_PLATFORM=amd
           -DCMAKE_HIP_ARCHITECTURES=gfx90a
+      - name: Configure diagnostics
+        if: failure()
+        run: |
+          ls -la /opt/rocm/ /opt/rocm/llvm/bin/clang++ /opt/rocm/bin/hipconfig || true
+          /opt/rocm/llvm/bin/clang++ -v -print-targets 2>&1 | head -20 || true
+          hipconfig --rocmpath || true
+          cat build/CMakeFiles/CMakeConfigureLog.yaml || true
       - name: Build
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples (GPU examples skip)
