@@ -1,10 +1,11 @@
 # Builds the library, runs the test suites and the examples, and gates
 # the formatting on every push and pull request.
-# GitHub-hosted runners have no GPU, but nvcc and hipcc only need a
+# GitHub-hosted runners have no GPU, but the GPU compilers only need a
 # device to run, not to compile: the gpu jobs build the GPU examples
-# with the oldest supported CUDA and ROCm releases, and the examples
-# report themselves skipped at run time (exit code 77). Running them
-# for real stays on machines that have a device.
+# with the oldest supported CUDA and ROCm releases and with clang as a
+# second CUDA frontend, and the examples report themselves skipped at
+# run time (exit code 77). Running them for real stays on machines
+# that have a device.
 name: ci
 
 on:
@@ -82,6 +83,34 @@ jobs:
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DTDLS_BUILD_CUDA_EXAMPLES=ON
+          -DCMAKE_CUDA_ARCHITECTURES=80
+      - name: Build
+        run: cmake --build build -j4 --target buildtests
+      - name: Run the test suites and the examples (GPU examples skip)
+        run: ctest --test-dir build --output-on-failure
+
+  gpu-clang-cuda:
+    # Second CUDA frontend: clang compiles the same examples against the
+    # toolkit of the container. CUDA 12.3 is the newest release clang 18
+    # fully supports, so the pairing raises no version warning.
+    name: gpu examples build only (clang 18 CUDA, CUDA 12.3)
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:12.3.2-devel-ubuntu22.04
+    steps:
+      - name: Install cmake, git and clang 18 (apt.llvm.org)
+        run: |
+          apt-get update && apt-get install -y cmake git wget gnupg
+          mkdir -p /etc/apt/keyrings
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor > /etc/apt/keyrings/llvm.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
+            > /etc/apt/sources.list.d/llvm.list
+          apt-get update && apt-get install -y clang-18
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DTDLS_BUILD_CUDA_EXAMPLES=ON
+          -DCMAKE_CUDA_COMPILER=clang++-18
           -DCMAKE_CUDA_ARCHITECTURES=80
       - name: Build
         run: cmake --build build -j4 --target buildtests
