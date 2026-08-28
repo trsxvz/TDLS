@@ -192,8 +192,17 @@ struct TiledLUppSolverStatic {
     static constexpr TiledLUppSchedule Schedule =
         Config.schedule; ///< elimination schedule (RightLooking or LeftLooking)
 
+    /// \brief Acceptable-pivot threshold of the out-of-tile search, read
+    /// once from the configuration (see TiledLUppConfig::oot_threshold).
+    static constexpr T oot_threshold = Config.oot_threshold;
+    /// \brief Singularity floor of the out-of-tile recovery, read once
+    /// from the configuration (see TiledLUppConfig::singular_eps).
+    static constexpr T singular_eps = Config.singular_eps;
+
     static_assert(N >= 1, "TiledLUppSolverStatic: N must be >= 1");
-    static_assert(Config.singular_eps <= Config.oot_threshold,
+    static_assert(Config.oot_threshold.is_finite() && Config.singular_eps.is_finite(),
+                  "TiledLUppSolverStatic: oot_threshold and singular_eps must be finite");
+    static_assert(singular_eps <= oot_threshold,
                   "TiledLUppSolverStatic: singular_eps must not exceed oot_threshold (the "
                   "floor applies to the out-of-tile recovery path)");
     static_assert(TS >= 1, "TiledLUppSolverStatic: tile size must be >= 1");
@@ -475,13 +484,13 @@ struct TiledLUppSolverStatic {
 
         int piv_row; // winning global (logical) row
 
-        if (best >= Config.oot_threshold) {
+        if (best >= oot_threshold) {
             piv_row = k0 + best_r;
         } else if constexpr (KE < TS) {
             // Trailing tile: no rows below to recover from. Diagnostic
             // order: singularity verdict first, then count the weak pivot
             // (full tiles count before the verdict).
-            if (best < Config.singular_eps) return false;
+            if (best < singular_eps) return false;
             if constexpr (oot_diag) ++oot_count;
             piv_row = k0 + best_r;
         } else {
@@ -533,10 +542,10 @@ struct TiledLUppSolverStatic {
                 // in-tile pivot, so stop scanning. The running max above is
                 // kept as the fallback when no candidate is acceptable.
                 if constexpr (Config.oot_first_acceptable)
-                    if (v >= Config.oot_threshold) break;
+                    if (v >= oot_threshold) break;
             }
 
-            if (gbest < Config.singular_eps) return false;
+            if (gbest < singular_eps) return false;
             piv_row = gbest_row;
         }
 

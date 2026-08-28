@@ -12,6 +12,7 @@
 /// licensing conditions.
 
 #include <tdls/core/macros.hpp>
+#include <tdls/core/structural_real.hpp>
 #include <tdls/core/version.hpp>
 
 #include <tdls/core/adaptors.hpp>

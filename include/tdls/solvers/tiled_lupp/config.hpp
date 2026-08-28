@@ -21,7 +21,12 @@
 ///
 /// The aggregate is a structural type, as class-type non-type template
 /// parameters require: every member is public, and two configurations
-/// with equal members name the same solver instantiation.
+/// with equal members name the same solver instantiation. The two
+/// floating-point knobs are held as tdls::StructuralReal values: exact,
+/// built and read back implicitly, and admissible as template arguments
+/// on every compiler supporting class-type template parameters (a
+/// plain floating-point member would need P1907R1, absent from GCC 10
+/// and from every nvcc before CUDA 13.0).
 
 
 
@@ -29,6 +34,7 @@
 #include <type_traits>
 
 #include <tdls/core/macros.hpp>
+#include <tdls/core/structural_real.hpp>
 
 
 
@@ -64,12 +70,15 @@ struct TiledLUppConfig {
     TiledLUppSchedule schedule = TiledLUppSchedule::RightLooking;
 
     /// Acceptable-pivot threshold of the out-of-tile search. Both
-    /// thresholds carry the scalar type T by construction. An in-tile
+    /// thresholds carry the scalar type T by construction, stored
+    /// exactly as tdls::StructuralReal values so that the configuration
+    /// stays a template argument everywhere; write them as plain T
+    /// values, the conversions are implicit. An in-tile
     /// pivot candidate whose magnitude reaches this value is accepted
     /// without looking outside the tile; below it, the search extends to
     /// the rows under the tile (out-of-tile pivoting) and the best
     /// corrected candidate wins.
-    T oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
+    StructuralReal<T> oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
 
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it. The
@@ -81,7 +90,7 @@ struct TiledLUppConfig {
     /// stability is surfaced by the backward error and overflow is caught
     /// downstream by the caller, whereas an absolute floor wrongly flags
     /// well-conditioned matrices at small scale.
-    T singular_eps = std::numeric_limits<T>::min();
+    StructuralReal<T> singular_eps = std::numeric_limits<T>::min();
 
     /// Out-of-tile pivot search strategy. When true, the below-tile scan
     /// stops at the first candidate whose corrected magnitude reaches
