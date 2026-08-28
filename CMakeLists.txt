@@ -5,7 +5,7 @@
 # find_package(tdls) work too, and orchestrates the tests.
 cmake_minimum_required(VERSION 3.21)
 
-project(tdls VERSION 0.1.0 LANGUAGES CXX)
+project(tdls VERSION 0.1.0 LANGUAGES NONE)
 
 # The version declared here and the one in include/tdls/core/version.hpp
 # must never drift apart.
@@ -16,6 +16,11 @@ if(NOT CMAKE_MATCH_1 STREQUAL PROJECT_VERSION)
                         "project() says '${PROJECT_VERSION}'")
 endif()
 
+# Header-only and architecture independent: the lib/lib64 split does
+# not apply, the package config always goes to lib/cmake.
+if(NOT DEFINED CMAKE_INSTALL_LIBDIR)
+    set(CMAKE_INSTALL_LIBDIR lib)
+endif()
 include(GNUInstallDirs)
 
 add_library(tdls INTERFACE)
@@ -49,6 +54,7 @@ option(TDLS_BUILD_CUDA_EXAMPLES "Build the GPU examples with the CUDA toolchain"
 option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" OFF)
 
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
+    enable_language(CXX)
     enable_testing()
     # Tests and examples are excluded from `all`. `buildtests` compiles
     # them, `check` compiles and runs them. A parent project may already
