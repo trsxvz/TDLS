@@ -1,8 +1,10 @@
 # Builds the library, runs the test suites and the examples, and gates
 # the formatting on every push and pull request.
-# The GPU examples are opt-in (TDLS_BUILD_CUDA_EXAMPLES /
-# TDLS_BUILD_HIP_EXAMPLES) and stay disabled here: GitHub-hosted
-# runners have no GPU. They run on machines that have a device.
+# GitHub-hosted runners have no GPU, but nvcc and hipcc only need a
+# device to run, not to compile: the gpu jobs build the GPU examples
+# with the oldest supported CUDA and ROCm releases, and the examples
+# report themselves skipped at run time (exit code 77). Running them
+# for real stays on machines that have a device.
 name: ci
 
 on:
@@ -60,6 +62,59 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build --output-on-failure
+
+  gpu-cuda:
+    # Cross-compilation of the GPU examples with the oldest CUDA
+    # release the headers support. The container pins nvcc and its
+    # host compiler together, and the CPU suites run in it as usual.
+    name: gpu examples (nvcc 12.0, gcc 11)
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:12.0.1-devel-ubuntu22.04
+    steps:
+      - name: Install cmake and git
+        run: apt-get update && apt-get install -y cmake git
+      - uses: actions/checkout@v4
+      - name: Configure
+        # The architecture must be explicit: the `native` default
+        # probes for a device.
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DTDLS_BUILD_CUDA_EXAMPLES=ON
+          -DCMAKE_CUDA_ARCHITECTURES=80
+      - name: Build
+        run: cmake --build build -j4 --target buildtests
+      - name: Run the test suites and the examples (GPU examples skip)
+        run: ctest --test-dir build --output-on-failure
+
+  gpu-hip:
+    # Same for AMD, with the oldest ROCm release that has packages for
+    # a GitHub-hosted image (5.3 on Ubuntu 22.04, clang 15). Only the
+    # HIP compiler, runtime and device libraries are installed, and
+    # the examples go through the HIP language of CMake.
+    name: gpu examples (ROCm 5.3, clang 15)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the ROCm 5.3 HIP toolchain
+        run: |
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
+            | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/5.3 jammy main" \
+            | sudo tee /etc/apt/sources.list.d/rocm.list
+          sudo apt-get update
+          sudo apt-get install -y hip-dev hip-runtime-amd rocm-device-libs
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DTDLS_BUILD_HIP_EXAMPLES=ON
+          -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++
+          -DCMAKE_HIP_PLATFORM=amd
+          -DCMAKE_HIP_ARCHITECTURES=gfx90a
+      - name: Build
+        run: cmake --build build -j4 --target buildtests
+      - name: Run the test suites and the examples (GPU examples skip)
+        run: ctest --test-dir build --output-on-failure
 
   format:
     runs-on: ubuntu-latest

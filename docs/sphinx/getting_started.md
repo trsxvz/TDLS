@@ -60,7 +60,8 @@ device is present.
 The headers decorate every entry point with a small set of macros
 (`TDLS_HOST_DEVICE`, `TDLS_FORCEINLINE`, `TDLS_RESTRICT`,
 `TDLS_UNROLL_FORCE`) that resolve to the right annotation for the
-compiler at hand: `__host__ __device__` under CUDA and HIP, plain
+compiler at hand: `__host__ __device__` under CUDA, the equivalent
+attributes under HIP (no HIP header needs to be included first), plain
 host code elsewhere. Single-source models (SYCL, stdpar, OpenMP
 target, Kokkos through its backend compiler) need no decoration at
 all. Every macro is `#ifndef`-guarded, so any of them can be

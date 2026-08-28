@@ -26,13 +26,20 @@
 
 
 /// \def TDLS_HOST_DEVICE
-/// \brief `__host__ __device__` under CUDA/HIP, empty elsewhere.
+/// \brief `__host__ __device__` under CUDA, the equivalent attributes
+/// under HIP, empty elsewhere.
 ///
 /// Marks every solver function as callable from host code and from inside
-/// device kernels.
+/// device kernels. Under CUDA the `__host__` / `__device__` macros are
+/// always predefined by the toolchain; under HIP they only exist once
+/// `hip/hip_runtime.h` has been included, which this library does not
+/// require, so the HIP branch spells the attributes those macros expand
+/// to and works whatever the include order.
 
 #ifndef TDLS_HOST_DEVICE
-#if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__)
+#if defined(__HIPCC__) || defined(__HIP__)
+#define TDLS_HOST_DEVICE __attribute__((host)) __attribute__((device))
+#elif defined(__CUDACC__) || defined(__CUDA__)
 #define TDLS_HOST_DEVICE __host__ __device__
 #else
 #define TDLS_HOST_DEVICE
@@ -42,7 +49,8 @@
 
 
 /// \def TDLS_FORCEINLINE
-/// \brief `__forceinline__` under CUDA/HIP, plain `inline` elsewhere.
+/// \brief `__forceinline__` under CUDA, the equivalent attribute under
+/// HIP (see TDLS_HOST_DEVICE for why), plain `inline` elsewhere.
 ///
 /// On GPU backends, forced inlining is the guard that keeps register tiles
 /// alive: an out-of-line call would demote them to slow local memory. On
@@ -51,7 +59,9 @@
 /// debug builds and compile times), so a plain `inline` hint is kept there.
 
 #ifndef TDLS_FORCEINLINE
-#if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__)
+#if defined(__HIPCC__) || defined(__HIP__)
+#define TDLS_FORCEINLINE inline __attribute__((always_inline))
+#elif defined(__CUDACC__) || defined(__CUDA__)
 #define TDLS_FORCEINLINE __forceinline__
 #else
 #define TDLS_FORCEINLINE inline
