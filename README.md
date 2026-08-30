@@ -8,8 +8,7 @@ TDLS is a header-only C++20 library of direct solvers for small
 general linear systems. It is written to be callable from device code:
 one thread solves one system, on CPU as well as inside a CUDA, HIP,
 SYCL, Kokkos, AdaptiveCpp, stdpar or OpenMP kernel. The solvers are
-designed for maximum GPU performance. The library has no dependency
-and no installation step.
+designed for maximum GPU performance. The library has no dependency.
 
 The only solver family available today is TiledLUpp, an LU
 factorization with logical partial pivoting on a tile grid. It comes
@@ -59,10 +58,16 @@ structurally, without naming any external library.
 
 ## Using the library
 
-Copy the `include/` directory into a project, or use CMake:
+Copy the `include/` directory into a project, add the source tree as
+a subdirectory, or install it and use `find_package`:
 
 ```cmake
+# source tree, through add_subdirectory or FetchContent
 add_subdirectory(tdls)
+target_link_libraries(my_target PRIVATE tdls::tdls)
+
+# installed tree (cmake --install, or spack install tdls)
+find_package(tdls REQUIRED)
 target_link_libraries(my_target PRIVATE tdls::tdls)
 ```
 

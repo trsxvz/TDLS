@@ -10,16 +10,35 @@ or HIP toolchain.
 
 ## Consuming the library
 
-TDLS is header-only and has no installation step. Either copy the
-`include/` directory into a project and add it to the include path, or
-use CMake:
+TDLS is header-only. It can be consumed in three ways.
+
+Copy the `include/` directory into a project and add it to the
+include path.
+
+Add the source tree as a subdirectory, or through FetchContent:
 
 ```cmake
 add_subdirectory(tdls)
 target_link_libraries(my_target PRIVATE tdls::tdls)
 ```
 
-Then include the umbrella header:
+Install it, then use `find_package`:
+
+```sh
+cmake -S . -B build -DTDLS_BUILD_TESTS=OFF -DTDLS_BUILD_EXAMPLES=OFF
+cmake --install build --prefix /opt/tdls
+```
+
+```cmake
+find_package(tdls REQUIRED)
+target_link_libraries(my_target PRIVATE tdls::tdls)
+```
+
+The install tree is found through `CMAKE_PREFIX_PATH` or `tdls_DIR`
+(`<prefix>/lib/cmake/tdls`). TDLS is also available from the Spack
+package repository: `spack install tdls`.
+
+In every case, include the umbrella header:
 
 ```cpp
 #include <tdls/tdls.hpp>
