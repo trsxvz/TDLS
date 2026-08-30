@@ -18,6 +18,16 @@ examples are single sources in the common CUDA/HIP dialect, compiled
 as CUDA or HIP according to the opt-in option enabled at configure
 time (`TDLS_BUILD_CUDA_EXAMPLES` / `TDLS_BUILD_HIP_EXAMPLES`).
 
+The three problems also run on the parallel STL, in `stdpar/`: one
+source per problem, `std::for_each` with the `par_unseq` policy over
+the system indices, the linear systems local to the lambda. The same
+source serves the CPU cores, built whenever the compiler offers a
+backend (nvc++, or libstdc++ with oneTBB), and a GPU through
+`TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` and the offload flags of the
+compiler: `implicit_ode_batch_stdpar`,
+`integral_equation_batch_stdpar` and `norton_law_batch_stdpar`, the
+device targets carrying a `_gpu` suffix.
+
 ## The compile-time family
 
 The Robertson stiff kinetics is integrated with a 3-stage Radau IIA

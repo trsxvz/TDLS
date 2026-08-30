@@ -150,7 +150,7 @@ TDLS_HOST_DEVICE inline void jacobian(double* J, const int J_stride, const doubl
                                       const double dp, const double iseq, const double df,
                                       const double dt) {
     // The ternary on a template bool folds, exactly as in the solver.
-    auto J_at = [&](const int row, const int col) -> double& {
+    auto J_at = [=](const int row, const int col) -> double& {
         return J[internal_matrix ? row * N + col : (row * N + col) * J_stride];
     };
     for (int i = 0; i < stensor_size; ++i) {
@@ -193,7 +193,7 @@ TDLS_HOST_DEVICE inline bool integrate(const double* deto, const double dt, doub
                                        const int rhs_stride) {
     // Addressing of the right-hand side: the ternary on a template bool
     // folds, exactly as in the solver.
-    auto r_at = [&](const int i) -> double& { return r[internal_rhs ? i : i * rhs_stride]; };
+    auto r_at = [=](const int i) -> double& { return r[internal_rhs ? i : i * rhs_stride]; };
 
     double deel[stensor_size] = {};
     double dp                 = 0;

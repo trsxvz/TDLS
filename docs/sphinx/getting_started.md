@@ -65,14 +65,19 @@ ctest --test-dir build -L examples   # rerun the self-checking examples
 Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
 
-The OpenMP examples build when an OpenMP runtime is found. The GPU
-examples are opt-in: set `TDLS_BUILD_CUDA_EXAMPLES` or
-`TDLS_BUILD_HIP_EXAMPLES` to ON, and the requested toolchain becomes
-mandatory (point `CMAKE_CUDA_COMPILER` / `CMAKE_HIP_COMPILER` at a
-compiler outside the `PATH`). `CMAKE_CUDA_ARCHITECTURES` defaults to
-`native`, so set it explicitly when the build machine has no device.
-At run time the GPU examples report themselves as skipped when no
-device is present.
+The OpenMP examples build when an OpenMP runtime is found, the
+parallel STL examples when the compiler offers a backend (nvc++, or
+libstdc++ with oneTBB). The GPU examples are opt-in: set
+`TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES` to ON, and the
+requested toolchain becomes mandatory (point `CMAKE_CUDA_COMPILER` /
+`CMAKE_HIP_COMPILER` at a compiler outside the `PATH`).
+`CMAKE_CUDA_ARCHITECTURES` defaults to `native`, so set it explicitly
+when the build machine has no device. At run time the GPU examples
+report themselves as skipped when no device is present. The parallel
+STL examples run on a GPU with `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES`:
+the offload is a matter of compiler flags, stated in
+`TDLS_STDPAR_DEVICE_FLAGS` (`--acpp-stdpar` with AdaptiveCpp,
+`-stdpar=gpu` with nvc++, `--hipstdpar` with the ROCm clang).
 
 ## Portability model
 

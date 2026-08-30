@@ -52,6 +52,11 @@ endif()
 # sources compiled as one language).
 option(TDLS_BUILD_CUDA_EXAMPLES "Build the GPU examples with the CUDA toolchain" OFF)
 option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" OFF)
+# The parallel STL examples build for the CPU cores whenever the host
+# compiler offers a backend; their device targets need an offloading
+# compiler and its flags (see examples/tiled_lupp/stdpar) and are
+# opt-in on the same terms.
+option(TDLS_BUILD_STDPAR_DEVICE_EXAMPLES "Build the parallel STL examples for a GPU" OFF)
 
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
     enable_language(CXX)
