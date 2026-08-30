@@ -32,34 +32,15 @@
 #include <cstdlib>
 #include <vector>
 
-#include <tdls/tdls.hpp>
-
 #include "gpu_runtime.hpp"
+#include "love.hpp"
 
 namespace {
 
-using Solver = tdls::TiledLUppSolverDynamic<double>;
+using namespace love;
 
 constexpr int instances = 1 << 17; ///< plate separations in the sweep
 constexpr int max_n     = 40;      ///< bound of the runtime resolution
-constexpr double d_min  = 0.5;     ///< smallest plate separation
-constexpr double d_max  = 2.0;     ///< largest plate separation
-
-/// \brief Love kernel of the parallel-plate capacitor.
-/// \param[in] x first quadrature point
-/// \param[in] y second quadrature point
-/// \param[in] d plate separation
-/// \return the kernel value
-__device__ double love_kernel(const double x, const double y, const double d) {
-    return d / ((d * d + (x - y) * (x - y)) * 3.14159265358979324);
-}
-
-/// \brief The manufactured solution used to check every solve.
-/// \param[in] x quadrature point
-/// \return the manufactured value
-__device__ double manufactured(const double x) {
-    return exp(x);
-}
 
 /// \brief Assembly kernel: one instance per thread, writes its Nystroem
 /// system and the manufactured right-hand side into the SoA batch.
@@ -69,26 +50,7 @@ __device__ double manufactured(const double x) {
 __global__ void assemble_batch(const int n, double* A, double* g) {
     const int t = static_cast<int>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= instances) return;
-
-    // Plate separation of the instance, from the sweep ramp.
-    const double d = d_min + (d_max - d_min) * t / (instances - 1);
-    const double h = 2.0 / (n - 1);
-
-    // Nystroem system on [-1, 1] with the trapezoid rule, written into
-    // the SoA batch (element stride instances, coalesced); the
-    // manufactured right-hand side is accumulated during the assembly.
-    for (int i = 0; i < n; ++i) {
-        const double xi = -1.0 + i * h;
-        double acc      = 0.0;
-        for (int j = 0; j < n; ++j) {
-            const double yj = -1.0 + j * h;
-            const double wj = (j == 0 || j == n - 1) ? h / 2 : h;
-            const double a  = (i == j ? 1.0 : 0.0) + wj * love_kernel(xi, yj, d);
-            A[static_cast<std::size_t>(i * n + j) * instances + t] = a;
-            acc += a * manufactured(yj);
-        }
-        g[static_cast<std::size_t>(i) * instances + t] = acc;
-    }
+    assemble(n, separation(t, instances), A + t, instances, g + t, instances);
 }
 
 /// \brief Solve kernel: one instance per thread, factorizes its system
@@ -107,7 +69,6 @@ __global__ void solve_batch(const int n, double* A, int* piv, double* g, double*
                             double* u_mid, int* ok) {
     const int t = static_cast<int>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= instances) return;
-    const double h = 2.0 / (n - 1);
 
     // One factorization, two right-hand sides, every operand walked
     // with the batch stride.
@@ -118,11 +79,7 @@ __global__ void solve_batch(const int n, double* A, int* piv, double* g, double*
         return;
     }
     Solver::substitute(n, A + t, instances, piv + t, instances, g + t, u + t, instances);
-    double e = 0.0;
-    for (int i = 0; i < n; ++i)
-        e = fmax(e,
-                 fabs(u[static_cast<std::size_t>(i) * instances + t] - manufactured(-1.0 + i * h)));
-    err[t] = e;
+    err[t] = manufactured_error(n, u + t, instances);
 
     for (int i = 0; i < n; ++i)
         g[static_cast<std::size_t>(i) * instances + t] = 1.0;

@@ -38,35 +38,10 @@
 
 #include <omp.h>
 
-#include <tdls/tdls.hpp>
-
-namespace {
-
-using Solver = tdls::TiledLUppSolverDynamic<double>;
-
-constexpr int instances = 20000; ///< plate separations in the sweep
-constexpr double d_min  = 0.5;   ///< smallest plate separation
-constexpr double d_max  = 2.0;   ///< largest plate separation
-
-/// \brief Love kernel of the parallel-plate capacitor.
-/// \param[in] x first quadrature point
-/// \param[in] y second quadrature point
-/// \param[in] d plate separation
-/// \return the kernel value
-double love_kernel(const double x, const double y, const double d) {
-    return d / ((d * d + (x - y) * (x - y)) * 3.14159265358979324);
-}
-
-/// \brief The manufactured solution used to check every solve.
-/// \param[in] x quadrature point
-/// \return the manufactured value
-double manufactured(const double x) {
-    return std::exp(x);
-}
-
-} // namespace
+#include "love.hpp"
 
 int main(int argc, char** argv) {
+    using namespace love;
     // The quadrature resolution comes from outside the program; the
     // default is odd so that x = 0 is a node.
     const int n = argc > 1 ? std::atoi(argv[1]) : 41;
@@ -74,8 +49,8 @@ int main(int argc, char** argv) {
         std::printf("usage: %s [quadrature points in [5, 100]]\n", argv[0]);
         return 1;
     }
-    const double h = 2.0 / (n - 1);
-    const int mid  = (n - 1) / 2;
+    constexpr int instances = 20000; // plate separations in the sweep
+    const int mid           = (n - 1) / 2;
 
     // Shared per-instance outputs, written once per instance by its
     // owning iteration.
@@ -91,24 +66,7 @@ int main(int argc, char** argv) {
 
 #pragma omp for schedule(static)
         for (int c = 0; c < instances; ++c) {
-            // Plate separation of the instance, from the sweep ramp.
-            const double d = d_min + (d_max - d_min) * c / (instances - 1);
-
-            // Nystroem system on [-1, 1] with the trapezoid rule; the
-            // manufactured right-hand side is accumulated during the
-            // assembly.
-            for (int i = 0; i < n; ++i) {
-                const double xi = -1.0 + i * h;
-                double acc      = 0.0;
-                for (int j = 0; j < n; ++j) {
-                    const double yj = -1.0 + j * h;
-                    const double wj = (j == 0 || j == n - 1) ? h / 2 : h;
-                    const double a  = (i == j ? 1.0 : 0.0) + wj * love_kernel(xi, yj, d);
-                    A[static_cast<std::size_t>(i) * n + j] = a;
-                    acc += a * manufactured(yj);
-                }
-                g[i] = acc;
-            }
+            assemble(n, separation(c, instances), A.data(), 1, g.data(), 1);
 
             // One factorization, two right-hand sides.
             if (!Solver::factorize(n, A.data(), 1, piv.data(), 1)) {
@@ -118,10 +76,7 @@ int main(int argc, char** argv) {
                 continue;
             }
             Solver::substitute(n, A.data(), 1, piv.data(), 1, g.data(), u.data(), 1);
-            double e = 0.0;
-            for (int i = 0; i < n; ++i)
-                e = std::fmax(e, std::fabs(u[i] - manufactured(-1.0 + i * h)));
-            err[c] = e;
+            err[c] = manufactured_error(n, u.data(), 1);
 
             std::fill(g.begin(), g.end(), 1.0);
             Solver::substitute(n, A.data(), 1, piv.data(), 1, g.data(), u.data(), 1);

@@ -35,7 +35,8 @@ elseif(TDLS_BUILD_HIP_EXAMPLES)
 endif()
 if(TDLS_GPU_LANGUAGE)
     foreach(example implicit_ode_batch_gpu implicit_ode_batch_gpu_soa
-                    integral_equation_batch_gpu integral_equation_batch_gpu_soa)
+                    integral_equation_batch_gpu integral_equation_batch_gpu_soa
+                    norton_law_batch_gpu norton_law_batch_gpu_soa)
         if(TDLS_GPU_LANGUAGE STREQUAL "HIP")
             set_source_files_properties(${example}.cu PROPERTIES LANGUAGE HIP)
         endif()

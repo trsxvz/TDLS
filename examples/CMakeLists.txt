@@ -4,10 +4,13 @@
 # code. The tree is split by solver family, then by execution scale
 # (cpu_sequential, cpu_openmp, gpu_cuda_or_hip); examples/common holds
 # the pieces shared by every family.
+set(TDLS_EXAMPLES_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common")
 function(tdls_add_example family example)
     add_executable(tdls_example_${family}_${example} EXCLUDE_FROM_ALL ${example}.cpp)
     add_dependencies(buildtests tdls_example_${family}_${example})
     target_link_libraries(tdls_example_${family}_${example} PRIVATE tdls::tdls)
+    target_include_directories(tdls_example_${family}_${example}
+                               PRIVATE "${TDLS_EXAMPLES_COMMON_DIR}")
     target_compile_features(tdls_example_${family}_${example} PRIVATE cxx_std_20)
     if(NOT MSVC)
         target_compile_options(tdls_example_${family}_${example} PRIVATE -Wall -Wextra -Wpedantic

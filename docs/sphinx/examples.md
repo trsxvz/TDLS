@@ -2,7 +2,7 @@
 
 The examples double as living documentation and as tests: each one is
 a self-checking program executed by ctest under the `examples` label.
-They are organized as two scientific problems, each declined at every
+They are organized as three scientific problems, each declined at every
 execution scale, so that moving from one column to the next changes
 only the parallel harness, never the solver calls.
 
@@ -10,6 +10,7 @@ only the parallel harness, never the solver calls.
 |---|---|---|---|---|
 | **Compile-time dimension** (stiff chemistry, Radau IIA, N = 9) | `implicit_ode` | `implicit_ode_batch_omp` | `implicit_ode_batch_gpu` | `implicit_ode_batch_gpu_soa` |
 | **Runtime dimension** (Love integral equation, Nystroem, n chosen at launch) | `integral_equation` | `integral_equation_batch_omp` | `integral_equation_batch_gpu` | `integral_equation_batch_gpu_soa` |
+| **Constitutive law** (Norton viscoplasticity, the MFront pattern, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
 
 The sources live under `examples/tiled_lupp/`, split by execution
 scale (`cpu_sequential/`, `cpu_openmp/`, `gpu_cuda_or_hip/`). The GPU
@@ -49,3 +50,28 @@ arrays, batch stride on the SoA batch).
 Every instance factorizes once and substitutes two right-hand sides:
 a manufactured one, which the solve must return to solver accuracy
 and serves as the self-check, and the physical unit potential.
+
+## The constitutive-law family
+
+Norton viscoplasticity is integrated the way the MFront `Implicit` DSL
+does it: implicit Euler, the elastic strain increment and the
+viscoplastic multiplier as unknowns, Newton iterations on a 7 x 7
+system with the analytic jacobian of the MFront tutorial. N = 7 is
+fixed by the law and by the modelling hypothesis, so
+`TiledLUppSolverStatic` applies: this is the shape of the systems that
+MFront-generated behaviours hand to TDLS.
+
+The family shows the entry points the other two do not: `solve_inplace`
+for the Newton corrections, whose jacobian is fresh at every iteration,
+then `factorize` and `substitute_canonical_multirhs` for the consistent
+tangent operator, the six columns of the inverse jacobian solved
+together on one factorization where MFront runs six substitutions.
+
+The law needs no tensor library: symmetric tensors are 6-vectors in
+the TFEL convention and everything it manipulates is dense. The batch
+versions integrate one loading history per integration point,
+with amplitudes spanning the elastic and the creep regimes. The
+self-checks rest on two independent references: the radial return, the
+closed-form solution of the isotropic case, on every point, and central
+differences of the integration against the tangent operator on a
+sample of points.

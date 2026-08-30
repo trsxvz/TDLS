@@ -83,7 +83,7 @@ ctest --test-dir build -L examples   # rerun the self-checking examples
 Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
 
-The examples cover two scientific problems at four execution scales:
+The examples cover three scientific problems at four execution scales:
 sequential, OpenMP, and two GPU placements. The GPU examples are
 opt-in through `TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES`;
 nothing probes for a GPU toolchain otherwise.

@@ -36,34 +36,15 @@
 #include <cstdlib>
 #include <vector>
 
-#include <tdls/tdls.hpp>
-
 #include "gpu_runtime.hpp"
+#include "love.hpp"
 
 namespace {
 
-using Solver = tdls::TiledLUppSolverDynamic<double>;
+using namespace love;
 
 constexpr int instances = 1 << 17; ///< plate separations in the sweep
 constexpr int max_n     = 40;      ///< bound of the runtime resolution
-constexpr double d_min  = 0.5;     ///< smallest plate separation
-constexpr double d_max  = 2.0;     ///< largest plate separation
-
-/// \brief Love kernel of the parallel-plate capacitor.
-/// \param[in] x first quadrature point
-/// \param[in] y second quadrature point
-/// \param[in] d plate separation
-/// \return the kernel value
-__device__ double love_kernel(const double x, const double y, const double d) {
-    return d / ((d * d + (x - y) * (x - y)) * 3.14159265358979324);
-}
-
-/// \brief The manufactured solution used to check every solve.
-/// \param[in] x quadrature point
-/// \return the manufactured value
-__device__ double manufactured(const double x) {
-    return exp(x);
-}
 
 /// \brief One instance per thread: assembles its Nystroem system in
 /// thread-local arrays, factorizes it once, substitutes the
@@ -77,27 +58,10 @@ __global__ void capacitor_sweep(const int n, double* err, double* u_mid, int* ok
     const int t = static_cast<int>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (t >= instances) return;
 
-    // Plate separation of the instance, from the sweep ramp.
-    const double d = d_min + (d_max - d_min) * t / (instances - 1);
-    const double h = 2.0 / (n - 1);
-
-    // Nystroem system on [-1, 1] with the trapezoid rule, assembled in
-    // thread-local storage (unit strides); the manufactured right-hand
-    // side is accumulated during the assembly.
+    // Thread-local storage, unit strides.
     double A[max_n * max_n], g[max_n], u[max_n];
     int piv[max_n];
-    for (int i = 0; i < n; ++i) {
-        const double xi = -1.0 + i * h;
-        double acc      = 0.0;
-        for (int j = 0; j < n; ++j) {
-            const double yj = -1.0 + j * h;
-            const double wj = (j == 0 || j == n - 1) ? h / 2 : h;
-            const double a  = (i == j ? 1.0 : 0.0) + wj * love_kernel(xi, yj, d);
-            A[i * n + j]    = a;
-            acc += a * manufactured(yj);
-        }
-        g[i] = acc;
-    }
+    assemble(n, separation(t, instances), A, 1, g, 1);
 
     // One factorization, two right-hand sides.
     if (!Solver::factorize(n, A, 1, piv, 1)) {
@@ -107,10 +71,7 @@ __global__ void capacitor_sweep(const int n, double* err, double* u_mid, int* ok
         return;
     }
     Solver::substitute(n, A, 1, piv, 1, g, u, 1);
-    double e = 0.0;
-    for (int i = 0; i < n; ++i)
-        e = fmax(e, fabs(u[i] - manufactured(-1.0 + i * h)));
-    err[t] = e;
+    err[t] = manufactured_error(n, u, 1);
 
     for (int i = 0; i < n; ++i)
         g[i] = 1.0;
