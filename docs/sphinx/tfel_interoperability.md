@@ -47,6 +47,10 @@ shapes are rejected at compile time with an explicit message:
 convention: a configuration selecting the column-major layout is
 rejected at compile time.
 
+The out-of-tile counter of the raw interface is available here too:
+`factorize`, `solve` and `solve_inplace` take an optional trailing
+`int&`.
+
 For other types the detection can be overridden by specializing
 `tdls::storage_traits`.
 

@@ -65,6 +65,10 @@
 /// TiledLUppConfig value of the matrix scalar type as its first template
 /// argument. Only the TiledLUpp family exists today; a configuration
 /// value of another family can select it when one lands.
+///
+/// factorize, solve and solve_inplace also come in counting overloads
+/// taking a trailing int& out-parameter: the out-of-tile search counter
+/// of the raw API. Without it the diagnostic is compiled out.
 
 
 
@@ -571,6 +575,133 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
     }
 }
 
+/// \brief Shared engine of the factorize entry points: reduces the dense
+/// objects to raw arguments and forwards to the raw factorize, with or
+/// without the out-of-tile counter.
+/// \tparam UserConfig configuration value, validated by checked_config
+/// \tparam oot_diag   compile the out-of-tile counter in or out
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage
+/// \param[out]    oot_count out-of-tile search counter (oot_diag)
+/// \return false on a singular matrix.
+template<auto UserConfig, bool oot_diag, typename MatrixType, typename PivotType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
+    using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
+    using mt  = typename ctx::mtraits;
+    using pa  = pivot_access<PivotType>;
+    static_assert(mt::is_mutable, "tdls adaptors: factorize writes into A");
+    static_assert(!std::is_const_v<MatrixType>, "tdls adaptors: A must not be const here "
+                                                "(factorize writes it)");
+    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
+                                  "(factorize writes it)");
+    if constexpr (ctx::runtime_sized) {
+        return ctx::dynamic_solver::template factorize<oot_diag>(
+            mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
+            pa::stride(piv), oot_count);
+    } else {
+        return ctx::solver::template factorize<pa::is_internal, mt::is_internal, oot_diag>(
+            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), oot_count);
+    }
+}
+
+/// \brief Shared engine of the solve entry points: factorize +
+/// substitute on dense objects, with or without the out-of-tile counter.
+/// \tparam UserConfig configuration value, validated by checked_config
+/// \tparam pass_width columns per substitution pass for a matrix-like b
+/// \tparam oot_diag   compile the out-of-tile counter in or out
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage
+/// \param[in]     b         right-hand side
+/// \param[out]    x         solution
+/// \param[out]    oot_count out-of-tile search counter (oot_diag)
+/// \return false on a singular matrix.
+template<auto UserConfig, int pass_width, bool oot_diag, typename MatrixType, typename PivotType,
+         typename RhsType, typename SolutionType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
+    using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
+    using mt  = typename ctx::mtraits;
+    using pa  = pivot_access<PivotType>;
+    using bt  = storage_traits<std::remove_cv_t<RhsType>>;
+    using xt  = storage_traits<std::remove_cv_t<SolutionType>>;
+    static_assert(mt::is_mutable, "tdls adaptors: solve factors A in place");
+    static_assert(xt::is_mutable, "tdls adaptors: solve writes into x");
+    static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<SolutionType>,
+                  "tdls adaptors: A and x must not be const here (solve writes them)");
+    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
+                                  "(solve writes it)");
+    if constexpr (bt::arity == 2) {
+        check_multirhs_pair<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
+        if (!factorize_dispatch<UserConfig, oot_diag>(A, piv, oot_count)) return false;
+        substitute_multirhs_dispatch<ctx, pass_width, false>(A, piv, b, x);
+        return true;
+    } else {
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
+        check_vector<RhsType, typename ctx::scalar, ctx::N>();
+        check_vector<SolutionType, typename ctx::scalar, ctx::N>();
+        check_rhs_pair<RhsType, SolutionType>();
+        if constexpr (ctx::runtime_sized) {
+            return ctx::dynamic_solver::template solve<oot_diag>(
+                mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
+                pa::stride(piv), bt::pointer(b), xt::pointer(x), xt::stride(x), oot_count);
+        } else {
+            return ctx::solver::template solve<xt::is_internal, pa::is_internal, mt::is_internal,
+                                               oot_diag>(
+                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
+                xt::pointer(x), xt::stride(x), oot_count);
+        }
+    }
+}
+
+/// \brief Shared engine of the solve_inplace entry points: fused
+/// factorization on dense objects, with or without the out-of-tile
+/// counter.
+/// \tparam UserConfig configuration value, validated by checked_config
+/// \tparam pass_width columns per substitution pass for a matrix-like y
+/// \tparam oot_diag   compile the out-of-tile counter in or out
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage
+/// \param[in,out] y         right-hand side on entry, solution on exit
+/// \param[out]    oot_count out-of-tile search counter (oot_diag)
+/// \return false on a singular matrix.
+template<auto UserConfig, int pass_width, bool oot_diag, typename MatrixType, typename PivotType,
+         typename VectorType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
+    using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
+    using mt  = typename ctx::mtraits;
+    using pa  = pivot_access<PivotType>;
+    using yt  = storage_traits<std::remove_cv_t<VectorType>>;
+    static_assert(mt::is_mutable, "tdls adaptors: solve_inplace factors A in place");
+    static_assert(yt::is_mutable, "tdls adaptors: solve_inplace writes into y");
+    static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<VectorType>,
+                  "tdls adaptors: A and y must not be const here (solve_inplace writes them)");
+    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
+                                  "(solve_inplace writes it)");
+    if constexpr (yt::arity == 2) {
+        check_multirhs_pair<VectorType, VectorType, typename ctx::scalar, ctx::N>();
+        if (!factorize_dispatch<UserConfig, oot_diag>(A, piv, oot_count)) return false;
+        substitute_multirhs_dispatch<ctx, pass_width, true>(A, piv, y, y);
+        return true;
+    } else {
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
+        check_vector<VectorType, typename ctx::scalar, ctx::N>();
+        if constexpr (ctx::runtime_sized) {
+            return ctx::dynamic_solver::template solve_inplace<oot_diag>(
+                mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
+                pa::stride(piv), yt::pointer(y), yt::stride(y), oot_count);
+        } else {
+            return ctx::solver::template solve_inplace<yt::is_internal, pa::is_internal,
+                                                       mt::is_internal, oot_diag>(
+                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), yt::pointer(y),
+                yt::stride(y), oot_count);
+        }
+    }
+}
+
 } // namespace detail
 
 
@@ -584,22 +715,8 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
 template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
                                                                          PivotType& piv) {
-    using ctx =
-        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
-    using mt = typename ctx::mtraits;
-    using pa = detail::pivot_access<PivotType>;
-    static_assert(mt::is_mutable, "tdls adaptors: factorize writes into A");
-    static_assert(!std::is_const_v<MatrixType>, "tdls adaptors: A must not be const here "
-                                                "(factorize writes it)");
-    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
-                                  "(factorize writes it)");
-    if constexpr (ctx::runtime_sized) {
-        return ctx::dynamic_solver::factorize(mt::runtime_extent0(A), mt::pointer(A), mt::stride(A),
-                                              pa::pointer(piv), pa::stride(piv));
-    } else {
-        return ctx::solver::template factorize<pa::is_internal, mt::is_internal>(
-            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv));
-    }
+    int unused = 0;
+    return detail::factorize_dispatch<UserConfig, false>(A, piv, unused);
 }
 
 /// \brief Default-configuration overload of factorize.
@@ -610,6 +727,33 @@ template<typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
                                                                          PivotType& piv) {
     return factorize<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv);
+}
+
+/// \brief Counting overload of factorize: also reports the number of
+/// columns that needed the out-of-tile pivot search.
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage: int pointer/array or dense int object
+/// \param[out]    oot_count number of columns that needed the
+///                out-of-tile pivot search
+/// \return false on a singular matrix.
+template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+factorize(MatrixType& A, PivotType& piv, int& oot_count) {
+    return detail::factorize_dispatch<UserConfig, true>(A, piv, oot_count);
+}
+
+/// \brief Default-configuration counting overload of factorize.
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage: int pointer/array or dense int object
+/// \param[out]    oot_count number of columns that needed the
+///                out-of-tile pivot search
+/// \return false on a singular matrix.
+template<typename MatrixType, typename PivotType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+factorize(MatrixType& A, PivotType& piv, int& oot_count) {
+    return factorize<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv, oot_count);
 }
 
 /// \brief Solve A x = b on dense objects: factorize + substitute.
@@ -633,39 +777,8 @@ template<detail::solver_config auto UserConfig, int pass_width = 0, typename Mat
          typename PivotType, typename RhsType, typename SolutionType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
-    using ctx =
-        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
-    using mt = typename ctx::mtraits;
-    using pa = detail::pivot_access<PivotType>;
-    using bt = storage_traits<std::remove_cv_t<RhsType>>;
-    using xt = storage_traits<std::remove_cv_t<SolutionType>>;
-    static_assert(mt::is_mutable, "tdls adaptors: solve factors A in place");
-    static_assert(xt::is_mutable, "tdls adaptors: solve writes into x");
-    static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<SolutionType>,
-                  "tdls adaptors: A and x must not be const here (solve writes them)");
-    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
-                                  "(solve writes it)");
-    if constexpr (bt::arity == 2) {
-        detail::check_multirhs_pair<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
-        if (!factorize<UserConfig>(A, piv)) return false;
-        detail::substitute_multirhs_dispatch<ctx, pass_width, false>(A, piv, b, x);
-        return true;
-    } else {
-        static_assert(pass_width == 0,
-                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
-        detail::check_vector<RhsType, typename ctx::scalar, ctx::N>();
-        detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
-        detail::check_rhs_pair<RhsType, SolutionType>();
-        if constexpr (ctx::runtime_sized) {
-            return ctx::dynamic_solver::solve(mt::runtime_extent0(A), mt::pointer(A), mt::stride(A),
-                                              pa::pointer(piv), pa::stride(piv), bt::pointer(b),
-                                              xt::pointer(x), xt::stride(x));
-        } else {
-            return ctx::solver::template solve<xt::is_internal, pa::is_internal, mt::is_internal>(
-                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
-                xt::pointer(x), xt::stride(x));
-        }
-    }
+    int unused = 0;
+    return detail::solve_dispatch<UserConfig, pass_width, false>(A, piv, b, x, unused);
 }
 
 /// \brief Default-configuration overload of solve.
@@ -682,6 +795,44 @@ template<int pass_width = 0, typename MatrixType, typename PivotType, typename R
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
     return solve<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x);
+}
+
+/// \brief Counting overload of solve: also reports the number of
+/// columns that needed the out-of-tile pivot search.
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
+/// \tparam pass_width columns per substitution pass for a matrix-like b
+///         (0 = all at once; must be 0 for a vector-like b)
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage: int pointer/array or dense int object
+/// \param[in]     b         right-hand side, in original order
+/// \param[out]    x         solution, of the same shape as b
+/// \param[out]    oot_count number of columns that needed the
+///                out-of-tile pivot search
+/// \return false on a singular matrix.
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename RhsType, typename SolutionType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
+    return detail::solve_dispatch<UserConfig, pass_width, true>(A, piv, b, x, oot_count);
+}
+
+/// \brief Default-configuration counting overload of solve.
+/// \tparam pass_width columns per substitution pass for a matrix-like b
+///         (0 = all at once; must be 0 for a vector-like b)
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage: int pointer/array or dense int object
+/// \param[in]     b         right-hand side, in original order
+/// \param[out]    x         solution, of the same shape as b
+/// \param[out]    oot_count number of columns that needed the
+///                out-of-tile pivot search
+/// \return false on a singular matrix.
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
+         typename SolutionType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
+    return solve<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x,
+                                                                                   oot_count);
 }
 
 /// \brief Solve A y = y on dense objects with the fused factorization
@@ -707,37 +858,8 @@ template<detail::solver_config auto UserConfig, int pass_width = 0, typename Mat
          typename PivotType, typename VectorType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
-    using ctx =
-        detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
-    using mt = typename ctx::mtraits;
-    using pa = detail::pivot_access<PivotType>;
-    using yt = storage_traits<std::remove_cv_t<VectorType>>;
-    static_assert(mt::is_mutable, "tdls adaptors: solve_inplace factors A in place");
-    static_assert(yt::is_mutable, "tdls adaptors: solve_inplace writes into y");
-    static_assert(!std::is_const_v<MatrixType> && !std::is_const_v<VectorType>,
-                  "tdls adaptors: A and y must not be const here (solve_inplace writes them)");
-    static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
-                                  "(solve_inplace writes it)");
-    if constexpr (yt::arity == 2) {
-        detail::check_multirhs_pair<VectorType, VectorType, typename ctx::scalar, ctx::N>();
-        if (!factorize<UserConfig>(A, piv)) return false;
-        detail::substitute_multirhs_dispatch<ctx, pass_width, true>(A, piv, y, y);
-        return true;
-    } else {
-        static_assert(pass_width == 0,
-                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
-        detail::check_vector<VectorType, typename ctx::scalar, ctx::N>();
-        if constexpr (ctx::runtime_sized) {
-            return ctx::dynamic_solver::solve_inplace(
-                mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
-                pa::stride(piv), yt::pointer(y), yt::stride(y));
-        } else {
-            return ctx::solver::template solve_inplace<yt::is_internal, pa::is_internal,
-                                                       mt::is_internal>(
-                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), yt::pointer(y),
-                yt::stride(y));
-        }
-    }
+    int unused = 0;
+    return detail::solve_inplace_dispatch<UserConfig, pass_width, false>(A, piv, y, unused);
 }
 
 /// \brief Default-configuration overload of solve_inplace.
@@ -755,6 +877,43 @@ template<int pass_width = 0, typename MatrixType, typename PivotType, typename V
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
     return solve_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv,
                                                                                            y);
+}
+
+/// \brief Counting overload of solve_inplace: also reports the number
+/// of columns that needed the out-of-tile pivot search.
+/// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
+///         value of the matrix scalar type
+/// \tparam pass_width columns per substitution pass for a matrix-like y
+///         (0 = all at once; must be 0 for a vector-like y)
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage: int pointer/array or dense int object
+/// \param[in,out] y         right-hand side on entry, solution on exit
+/// \param[out]    oot_count number of columns that needed the
+///                out-of-tile pivot search
+/// \return false on a singular matrix (y left partially updated with a
+///         vector-like y, untouched with a matrix-like y).
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename VectorType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
+    return detail::solve_inplace_dispatch<UserConfig, pass_width, true>(A, piv, y, oot_count);
+}
+
+/// \brief Default-configuration counting overload of solve_inplace.
+/// \tparam pass_width columns per substitution pass for a matrix-like y
+///         (0 = all at once; must be 0 for a vector-like y)
+/// \param[in,out] A         matrix-like object (factored in place)
+/// \param[in,out] piv       pivot storage: int pointer/array or dense int object
+/// \param[in,out] y         right-hand side on entry, solution on exit
+/// \param[out]    oot_count number of columns that needed the
+///                out-of-tile pivot search
+/// \return false on a singular matrix (y left partially updated with a
+///         vector-like y, untouched with a matrix-like y).
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename VectorType>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
+    return solve_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(
+        A, piv, y, oot_count);
 }
 
 /// \brief Solve x := U^-1 L^-1 P b on dense objects, from a prior

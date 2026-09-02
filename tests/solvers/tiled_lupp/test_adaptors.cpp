@@ -14,7 +14,9 @@
 /// compile time, rejects a gather-like type, and requires every adaptor
 /// call to reproduce the raw pointer API bitwise. An explicit
 /// configuration value passed through the adaptors is bridged against
-/// the raw API configured with the same value, on both solvers.
+/// the raw API configured with the same value, on both solvers. The
+/// counting overloads are bridged against the raw out-of-tile
+/// counters, on both solvers too.
 
 #include <cstddef>
 #include <cstdint>
@@ -502,6 +504,74 @@ TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {
         RawSolver::solve_inplace<true, true, true>(A2_raw, 1, piv_raw, 1, z_raw, 1);
     TDLS_CHECK(ok_fused == ok_fused_raw);
     TDLS_CHECK_BITWISE(z.v, z_raw, static_cast<std::size_t>(N));
+}
+
+TDLS_TEST_CASE("tiledlupp/adaptors/oot-counter-reproduces-raw") {
+    // Entries below oot_threshold on every column, so the counters
+    // carry real weight; the first column always fires.
+    tdls_tests::UniformGenerator gen(210900, 5e-11);
+    MockMatrix A;
+    MockVector b, x;
+    double A_raw[N * N], b_raw[N], x_raw[N];
+    int piv[N], piv_raw[N];
+    for (int e = 0; e < N * N; ++e)
+        A.v[e] = A_raw[e] = gen.next();
+    for (int i = 0; i < N; ++i)
+        b.v[i] = b_raw[i] = gen.next();
+    int oot = -1, oot_raw = -1;
+    TDLS_CHECK(tdls::solve(A, piv, b, x, oot));
+    TDLS_CHECK(
+        (RawSolver::solve<true, true, true>(A_raw, 1, piv_raw, 1, b_raw, x_raw, 1, oot_raw)));
+    TDLS_CHECK(oot == oot_raw);
+    TDLS_CHECK(oot > 0);
+    TDLS_CHECK_BITWISE(A.v, A_raw, static_cast<std::size_t>(N) * N);
+    TDLS_CHECK_BITWISE(x.v, x_raw, static_cast<std::size_t>(N));
+
+    // Counting factorize on a fresh system.
+    MockMatrix A2;
+    double A2_raw[N * N];
+    for (int e = 0; e < N * N; ++e)
+        A2.v[e] = A2_raw[e] = gen.next();
+    int oot2 = -1, oot2_raw = -1;
+    TDLS_CHECK(tdls::factorize(A2, piv, oot2));
+    TDLS_CHECK((RawSolver::factorize<true, true>(A2_raw, 1, piv_raw, 1, oot2_raw)));
+    TDLS_CHECK(oot2 == oot2_raw);
+    TDLS_CHECK_BITWISE(A2.v, A2_raw, static_cast<std::size_t>(N) * N);
+
+    // Counting solve_inplace on a fresh system.
+    MockMatrix A3;
+    MockVector y;
+    double A3_raw[N * N], y_raw[N];
+    for (int e = 0; e < N * N; ++e)
+        A3.v[e] = A3_raw[e] = gen.next();
+    for (int i = 0; i < N; ++i)
+        y.v[i] = y_raw[i] = gen.next();
+    int oot3 = -1, oot3_raw = -1;
+    TDLS_CHECK(tdls::solve_inplace(A3, piv, y, oot3));
+    TDLS_CHECK(
+        (RawSolver::solve_inplace<true, true, true>(A3_raw, 1, piv_raw, 1, y_raw, 1, oot3_raw)));
+    TDLS_CHECK(oot3 == oot3_raw);
+    TDLS_CHECK_BITWISE(y.v, y_raw, static_cast<std::size_t>(N));
+
+    // The runtime path counts through the dynamic solver.
+    using RawDynamic = tdls::TiledLUppSolverDynamic<double>;
+    const int n      = 12;
+    MockRuntimeMatrix Ad(n);
+    MockRuntimeVector bd(n), xd(n);
+    std::vector<double> Ad_raw(static_cast<std::size_t>(n) * n), bd_raw(n), xd_raw(n);
+    std::vector<int> pivd(n), pivd_raw(n);
+    for (int e = 0; e < n * n; ++e)
+        Ad.v[e] = Ad_raw[e] = gen.next();
+    for (int i = 0; i < n; ++i)
+        bd.v[i] = bd_raw[i] = gen.next();
+    int* pivd_p = pivd.data();
+    int ootd = -1, ootd_raw = -1;
+    TDLS_CHECK(tdls::solve(Ad, pivd_p, bd, xd, ootd));
+    TDLS_CHECK(RawDynamic::solve(n, Ad_raw.data(), 1, pivd_raw.data(), 1, bd_raw.data(),
+                                 xd_raw.data(), 1, ootd_raw));
+    TDLS_CHECK(ootd == ootd_raw);
+    TDLS_CHECK(ootd > 0);
+    TDLS_CHECK_BITWISE(xd.v.data(), xd_raw.data(), static_cast<std::size_t>(n));
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/explicit-config-value-reproduces-raw") {

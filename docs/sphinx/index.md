@@ -37,10 +37,6 @@ one object: N * N for a matrix, N for a right-hand side or a pivot.
 An AoSoA batch is padded to a multiple of W systems, so that every
 block is full and the stride stays uniform.
 
-Inside one matrix, element (r, c) sits at flat index r * N + c:
-row-major, the default. The `layout` knob of the configuration selects
-column-major storage instead, resolved at compile time.
-
 A taste of the interface:
 
 ```cpp
@@ -107,8 +103,9 @@ and their `_multirhs` twins) has an overload taking a trailing
 `int& oot_count` argument. It counts the columns whose best in-tile
 pivot fell below `oot_threshold`, because this is what triggers the
 out-of-tile pivot search. Without the argument, the diagnostic is
-compiled out entirely and costs nothing. The counter is only reachable
-through the raw interface, not through the adaptors.
+compiled out entirely and costs nothing. The adaptors expose the same
+overloads: a trailing `int&` on `factorize`, `solve` and
+`solve_inplace`.
 
 ```cpp
 // 9 x 9 matrix, its pivot vector, and the out-of-tile counter
