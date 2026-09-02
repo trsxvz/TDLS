@@ -105,19 +105,21 @@ DynamicSolver::solve_inplace(matrixSize, A + s, stride, piv, 1, y + s, stride);
 Every factorizing entry point (`factorize`, `solve`, `solve_inplace`
 and their `_multirhs` twins) has an overload taking a trailing
 `int& oot_count` argument. It counts the columns whose best in-tile
-pivot fell below `oot_threshold`: the columns that needed the
-out-of-tile pivot search. It is a cheap signal for tuning `tile_size`
-and `oot_threshold` on the data at hand. Without the argument, the
-diagnostic is compiled out entirely and costs nothing. The counter is
-only reachable through the raw interface, not through the adaptors.
+pivot fell below `oot_threshold`, because this is what triggers the
+out-of-tile pivot search. Without the argument, the diagnostic is
+compiled out entirely and costs nothing. The counter is only reachable
+through the raw interface, not through the adaptors.
 
 ```cpp
-// The 9 x 9 system of the example above, factorized with the
-// counting overload.
+// 9 x 9 matrix, its pivot vector, and the out-of-tile counter
 double M[9 * 9] = ...;
 int piv[9];
 int oot_count;
+
+// Factorization of the matrix M with out-of-tile diagnostics enabled
 StaticSolver::factorize<true, true>(M, 1, piv, 1, oot_count);
+
+// Post-processing
 if (oot_count == 0) {
     std::printf("no out-of-tile pivoting\n");
 } else {
@@ -136,6 +138,7 @@ which recognize them structurally without including `TFEL`; see
 ```{toctree}
 :maxdepth: 1
 
+Overview <self>
 getting_started
 examples
 tests
