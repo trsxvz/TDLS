@@ -1,32 +1,32 @@
-#ifndef TDLS_CORE_ADAPTORS_HPP
-#define TDLS_CORE_ADAPTORS_HPP
+#ifndef TDLS_TFEL_ADAPTORS_HPP
+#define TDLS_TFEL_ADAPTORS_HPP
 
 
 
 /// \file
-/// \brief Generic adaptors: call the TiledLUpp solvers directly on dense
-/// math objects (matrices, vectors, views) instead of raw pointers.
+/// \brief TFEL adaptors: call the TiledLUpp solvers directly on the
+/// tfel::math objects (matrices, vectors, views) instead of raw pointers.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 ///
-/// The adaptors accept any object matching a small STRUCTURAL contract:
-/// no external library is named or included. Three families are
-/// recognized:
+/// The adaptors are designed for the TFEL math types, recognized
+/// STRUCTURALLY: TFEL is never named or included, so the library stays
+/// dependency-free, and any type following the TFEL protocol is
+/// accepted. Three families are recognized:
 ///
-///   - contiguous fixed-size objects and views: expose data() and an
-///     indexing_policy type whose extents are constexpr (this matches
-///     tfel::math tmatrix / tvector / View, among others);
-///   - element-strided views: expose their runtime stride either
-///     through a data() member returning a (pointer, stride) pair (this
-///     matches tfel::math StridedCoalescedView, i.e. the map_strided SoA
-///     views) or through a stride() / getStride() member next to a plain
-///     data();
-///   - runtime-sized objects: their indexing policy carries its extents
-///     as data members, so its default-constructed instance reports a
-///     zero extent (this matches tfel::math matrix / vector). They also
+///   - contiguous fixed-size objects and views, tfel::math tmatrix /
+///     tvector / View: expose data() and an indexing_policy type whose
+///     extents are constexpr;
+///   - element-strided views, tfel::math StridedCoalescedView, i.e. the
+///     map_strided SoA views: expose their runtime stride through a
+///     data() member returning a (pointer, stride) pair, or through a
+///     stride() / getStride() member next to a plain data();
+///   - runtime-sized objects, tfel::math matrix / vector: their
+///     indexing policy carries its extents as data members, so its
+///     default-constructed instance reports a zero extent. They also
 ///     expose getIndexingPolicy(), from which the dimension is read at
 ///     run time.
 ///
@@ -53,7 +53,11 @@
 /// single-stride addressing, and gather views holding one pointer per
 /// element expose no data() at all.
 ///
-/// The detection can be overridden for exotic types by specializing
+/// TFEL stores matrices row-major and the adaptors follow that
+/// convention: a configuration selecting the column-major layout is
+/// rejected at compile time.
+///
+/// The detection can be overridden for non-TFEL types by specializing
 /// tdls::storage_traits.
 ///
 /// Every entry point comes in two overloads: a default-configuration
@@ -145,7 +149,7 @@ template<typename T>
 struct has_indexing_policy<T, std::void_t<typename T::indexing_policy>> : std::true_type {};
 
 /// \brief A type is "dense" when it exposes both a data pointer and an
-/// indexing policy, the structural contract of the adaptors.
+/// indexing policy, the structural core of the TFEL protocol.
 template<typename T>
 inline constexpr bool is_dense_v =
     (has_data<T>::value || has_pair_data<T>::value) && has_indexing_policy<T>::value;
@@ -157,9 +161,9 @@ inline constexpr bool is_dense_v =
 /// \brief Storage description of a dense object: element type, extents,
 /// element pointer and element stride.
 ///
-/// The primary template covers, structurally, every type exposing data()
-/// and an indexing_policy (see the file documentation). Specialize it for
-/// types that do not fit the structural contract.
+/// The primary template covers, structurally, every type following the
+/// TFEL protocol: a data() member and an indexing_policy type (see the
+/// file documentation). Specialize it for other types.
 /// \tparam DenseType dense object type (without cv-qualifiers/references)
 template<typename DenseType, typename = void>
 struct storage_traits;
@@ -372,6 +376,9 @@ struct adaptor_context {
     static constexpr bool runtime_sized = mtraits::has_runtime_extents;
     static_assert(runtime_sized || mtraits::extent0 == mtraits::extent1,
                   "tdls adaptors: A must be square");
+    static_assert(Config.layout == TiledLUppLayout::RowMajor,
+                  "tdls adaptors: dense objects are addressed row-major, the TFEL convention; "
+                  "a column-major configuration cannot be used through the adaptors");
     //! \brief system dimension (fixed-size path; zero on the runtime path)
     static constexpr int N = mtraits::extent0;
     //! \brief resolved compile-time solver (never instantiated on the
@@ -924,4 +931,4 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
 
 
 
-#endif // TDLS_CORE_ADAPTORS_HPP
+#endif // TDLS_TFEL_ADAPTORS_HPP

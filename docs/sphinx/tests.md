@@ -45,6 +45,7 @@ localizes a divergence exactly.
 | `static_vs_dynamic` | bitwise equality of the two variants |
 | `residencies` | every residency combination reproduces the anchored path bitwise |
 | `layouts` | AoS, SoA and AoSoA addressing, bitwise |
+| `colmajor` | the column-major layout against the row-major one on transposed storage, bitwise, on both solvers |
 | `entry_points` | the documented entry point equivalences, bitwise |
 | `inplace_paths` | the two in-place substitution algorithms around their switchover dimensions |
 | `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers |
@@ -59,8 +60,9 @@ localizes a divergence exactly.
 
 The `reject_*` entries deserve a word: they compile, on purpose,
 translation units that must be rejected by the compile-time contracts
-(threshold ordering, const-ness of the adaptor arguments, and the
-match between the config scalar and the matrix scalar). Each test
+(threshold ordering, const-ness of the adaptor arguments, the match
+between the config scalar and the matrix scalar, and the row-major
+addressing contract of the adaptors). Each test
 passes only when the compiler emits the exact diagnostic of its
 contract, so a silently dropped contract turns the suite red. The
 scalar type of the thresholds needs no test anymore: the configuration

@@ -8,6 +8,7 @@ set(TDLS_TILEDLUPP_TEST_SUITES
     static_vs_dynamic
     residencies
     layouts
+    colmajor
     entry_points
     inplace_paths
     multirhs
@@ -58,12 +59,14 @@ set(TDLS_TILEDLUPP_REJECT_CASES
     reject_config_eps_above_threshold
     reject_adaptors_const_matrix
     reject_adaptors_const_pivot
-    reject_adaptors_config_scalar_mismatch)
+    reject_adaptors_config_scalar_mismatch
+    reject_adaptors_colmajor_config)
 set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
     "singular_eps must not exceed oot_threshold"
     "A must not be const here"
     "the pivot must be mutable here"
-    "the config scalar type must match the matrix element type")
+    "the config scalar type must match the matrix element type"
+    "dense objects are addressed row-major")
 
 foreach(case diagnostic IN ZIP_LISTS TDLS_TILEDLUPP_REJECT_CASES
                                      TDLS_TILEDLUPP_REJECT_DIAGNOSTICS)

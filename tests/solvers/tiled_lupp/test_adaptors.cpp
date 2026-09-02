@@ -6,8 +6,8 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 ///
-/// The adaptors are structural: they accept any type exposing the dense
-/// contract, without naming any external library. The suite exercises the
+/// The adaptors are designed for the TFEL math types and recognize them
+/// structurally, without naming or including TFEL. The suite exercises the
 /// three recognized data() shapes through minimal mock types (contiguous
 /// object, strided view returning a (pointer, stride) pair, strided view
 /// with a separate getStride()), checks the residency classification at

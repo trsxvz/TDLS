@@ -1,12 +1,14 @@
 # TFEL interoperability
 
-The free functions of `tdls/core/adaptors.hpp` accept dense math objects
-directly and infer everything the raw interface needs: the scalar
-type, the dimension (at compile time or at run time), the strides
-and, on the fixed-size path, the residency booleans.
+The adaptors of `tdls/tfel/adaptors.hpp` are designed for the
+`tfel::math` objects. Their free functions accept them directly and
+infer everything the raw interface needs: the scalar type, the
+dimension (at compile time or at run time), the strides and, on the
+fixed-size path, the residency booleans.
 
-The detection is purely structural: TDLS names and includes no
-external library. Three shapes are recognized:
+The detection is purely structural: TDLS names and includes nothing
+from `TFEL`, so the library stays dependency-free, and any type
+following the `TFEL` protocol is accepted. Three shapes are recognized:
 
 - contiguous fixed-size objects and views, exposing `data()` and an
   `indexing_policy` type with constexpr extents (this matches
@@ -41,7 +43,11 @@ shapes are rejected at compile time with an explicit message:
   `tfel::math::CoalescedView`, built by the `map()` overload taking an
   array of pointers), which expose no `data()` at all.
 
-For exotic types the detection can be overridden by specializing
+`TFEL` stores matrices row-major and the adaptors follow that
+convention: a configuration selecting the column-major layout is
+rejected at compile time.
+
+For other types the detection can be overridden by specializing
 `tdls::storage_traits`.
 
 Plain `TFEL` objects, then `TFEL` strided-coalesced views, in action:

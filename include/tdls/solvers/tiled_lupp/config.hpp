@@ -50,6 +50,14 @@ enum class TiledLUppSchedule {
 
 
 
+/// \brief Memory layout of the factor matrix.
+enum class TiledLUppLayout {
+    RowMajor, ///< Element (r, c) at flat index r * N + c, the TFEL convention.
+    ColMajor  ///< Element (r, c) at flat index c * N + r.
+};
+
+
+
 /// \brief Compile-time knobs of the TiledLUpp solvers, carrying the tuned
 /// defaults.
 /// \tparam T scalar type (float or double)
@@ -111,6 +119,16 @@ struct TiledLUppConfig {
     /// for faster compiles, GPU performance not guaranteed. Outer tile-sweep
     /// loops never carry a pragma in either branch.
     bool unroll_inner = true;
+
+    /// Memory layout of the factor matrix, in both solvers and both
+    /// residency modes. The knob only remaps the flat element index that
+    /// the element stride scales: the arithmetic sequence is unchanged,
+    /// so both layouts produce bitwise-identical results on identical
+    /// inputs. Row-major is the TFEL convention and the default. A
+    /// factorization keeps the layout of its configuration, so its
+    /// substitutions share it by construction. The vector operands and
+    /// the pivot are one-dimensional and unaffected.
+    TiledLUppLayout layout = TiledLUppLayout::RowMajor;
 };
 
 

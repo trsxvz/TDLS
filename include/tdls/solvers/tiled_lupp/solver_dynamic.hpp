@@ -40,6 +40,10 @@
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (dimensions unknown at compile time, fast builds).
 ///
+/// The matrix layout follows Config.layout, exactly as in the
+/// compile-time solver: row-major by default, the flat index remapped
+/// for column-major storage, resolved at compile time.
+///
 /// Preconditions: n >= 1. TS may exceed n (the grid is then a single
 /// partial tile). Offsets are computed in unsigned 32-bit arithmetic:
 /// the largest element offset of every array (for the matrix,
@@ -80,13 +84,19 @@ namespace tdls {
 
 
 
-/* Addressing macros. They expand inside member functions where n and the
+/* Addressing macros. They expand inside member functions where n, the
    parameter names (A, A_stride, piv, piv_stride, x, b, y, rhs_stride,
-   xcol_stride) are in scope. #undef'd at the end of this header. */
+   xcol_stride) and the Config value are in scope. #undef'd at the end
+   of this header. */
 
+/// \def TDLS_LUPP_DYN_A_INDEX
+/// \brief Flat index of matrix element (r, c) under the configured
+/// layout: r * n + c row-major, c * n + r column-major.
+#define TDLS_LUPP_DYN_A_INDEX(r, c)                                                                \
+    (Config.layout == TiledLUppLayout::RowMajor ? unsigned((r) * n + (c)) : unsigned((c) * n + (r)))
 /// \def TDLS_LUPP_DYN_A
 /// \brief Strided element (r, c) of the factor matrix.
-#define TDLS_LUPP_DYN_A(r, c) A[unsigned((r) * n + (c)) * unsigned(A_stride)]
+#define TDLS_LUPP_DYN_A(r, c) A[TDLS_LUPP_DYN_A_INDEX(r, c) * unsigned(A_stride)]
 /// \def TDLS_LUPP_DYN_PIV
 /// \brief Strided pivot entry i.
 #define TDLS_LUPP_DYN_PIV(i) piv[unsigned(i) * unsigned(piv_stride)]
@@ -1704,6 +1714,7 @@ struct TiledLUppSolverDynamic {
 
 
 
+#undef TDLS_LUPP_DYN_A_INDEX
 #undef TDLS_LUPP_DYN_A
 #undef TDLS_LUPP_DYN_PIV
 #undef TDLS_LUPP_DYN_X

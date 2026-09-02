@@ -46,7 +46,7 @@ In every case, include the umbrella header:
 
 Finer-grained headers exist for the individual pieces
 (`tdls/solvers/tiled_lupp/solver_static.hpp`,
-`tdls/solvers/tiled_lupp/solver_dynamic.hpp`, `tdls/core/adaptors.hpp`).
+`tdls/solvers/tiled_lupp/solver_dynamic.hpp`, `tdls/tfel/adaptors.hpp`).
 
 ## Building the tests and examples
 

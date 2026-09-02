@@ -37,6 +37,10 @@ one object: N * N for a matrix, N for a right-hand side or a pivot.
 An AoSoA batch is padded to a multiple of W systems, so that every
 block is full and the stride stays uniform.
 
+Inside one matrix, element (r, c) sits at flat index r * N + c:
+row-major, the default. The `layout` knob of the configuration selects
+column-major storage instead, resolved at compile time.
+
 A taste of the interface:
 
 ```cpp
@@ -62,7 +66,9 @@ constexpr tdls::TiledLUppConfig<double> config{
     // bool: the out-of-tile search stops at the first acceptable pivot
     .oot_first_acceptable = true,
     // bool: forced unrolling of the in-tile loops
-    .unroll_inner = true};
+    .unroll_inner = true,
+    // tdls::TiledLUppLayout: matrix layout, RowMajor or ColMajor
+    .layout = tdls::TiledLUppLayout::RowMajor};
 
 // LUpp solver with compile-time matrix size.
 using StaticSolver  = tdls::TiledLUppSolverStatic<double, 9, config>;
@@ -94,9 +100,38 @@ StaticSolver::substitute_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 DynamicSolver::solve_inplace(matrixSize, A + s, stride, piv, 1, y + s, stride);
 ```
 
-Dense math objects (matrices, vectors, strided views) can also be
-passed directly through the structural adaptors, without naming any
-external library; see {doc}`tfel_interoperability`.
+## Diagnostics
+
+Every factorizing entry point (`factorize`, `solve`, `solve_inplace`
+and their `_multirhs` twins) has an overload taking a trailing
+`int& oot_count` argument. It counts the columns whose best in-tile
+pivot fell below `oot_threshold`: the columns that needed the
+out-of-tile pivot search. It is a cheap signal for tuning `tile_size`
+and `oot_threshold` on the data at hand. Without the argument, the
+diagnostic is compiled out entirely and costs nothing. The counter is
+only reachable through the raw interface, not through the adaptors.
+
+```cpp
+// The 9 x 9 system of the example above, factorized with the
+// counting overload.
+double M[9 * 9] = ...;
+int piv[9];
+int oot_count;
+StaticSolver::factorize<true, true>(M, 1, piv, 1, oot_count);
+if (oot_count == 0) {
+    std::printf("no out-of-tile pivoting\n");
+} else {
+    // Weak in-tile pivots force the search below the tile: slower execution
+    std::printf("%d columns needed the out-of-tile pivot search\n", oot_count);
+}
+```
+
+## TFEL adaptors
+
+The `tfel::math` objects (matrices, vectors, strided views) can also
+be passed directly through the adaptors of `tdls/tfel/adaptors.hpp`,
+which recognize them structurally without including `TFEL`; see
+{doc}`tfel_interoperability`.
 
 ```{toctree}
 :maxdepth: 1

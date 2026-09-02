@@ -17,7 +17,9 @@ in two variants.
 `TiledLUppSolverStatic` takes the dimension at compile time; residency
 booleans let whole systems live in registers. `TiledLUppSolverDynamic`
 takes the dimension at run time; the placement of the operands is
-expressed through element strides.
+expressed through element strides. Matrices are addressed row-major by
+default; the `layout` knob of the configuration selects column-major
+storage, resolved at compile time.
 
 ```cpp
 #include <limits>
@@ -41,7 +43,9 @@ constexpr tdls::TiledLUppConfig<double> config{
     // bool: the out-of-tile search stops at the first acceptable pivot
     .oot_first_acceptable = true,
     // bool: forced unrolling of the in-tile loops
-    .unroll_inner = true};
+    .unroll_inner = true,
+    // tdls::TiledLUppLayout: matrix layout, RowMajor or ColMajor
+    .layout = tdls::TiledLUppLayout::RowMajor};
 
 // LU solver for systems of dimension 9: the 9 x 9 matrix is cut
 // into 3 x 3 register tiles. One call: factorize M in place, then
@@ -53,9 +57,10 @@ using Solver = tdls::TiledLUppSolverStatic<double, 9, config>;
 Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 ```
 
-Dense math objects can also be passed directly: the adaptors of
-`tdls/core/adaptors.hpp` recognize matrices, vectors and strided views
-structurally, without naming any external library.
+The `tfel::math` objects (matrices, vectors, strided views) can also
+be passed directly: the adaptors of `tdls/tfel/adaptors.hpp` are
+designed for them and recognize them structurally, without including
+`TFEL`.
 
 ## Using the library
 

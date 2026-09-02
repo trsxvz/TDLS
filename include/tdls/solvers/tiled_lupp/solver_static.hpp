@@ -25,8 +25,11 @@
 /// **Addressing convention (backend-agnostic, no accessor objects).**
 /// The solver never sees a thread index: callers pre-offset every remote
 /// pointer with the lane/system index and pass a runtime stride.
-/// Element (r,c) of the matrix lives at `A[((r)*N+(c))*A_stride]`. The
-/// pivot array and the right-hand sides follow the same convention.
+/// Element (r,c) of the matrix lives at `A[((r)*N+(c))*A_stride]`
+/// under the default row-major layout; Config.layout remaps the flat
+/// index to `((c)*N+(r))` for column-major storage, resolved at
+/// compile time and with bitwise-identical results. The pivot array
+/// and the right-hand sides follow the same convention.
 /// Offsets are computed in unsigned 32-bit arithmetic: the largest
 /// element offset of every array (for the matrix, (N*N-1)*A_stride)
 /// must stay below 2^32. Each
@@ -104,14 +107,19 @@ namespace tdls {
 
 /* Addressing macros. They expand inside member functions where the
    parameter names (A, A_stride, piv, piv_stride, x, b, y, rhs_stride,
-   xcol_stride) and the residency template booleans are in scope.
-   #undef'd at the end of this header. */
+   xcol_stride), the residency template booleans and the Config value
+   are in scope. #undef'd at the end of this header. */
 
+/// \def TDLS_LUPP_A_INDEX
+/// \brief Flat index of matrix element (r, c) under the configured
+/// layout: r * N + c row-major, c * N + r column-major.
+#define TDLS_LUPP_A_INDEX(r, c)                                                                    \
+    (Config.layout == TiledLUppLayout::RowMajor ? unsigned((r) * N + (c)) : unsigned((c) * N + (r)))
 /// \def TDLS_LUPP_A
 /// \brief Element (r, c) of the factor matrix: contiguous under internal
 /// residency, strided otherwise.
 #define TDLS_LUPP_A(r, c)                                                                          \
-    A[internal_matrix ? unsigned((r) * N + (c)) : unsigned((r) * N + (c)) * unsigned(A_stride)]
+    A[internal_matrix ? TDLS_LUPP_A_INDEX(r, c) : TDLS_LUPP_A_INDEX(r, c) * unsigned(A_stride)]
 /// \def TDLS_LUPP_PIV
 /// \brief Pivot entry i: contiguous under internal residency, strided
 /// otherwise.
@@ -2253,6 +2261,7 @@ struct TiledLUppSolverStatic {
 
 
 
+#undef TDLS_LUPP_A_INDEX
 #undef TDLS_LUPP_A
 #undef TDLS_LUPP_PIV
 #undef TDLS_LUPP_X
