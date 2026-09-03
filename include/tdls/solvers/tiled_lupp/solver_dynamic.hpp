@@ -89,14 +89,10 @@ namespace tdls {
    xcol_stride) and the Config value are in scope. #undef'd at the end
    of this header. */
 
-/// \def TDLS_LUPP_DYN_A_INDEX
-/// \brief Flat index of matrix element (r, c) under the configured
-/// layout: r * n + c row-major, c * n + r column-major.
-#define TDLS_LUPP_DYN_A_INDEX(r, c)                                                                \
-    (Config.layout == MatrixLayout::RowMajor ? unsigned((r) * n + (c)) : unsigned((c) * n + (r)))
 /// \def TDLS_LUPP_DYN_A
-/// \brief Strided element (r, c) of the factor matrix.
-#define TDLS_LUPP_DYN_A(r, c) A[TDLS_LUPP_DYN_A_INDEX(r, c) * unsigned(A_stride)]
+/// \brief Strided element (r, c) of the factor matrix, flat index
+/// remapped by Config.layout.
+#define TDLS_LUPP_DYN_A(r, c) A[TDLS_LAYOUT_INDEX(r, c, n) * unsigned(A_stride)]
 /// \def TDLS_LUPP_DYN_PIV
 /// \brief Strided pivot entry i.
 #define TDLS_LUPP_DYN_PIV(i) piv[unsigned(i) * unsigned(piv_stride)]
@@ -1715,7 +1711,6 @@ struct TiledLUppSolverDynamic {
 
 
 
-#undef TDLS_LUPP_DYN_A_INDEX
 #undef TDLS_LUPP_DYN_A
 #undef TDLS_LUPP_DYN_PIV
 #undef TDLS_LUPP_DYN_X

@@ -64,6 +64,50 @@ jobs:
       - name: Run the test suites and the examples
         run: UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build --output-on-failure
 
+  floors:
+    # Ensures the advertised compiler floors keep compiling and passing:
+    # GCC 10 and Clang 12 are the oldest releases the documentation
+    # claims. ubuntu-22.04 is pinned because 24.04 dropped the clang-12
+    # package. The CUDA and ROCm floors are covered by the gpu jobs.
+    name: floor (${{ matrix.compiler }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: g++-10
+            packages: g++-10
+          - compiler: clang++-12
+            packages: clang-12 libomp-12-dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the floor compiler and oneTBB
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} libtbb-dev
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
+      - name: Build
+        run: cmake --build build -j4 --target buildtests
+      - name: Run the test suites and the examples
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    # MSVC coverage. The windows-2019 runner is retired, so the VS 2019
+    # 16.11 floor of the documentation is not reachable here; this job
+    # keeps the MSVC branches compiling and passing on the current
+    # toolset.
+    name: tests (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build
+      - name: Build
+        run: cmake --build build --config Release -j4 --target buildtests
+      - name: Run the test suites and the examples
+        run: ctest --test-dir build -C Release --output-on-failure
+
   gpu-cuda:
     # Cross-compilation of the GPU examples with the oldest CUDA
     # release the headers support. The container pins nvcc and its

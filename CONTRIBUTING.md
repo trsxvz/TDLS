@@ -17,9 +17,9 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target check
 ```
 
-If you used an AI assistant to prepare a contribution, say so in the
-pull request; you remain responsible for the correctness of what you
-submit.
+If you used an AI assistant to prepare a contribution, the scientific
+reasoning and the responsibility for the correctness of what you
+submit remain yours.
 
 By contributing, you agree that your contributions are licensed under
 the BSD 3-Clause License of the project (see the LICENSE file).

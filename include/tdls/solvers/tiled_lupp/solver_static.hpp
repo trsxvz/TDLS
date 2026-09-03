@@ -110,16 +110,12 @@ namespace tdls {
    xcol_stride), the residency template booleans and the Config value
    are in scope. #undef'd at the end of this header. */
 
-/// \def TDLS_LUPP_A_INDEX
-/// \brief Flat index of matrix element (r, c) under the configured
-/// layout: r * N + c row-major, c * N + r column-major.
-#define TDLS_LUPP_A_INDEX(r, c)                                                                    \
-    (Config.layout == MatrixLayout::RowMajor ? unsigned((r) * N + (c)) : unsigned((c) * N + (r)))
 /// \def TDLS_LUPP_A
 /// \brief Element (r, c) of the factor matrix: contiguous under internal
-/// residency, strided otherwise.
+/// residency, strided otherwise, flat index remapped by Config.layout.
 #define TDLS_LUPP_A(r, c)                                                                          \
-    A[internal_matrix ? TDLS_LUPP_A_INDEX(r, c) : TDLS_LUPP_A_INDEX(r, c) * unsigned(A_stride)]
+    A[internal_matrix ? TDLS_LAYOUT_INDEX(r, c, N)                                                 \
+                      : TDLS_LAYOUT_INDEX(r, c, N) * unsigned(A_stride)]
 /// \def TDLS_LUPP_PIV
 /// \brief Pivot entry i: contiguous under internal residency, strided
 /// otherwise.
@@ -2269,7 +2265,6 @@ struct TiledLUppSolverStatic {
 
 
 
-#undef TDLS_LUPP_A_INDEX
 #undef TDLS_LUPP_A
 #undef TDLS_LUPP_PIV
 #undef TDLS_LUPP_X

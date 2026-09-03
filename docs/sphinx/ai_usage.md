@@ -10,6 +10,5 @@ tested against the test suites and validated by the author, who takes
 full responsibility for it.
 
 Contributions prepared with an AI assistant are welcome under the same
-rule: disclose the assistance in the pull request, and remain
-responsible for the correctness of what you submit (see the
-CONTRIBUTING.md file of the repository).
+rule: the scientific reasoning and the responsibility for the
+correctness of what you submit remain yours.

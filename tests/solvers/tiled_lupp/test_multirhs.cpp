@@ -188,22 +188,22 @@ void multirhs_case(const int count, const double bound, const std::uint64_t seed
 } // namespace
 
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=12,TS=3,RL,NRHS=4,default") {
-    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4>(100, 0.5, 220100);
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4>(100, 0.5, 240100);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=12,TS=3,RL,NRHS=4,stress") {
-    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4>(100, 5e-10, 220200);
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4>(100, 5e-10, 240200);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=13,TS=6,LL,NRHS=5,default") {
-    multirhs_case<double, 13, 6, tdls::Schedule::LeftLooking, 5>(100, 0.5, 220300);
+    multirhs_case<double, 13, 6, tdls::Schedule::LeftLooking, 5>(100, 0.5, 240300);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=12,TS=3,RL,NRHS=1,collapse") {
-    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 1>(100, 0.5, 220400);
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 1>(100, 0.5, 240400);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=5,TS=8,RL,NRHS=7,single-tile") {
-    multirhs_case<double, 5, 8, tdls::Schedule::RightLooking, 7>(100, 0.5, 220500);
+    multirhs_case<double, 5, 8, tdls::Schedule::RightLooking, 7>(100, 0.5, 240500);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/float/N=12,TS=3,RL,NRHS=3,default") {
-    multirhs_case<float, 12, 3, tdls::Schedule::RightLooking, 3>(100, 0.5, 220600);
+    multirhs_case<float, 12, 3, tdls::Schedule::RightLooking, 3>(100, 0.5, 240600);
 }
 
 TDLS_TEST_MAIN

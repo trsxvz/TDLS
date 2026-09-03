@@ -45,6 +45,10 @@ foreach(suite IN LISTS TDLS_TILEDLUPP_TEST_SUITES)
             # so it wins.
             $<$<BOOL:${TDLS_HAVE_WNO_C2Y_EXTENSIONS}>:-Wno-c2y-extensions>)
     endif()
+    if(MSVC)
+        # Template-heavy suites overflow the default COFF section limit.
+        target_compile_options(tdls_test_tiledlupp_${suite} PRIVATE /bigobj)
+    endif()
     add_test(NAME solvers.tiledlupp.${suite} COMMAND tdls_test_tiledlupp_${suite})
     set_tests_properties(solvers.tiledlupp.${suite} PROPERTIES LABELS "solvers")
 endforeach()
