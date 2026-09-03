@@ -43,7 +43,7 @@ struct MockMatrix {
     }
 };
 
-constexpr auto config = tdls::TiledLUppConfig<double>{.layout = tdls::TiledLUppLayout::ColMajor};
+constexpr auto config = tdls::TiledLUppConfig<double>{.layout = tdls::MatrixLayout::ColMajor};
 
 } // namespace
 

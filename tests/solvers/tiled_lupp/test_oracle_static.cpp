@@ -41,7 +41,7 @@ namespace {
 /// \param[in] bound     half-width of the entry distribution
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 void anchor_case(const int count, const double bound, const double tolerance,
                  const std::uint64_t seed) {
     using Solver = tdls::TiledLUppSolverStatic<
@@ -87,10 +87,10 @@ void anchor_case(const int count, const double bound, const double tolerance,
 /// Emits the RL and LL anchor cases of one (type, N, TS, regime) cell.
 #define TDLS_ANCHOR_CASES(T, N, TS, REGIME, COUNT, BOUND, TOL, SEED)                               \
     TDLS_TEST_CASE("tiledlupp/oracle/static/" #T "/N=" #N ",TS=" #TS ",RL," REGIME) {              \
-        anchor_case<T, N, TS, tdls::TiledLUppSchedule::RightLooking>(COUNT, BOUND, TOL, SEED);     \
+        anchor_case<T, N, TS, tdls::Schedule::RightLooking>(COUNT, BOUND, TOL, SEED);              \
     }                                                                                              \
     TDLS_TEST_CASE("tiledlupp/oracle/static/" #T "/N=" #N ",TS=" #TS ",LL," REGIME) {              \
-        anchor_case<T, N, TS, tdls::TiledLUppSchedule::LeftLooking>(COUNT, BOUND, TOL, SEED + 1);  \
+        anchor_case<T, N, TS, tdls::Schedule::LeftLooking>(COUNT, BOUND, TOL, SEED + 1);           \
     }
 
 // Default regime, double: the whole shape grid.

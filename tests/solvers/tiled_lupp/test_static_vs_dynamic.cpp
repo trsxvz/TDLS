@@ -37,7 +37,7 @@ namespace {
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 void bridge_case(const int count, const double bound, const std::uint64_t seed) {
     constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
@@ -76,10 +76,10 @@ void bridge_case(const int count, const double bound, const std::uint64_t seed) 
 /// Emits the RL and LL bridge cases of one (type, N, TS, regime) cell.
 #define TDLS_BRIDGE_CASES(T, N, TS, REGIME, COUNT, BOUND, SEED)                                    \
     TDLS_TEST_CASE("tiledlupp/bridge/static-dynamic/" #T "/N=" #N ",TS=" #TS ",RL," REGIME) {      \
-        bridge_case<T, N, TS, tdls::TiledLUppSchedule::RightLooking>(COUNT, BOUND, SEED);          \
+        bridge_case<T, N, TS, tdls::Schedule::RightLooking>(COUNT, BOUND, SEED);                   \
     }                                                                                              \
     TDLS_TEST_CASE("tiledlupp/bridge/static-dynamic/" #T "/N=" #N ",TS=" #TS ",LL," REGIME) {      \
-        bridge_case<T, N, TS, tdls::TiledLUppSchedule::LeftLooking>(COUNT, BOUND, SEED + 1);       \
+        bridge_case<T, N, TS, tdls::Schedule::LeftLooking>(COUNT, BOUND, SEED + 1);                \
     }
 
 // Default regime over the boundary-covering grid, double.

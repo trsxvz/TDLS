@@ -34,7 +34,7 @@ namespace {
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 void entry_points_case(const int count, const double bound, const std::uint64_t seed) {
     using Solver = tdls::TiledLUppSolverStatic<
         T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
@@ -154,19 +154,19 @@ void entry_points_case(const int count, const double bound, const std::uint64_t 
 } // namespace
 
 TDLS_TEST_CASE("tiledlupp/bridge/entry-points/double/N=12,TS=3,RL,default") {
-    entry_points_case<double, 12, 3, tdls::TiledLUppSchedule::RightLooking>(200, 0.5, 150100);
+    entry_points_case<double, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 150100);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/entry-points/double/N=12,TS=3,RL,stress") {
-    entry_points_case<double, 12, 3, tdls::TiledLUppSchedule::RightLooking>(200, 5e-10, 150200);
+    entry_points_case<double, 12, 3, tdls::Schedule::RightLooking>(200, 5e-10, 150200);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/entry-points/double/N=13,TS=6,LL,default") {
-    entry_points_case<double, 13, 6, tdls::TiledLUppSchedule::LeftLooking>(200, 0.5, 150300);
+    entry_points_case<double, 13, 6, tdls::Schedule::LeftLooking>(200, 0.5, 150300);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/entry-points/double/N=13,TS=6,LL,stress") {
-    entry_points_case<double, 13, 6, tdls::TiledLUppSchedule::LeftLooking>(200, 5e-10, 150400);
+    entry_points_case<double, 13, 6, tdls::Schedule::LeftLooking>(200, 5e-10, 150400);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/entry-points/float/N=12,TS=3,RL,default") {
-    entry_points_case<float, 12, 3, tdls::TiledLUppSchedule::RightLooking>(200, 0.5, 150500);
+    entry_points_case<float, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 150500);
 }
 
 TDLS_TEST_MAIN

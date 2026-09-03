@@ -51,20 +51,20 @@ A taste of the interface:
 constexpr tdls::TiledLUppConfig<double> config{
     // int: size of the tiles used for the LU factorization
     .tile_size = 3,
-    // tdls::TiledLUppSchedule: elimination schedule, RightLooking or LeftLooking
-    .schedule = tdls::TiledLUppSchedule::RightLooking,
+    // tdls::Schedule: elimination schedule, RightLooking or LeftLooking
+    .schedule = tdls::Schedule::RightLooking,
     // double (the scalar type T): a pivot at least this large is accepted
     // without searching outside the tile
     .oot_threshold = 1e-10,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
-    .singular_eps = std::numeric_limits<double>::min(),
+    .singular_floor = std::numeric_limits<double>::min(),
     // bool: the out-of-tile search stops at the first acceptable pivot
     .oot_first_acceptable = true,
     // bool: forced unrolling of the in-tile loops
     .unroll_inner = true,
-    // tdls::TiledLUppLayout: matrix layout, RowMajor or ColMajor
-    .layout = tdls::TiledLUppLayout::RowMajor};
+    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor
+    .layout = tdls::MatrixLayout::RowMajor};
 
 // LUpp solver with compile-time matrix size.
 using StaticSolver  = tdls::TiledLUppSolverStatic<double, 9, config>;

@@ -35,26 +35,11 @@
 
 #include <tdls/core/macros.hpp>
 #include <tdls/core/structural_real.hpp>
+#include <tdls/solvers/options.hpp>
 
 
 
 namespace tdls {
-
-
-
-/// \brief Elimination schedule of the tiled factorization.
-enum class TiledLUppSchedule {
-    RightLooking, ///< Factor the diagonal tile, push updates into the trailing matrix.
-    LeftLooking   ///< Pull updates from prior tiles when a tile is visited.
-};
-
-
-
-/// \brief Memory layout of the factor matrix.
-enum class TiledLUppLayout {
-    RowMajor, ///< Element (r, c) at flat index r * N + c, the TFEL convention.
-    ColMajor  ///< Element (r, c) at flat index c * N + r.
-};
 
 
 
@@ -73,9 +58,8 @@ struct TiledLUppConfig {
     /// into an untiled scalar elimination.
     int tile_size = 3;
 
-    /// Elimination schedule of the tiled factorization, see
-    /// TiledLUppSchedule.
-    TiledLUppSchedule schedule = TiledLUppSchedule::RightLooking;
+    /// Elimination schedule of the tiled factorization, see Schedule.
+    Schedule schedule = Schedule::RightLooking;
 
     /// Acceptable-pivot threshold of the out-of-tile search. Both
     /// thresholds carry the scalar type T by construction, stored
@@ -98,7 +82,7 @@ struct TiledLUppConfig {
     /// stability is surfaced by the backward error and overflow is caught
     /// downstream by the caller, whereas an absolute floor wrongly flags
     /// well-conditioned matrices at small scale.
-    StructuralReal<T> singular_eps = std::numeric_limits<T>::min();
+    StructuralReal<T> singular_floor = std::numeric_limits<T>::min();
 
     /// Out-of-tile pivot search strategy. When true, the below-tile scan
     /// stops at the first candidate whose corrected magnitude reaches
@@ -128,7 +112,7 @@ struct TiledLUppConfig {
     /// factorization keeps the layout of its configuration, so its
     /// substitutions share it by construction. The vector operands and
     /// the pivot are one-dimensional and unaffected.
-    TiledLUppLayout layout = TiledLUppLayout::RowMajor;
+    MatrixLayout layout = MatrixLayout::RowMajor;
 };
 
 

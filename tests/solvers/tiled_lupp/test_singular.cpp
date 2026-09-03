@@ -35,10 +35,10 @@ constexpr int TS = 3;
 /// \param[in] b0       right-hand side
 /// \param[in] solvable expected verdict
 void check_verdicts(const double* A0, const double* b0, const bool solvable) {
-    constexpr auto config_rl = tdls::TiledLUppConfig<double>{
-        .tile_size = TS, .schedule = tdls::TiledLUppSchedule::RightLooking};
-    constexpr auto config_ll = tdls::TiledLUppConfig<double>{
-        .tile_size = TS, .schedule = tdls::TiledLUppSchedule::LeftLooking};
+    constexpr auto config_rl =
+        tdls::TiledLUppConfig<double>{.tile_size = TS, .schedule = tdls::Schedule::RightLooking};
+    constexpr auto config_ll =
+        tdls::TiledLUppConfig<double>{.tile_size = TS, .schedule = tdls::Schedule::LeftLooking};
     std::vector<double> A(N * N), x(N);
     std::vector<int> piv(N);
 

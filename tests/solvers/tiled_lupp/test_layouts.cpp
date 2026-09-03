@@ -138,7 +138,7 @@ void layouts_case(const int count, const double bound, const std::uint64_t seed)
 }
 
 /// \brief Static-solver front end of layouts_case.
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 void layouts_case_static(const int count, const double bound, const std::uint64_t seed) {
     using Solver = tdls::TiledLUppSolverStatic<
         T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
@@ -164,19 +164,19 @@ struct DynamicFrontEnd {
 } // namespace
 
 TDLS_TEST_CASE("tiledlupp/bridge/layouts/static/double/N=12,TS=3,RL,default") {
-    layouts_case_static<double, 12, 3, tdls::TiledLUppSchedule::RightLooking>(200, 0.5, 140100);
+    layouts_case_static<double, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 140100);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/layouts/static/double/N=12,TS=3,RL,stress") {
-    layouts_case_static<double, 12, 3, tdls::TiledLUppSchedule::RightLooking>(200, 5e-10, 140200);
+    layouts_case_static<double, 12, 3, tdls::Schedule::RightLooking>(200, 5e-10, 140200);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/layouts/static/double/N=13,TS=6,LL,default") {
-    layouts_case_static<double, 13, 6, tdls::TiledLUppSchedule::LeftLooking>(200, 0.5, 140300);
+    layouts_case_static<double, 13, 6, tdls::Schedule::LeftLooking>(200, 0.5, 140300);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/layouts/static/double/N=33,TS=5,RL,default") {
-    layouts_case_static<double, 33, 5, tdls::TiledLUppSchedule::RightLooking>(100, 0.5, 140400);
+    layouts_case_static<double, 33, 5, tdls::Schedule::RightLooking>(100, 0.5, 140400);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/layouts/static/float/N=12,TS=3,RL,default") {
-    layouts_case_static<float, 12, 3, tdls::TiledLUppSchedule::RightLooking>(200, 0.5, 140500);
+    layouts_case_static<float, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 140500);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/layouts/dynamic/double/n=13,TS=6,default") {
     layouts_case<DynamicFrontEnd<double, 13, 6>, double, 13>(200, 0.5, 140600);

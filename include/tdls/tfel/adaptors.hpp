@@ -380,7 +380,7 @@ struct adaptor_context {
     static constexpr bool runtime_sized = mtraits::has_runtime_extents;
     static_assert(runtime_sized || mtraits::extent0 == mtraits::extent1,
                   "tdls adaptors: A must be square");
-    static_assert(Config.layout == TiledLUppLayout::RowMajor,
+    static_assert(Config.layout == MatrixLayout::RowMajor,
                   "tdls adaptors: dense objects are addressed row-major, the TFEL convention; "
                   "a column-major configuration cannot be used through the adaptors");
     //! \brief system dimension (fixed-size path; zero on the runtime path)
@@ -579,12 +579,12 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
 /// objects to raw arguments and forwards to the raw factorize, with or
 /// without the out-of-tile counter.
 /// \tparam UserConfig configuration value, validated by checked_config
-/// \tparam oot_diag   compile the out-of-tile counter in or out
+/// \tparam oot_diagnostics   compile the out-of-tile counter in or out
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage
-/// \param[out]    oot_count out-of-tile search counter (oot_diag)
+/// \param[out]    oot_count out-of-tile search counter (oot_diagnostics)
 /// \return false on a singular matrix.
-template<auto UserConfig, bool oot_diag, typename MatrixType, typename PivotType>
+template<auto UserConfig, bool oot_diagnostics, typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
@@ -596,11 +596,11 @@ factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
     static_assert(pa::is_mutable, "tdls adaptors: the pivot must be mutable here "
                                   "(factorize writes it)");
     if constexpr (ctx::runtime_sized) {
-        return ctx::dynamic_solver::template factorize<oot_diag>(
+        return ctx::dynamic_solver::template factorize<oot_diagnostics>(
             mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
             pa::stride(piv), oot_count);
     } else {
-        return ctx::solver::template factorize<pa::is_internal, mt::is_internal, oot_diag>(
+        return ctx::solver::template factorize<pa::is_internal, mt::is_internal, oot_diagnostics>(
             mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), oot_count);
     }
 }
@@ -609,15 +609,15 @@ factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
 /// substitute on dense objects, with or without the out-of-tile counter.
 /// \tparam UserConfig configuration value, validated by checked_config
 /// \tparam pass_width columns per substitution pass for a matrix-like b
-/// \tparam oot_diag   compile the out-of-tile counter in or out
+/// \tparam oot_diagnostics   compile the out-of-tile counter in or out
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage
 /// \param[in]     b         right-hand side
 /// \param[out]    x         solution
-/// \param[out]    oot_count out-of-tile search counter (oot_diag)
+/// \param[out]    oot_count out-of-tile search counter (oot_diagnostics)
 /// \return false on a singular matrix.
-template<auto UserConfig, int pass_width, bool oot_diag, typename MatrixType, typename PivotType,
-         typename RhsType, typename SolutionType>
+template<auto UserConfig, int pass_width, bool oot_diagnostics, typename MatrixType,
+         typename PivotType, typename RhsType, typename SolutionType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
@@ -633,7 +633,7 @@ solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x,
                                   "(solve writes it)");
     if constexpr (bt::arity == 2) {
         check_multirhs_pair<RhsType, SolutionType, typename ctx::scalar, ctx::N>();
-        if (!factorize_dispatch<UserConfig, oot_diag>(A, piv, oot_count)) return false;
+        if (!factorize_dispatch<UserConfig, oot_diagnostics>(A, piv, oot_count)) return false;
         substitute_multirhs_dispatch<ctx, pass_width, false>(A, piv, b, x);
         return true;
     } else {
@@ -643,12 +643,12 @@ solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x,
         check_vector<SolutionType, typename ctx::scalar, ctx::N>();
         check_rhs_pair<RhsType, SolutionType>();
         if constexpr (ctx::runtime_sized) {
-            return ctx::dynamic_solver::template solve<oot_diag>(
+            return ctx::dynamic_solver::template solve<oot_diagnostics>(
                 mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
                 pa::stride(piv), bt::pointer(b), xt::pointer(x), xt::stride(x), oot_count);
         } else {
             return ctx::solver::template solve<xt::is_internal, pa::is_internal, mt::is_internal,
-                                               oot_diag>(
+                                               oot_diagnostics>(
                 mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), bt::pointer(b),
                 xt::pointer(x), xt::stride(x), oot_count);
         }
@@ -660,14 +660,14 @@ solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x,
 /// counter.
 /// \tparam UserConfig configuration value, validated by checked_config
 /// \tparam pass_width columns per substitution pass for a matrix-like y
-/// \tparam oot_diag   compile the out-of-tile counter in or out
+/// \tparam oot_diagnostics   compile the out-of-tile counter in or out
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage
 /// \param[in,out] y         right-hand side on entry, solution on exit
-/// \param[out]    oot_count out-of-tile search counter (oot_diag)
+/// \param[out]    oot_count out-of-tile search counter (oot_diagnostics)
 /// \return false on a singular matrix.
-template<auto UserConfig, int pass_width, bool oot_diag, typename MatrixType, typename PivotType,
-         typename VectorType>
+template<auto UserConfig, int pass_width, bool oot_diagnostics, typename MatrixType,
+         typename PivotType, typename VectorType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
 solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
@@ -682,7 +682,7 @@ solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_co
                                   "(solve_inplace writes it)");
     if constexpr (yt::arity == 2) {
         check_multirhs_pair<VectorType, VectorType, typename ctx::scalar, ctx::N>();
-        if (!factorize_dispatch<UserConfig, oot_diag>(A, piv, oot_count)) return false;
+        if (!factorize_dispatch<UserConfig, oot_diagnostics>(A, piv, oot_count)) return false;
         substitute_multirhs_dispatch<ctx, pass_width, true>(A, piv, y, y);
         return true;
     } else {
@@ -690,12 +690,12 @@ solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_co
                       "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
         check_vector<VectorType, typename ctx::scalar, ctx::N>();
         if constexpr (ctx::runtime_sized) {
-            return ctx::dynamic_solver::template solve_inplace<oot_diag>(
+            return ctx::dynamic_solver::template solve_inplace<oot_diagnostics>(
                 mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
                 pa::stride(piv), yt::pointer(y), yt::stride(y), oot_count);
         } else {
             return ctx::solver::template solve_inplace<yt::is_internal, pa::is_internal,
-                                                       mt::is_internal, oot_diag>(
+                                                       mt::is_internal, oot_diagnostics>(
                 mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), yt::pointer(y),
                 yt::stride(y), oot_count);
         }

@@ -110,7 +110,7 @@ constexpr bool no_unroll_certificate(const unsigned seed, const double tolerance
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 constexpr bool solve_internal_certificate(const unsigned seed, const double tolerance) {
     using Solver = tdls::TiledLUppSolverStatic<
         T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
@@ -139,7 +139,7 @@ constexpr bool solve_internal_certificate(const unsigned seed, const double tole
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 constexpr bool solve_external_certificate(const unsigned seed, const double tolerance) {
     using Solver = tdls::TiledLUppSolverStatic<
         T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
@@ -209,7 +209,7 @@ constexpr bool oot_certificate(const unsigned seed, const double tolerance) {
 /// \tparam Schedule elimination schedule
 /// \param[in] seed generator seed
 /// \return true when every output matches exactly
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule>
+template<typename T, int N, int TS, tdls::Schedule Schedule>
 constexpr bool fused_matches_solve_certificate(const unsigned seed) {
     using Solver = tdls::TiledLUppSolverStatic<
         T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
@@ -345,7 +345,7 @@ constexpr bool bridge_certificate(const unsigned seed) {
 template<typename T, int N, int TS>
 constexpr bool colmajor_certificate(const unsigned seed) {
     constexpr auto config_col =
-        tdls::TiledLUppConfig<T>{.tile_size = TS, .layout = tdls::TiledLUppLayout::ColMajor};
+        tdls::TiledLUppConfig<T>{.tile_size = TS, .layout = tdls::MatrixLayout::ColMajor};
     using RowSolver  = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
     using ColSolver  = tdls::TiledLUppSolverStatic<T, N, config_col>;
     using ColDynamic = tdls::TiledLUppSolverDynamic<T, config_col>;
@@ -453,8 +453,8 @@ constexpr bool singular_rejected_certificate() {
     return !Solver::template solve<true, true, true>(A, 1, piv, 1, b, x, 1);
 }
 
-constexpr auto RightLooking = tdls::TiledLUppSchedule::RightLooking;
-constexpr auto LeftLooking  = tdls::TiledLUppSchedule::LeftLooking;
+constexpr auto RightLooking = tdls::Schedule::RightLooking;
+constexpr auto LeftLooking  = tdls::Schedule::LeftLooking;
 
 // Divisible grids, both schedules.
 static_assert(solve_internal_certificate<double, 4, 2, RightLooking>(101, 1e-9));

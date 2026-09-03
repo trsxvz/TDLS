@@ -17,9 +17,7 @@ in two variants.
 `TiledLUppSolverStatic` takes the dimension at compile time; residency
 booleans let whole systems live in registers. `TiledLUppSolverDynamic`
 takes the dimension at run time; the placement of the operands is
-expressed through element strides. Matrices are addressed row-major by
-default; the `layout` knob of the configuration selects column-major
-storage, resolved at compile time.
+expressed through element strides.
 
 ```cpp
 #include <limits>
@@ -32,20 +30,20 @@ storage, resolved at compile time.
 constexpr tdls::TiledLUppConfig<double> config{
     // int: size of the tiles used for the LU factorization
     .tile_size = 3,
-    // tdls::TiledLUppSchedule: elimination schedule, RightLooking or LeftLooking
-    .schedule = tdls::TiledLUppSchedule::RightLooking,
+    // tdls::Schedule: elimination schedule, RightLooking or LeftLooking
+    .schedule = tdls::Schedule::RightLooking,
     // double (the scalar type T): a pivot at least this large is accepted
     // without searching outside the tile
     .oot_threshold = 1e-10,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
-    .singular_eps = std::numeric_limits<double>::min(),
+    .singular_floor = std::numeric_limits<double>::min(),
     // bool: the out-of-tile search stops at the first acceptable pivot
     .oot_first_acceptable = true,
     // bool: forced unrolling of the in-tile loops
     .unroll_inner = true,
-    // tdls::TiledLUppLayout: matrix layout, RowMajor or ColMajor
-    .layout = tdls::TiledLUppLayout::RowMajor};
+    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor
+    .layout = tdls::MatrixLayout::RowMajor};
 
 // LU solver for systems of dimension 9: the 9 x 9 matrix is cut
 // into 3 x 3 register tiles. One call: factorize M in place, then

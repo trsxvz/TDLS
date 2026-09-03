@@ -578,8 +578,8 @@ TDLS_TEST_CASE("tiledlupp/adaptors/explicit-config-value-reproduces-raw") {
     // An explicit configuration value passed to the adaptors must
     // resolve the same solver as the raw API configured with the same
     // value, on both the fixed-size and the runtime paths.
-    constexpr auto config = tdls::TiledLUppConfig<double>{
-        .tile_size = 4, .schedule = tdls::TiledLUppSchedule::LeftLooking};
+    constexpr auto config =
+        tdls::TiledLUppConfig<double>{.tile_size = 4, .schedule = tdls::Schedule::LeftLooking};
     using RawTuned = tdls::TiledLUppSolverStatic<double, N, config>;
     tdls_tests::UniformGenerator gen(210800, 0.5);
     for (int repeat = 0; repeat < 50; ++repeat) {

@@ -51,8 +51,8 @@ enum class SolvePath {
 /// \tparam internal_rhs    residency of the right-hand side and solution
 /// \tparam internal_piv    residency of the pivot
 /// \tparam internal_matrix residency of the matrix
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule, bool internal_rhs,
-         bool internal_piv, bool internal_matrix>
+template<typename T, int N, int TS, tdls::Schedule Schedule, bool internal_rhs, bool internal_piv,
+         bool internal_matrix>
 struct ResidencyRunner {
     static_assert(N <= 32, "the runner keeps internal storage on the stack");
 

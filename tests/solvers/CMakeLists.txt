@@ -56,13 +56,13 @@ endforeach()
 # type of the thresholds needs no test anymore: the configuration
 # members carry the scalar type by construction.
 set(TDLS_TILEDLUPP_REJECT_CASES
-    reject_config_eps_above_threshold
+    reject_config_floor_above_threshold
     reject_adaptors_const_matrix
     reject_adaptors_const_pivot
     reject_adaptors_config_scalar_mismatch
     reject_adaptors_colmajor_config)
 set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
-    "singular_eps must not exceed oot_threshold"
+    "singular_floor must not exceed oot_threshold"
     "A must not be const here"
     "the pivot must be mutable here"
     "the config scalar type must match the matrix element type"

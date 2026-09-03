@@ -38,7 +38,7 @@ namespace {
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::TiledLUppSchedule Schedule, int NRHS>
+template<typename T, int N, int TS, tdls::Schedule Schedule, int NRHS>
 void multirhs_case(const int count, const double bound, const std::uint64_t seed) {
     constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
@@ -188,22 +188,22 @@ void multirhs_case(const int count, const double bound, const std::uint64_t seed
 } // namespace
 
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=12,TS=3,RL,NRHS=4,default") {
-    multirhs_case<double, 12, 3, tdls::TiledLUppSchedule::RightLooking, 4>(100, 0.5, 220100);
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4>(100, 0.5, 220100);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=12,TS=3,RL,NRHS=4,stress") {
-    multirhs_case<double, 12, 3, tdls::TiledLUppSchedule::RightLooking, 4>(100, 5e-10, 220200);
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4>(100, 5e-10, 220200);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=13,TS=6,LL,NRHS=5,default") {
-    multirhs_case<double, 13, 6, tdls::TiledLUppSchedule::LeftLooking, 5>(100, 0.5, 220300);
+    multirhs_case<double, 13, 6, tdls::Schedule::LeftLooking, 5>(100, 0.5, 220300);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=12,TS=3,RL,NRHS=1,collapse") {
-    multirhs_case<double, 12, 3, tdls::TiledLUppSchedule::RightLooking, 1>(100, 0.5, 220400);
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 1>(100, 0.5, 220400);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=5,TS=8,RL,NRHS=7,single-tile") {
-    multirhs_case<double, 5, 8, tdls::TiledLUppSchedule::RightLooking, 7>(100, 0.5, 220500);
+    multirhs_case<double, 5, 8, tdls::Schedule::RightLooking, 7>(100, 0.5, 220500);
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/float/N=12,TS=3,RL,NRHS=3,default") {
-    multirhs_case<float, 12, 3, tdls::TiledLUppSchedule::RightLooking, 3>(100, 0.5, 220600);
+    multirhs_case<float, 12, 3, tdls::Schedule::RightLooking, 3>(100, 0.5, 220600);
 }
 
 TDLS_TEST_MAIN
