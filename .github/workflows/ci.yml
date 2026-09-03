@@ -4,8 +4,10 @@
 # device to run, not to compile: the gpu jobs build the GPU examples
 # with the oldest supported CUDA and ROCm releases and with clang as a
 # second CUDA frontend, and the examples report themselves skipped at
-# run time (exit code 77). Running them for real stays on machines
-# that have a device.
+# run time (exit code 77). The stdpar device offloads are built the
+# same way, one job per vendor: nvc++, the ROCm hipstdpar toolchain
+# and the oneAPI pstl offload. Running any of them for real stays on
+# machines that have a device.
 name: ci
 
 on:
@@ -237,6 +239,113 @@ jobs:
             tdls_example_tiledlupp_implicit_ode_batch_sycl \
             tdls_example_tiledlupp_integral_equation_batch_sycl \
             tdls_example_tiledlupp_norton_law_batch_sycl
+
+  gpu-stdpar-nvhpc:
+    # Build-only check of the parallel STL offload with nvc++. The HPC
+    # SDK has no compilers-only package: dpkg path-exclude filters
+    # comm_libs, math_libs, profilers and examples at unpack time,
+    # -stdpar=gpu needing compilers/ and cuda/ only. Capability check,
+    # not a floor.
+    name: gpu stdpar examples build only (nvc++ 25.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the HPC SDK compiler and CUDA components
+        run: |
+          printf 'path-exclude=/opt/nvidia/hpc_sdk/*/comm_libs/*\npath-exclude=/opt/nvidia/hpc_sdk/*/math_libs/*\npath-exclude=/opt/nvidia/hpc_sdk/*/profilers/*\npath-exclude=/opt/nvidia/hpc_sdk/*/examples/*\n' \
+            | sudo tee /etc/dpkg/dpkg.cfg.d/nvhpc-slim
+          curl -fsSL https://developer.download.nvidia.com/hpc-sdk/ubuntu/DEB-GPG-KEY-NVIDIA-HPC-SDK \
+            | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-hpcsdk.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/nvidia-hpcsdk.gpg] https://developer.download.nvidia.com/hpc-sdk/ubuntu/amd64 /' \
+            | sudo tee /etc/apt/sources.list.d/nvhpc.list
+          sudo apt-get update
+          sudo apt-get install -y nvhpc-25-11
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DTDLS_BUILD_TESTS=OFF
+          -DCMAKE_CXX_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/compilers/bin/nvc++
+          -DTDLS_BUILD_STDPAR_DEVICE_EXAMPLES=ON
+          -DTDLS_STDPAR_DEVICE_FLAGS="-stdpar=gpu -gpu=cc80"
+      - name: Build the device targets
+        run: >
+          cmake --build build -j4 --target
+          tdls_example_tiledlupp_implicit_ode_batch_stdpar_gpu
+          tdls_example_tiledlupp_integral_equation_batch_stdpar_gpu
+          tdls_example_tiledlupp_norton_law_batch_stdpar_gpu
+
+  gpu-stdpar-hip:
+    # Build-only check of the parallel STL offload with the ROCm clang
+    # through --hipstdpar. The forwarding header is not packaged by
+    # ROCm and comes from the roc-stdpar repository, pinned by commit;
+    # it carries a #warning, silenced so the -Werror of the examples
+    # holds. rocThrust and rocPrim back the device algorithms, oneTBB
+    # the host-side ones.
+    name: gpu stdpar examples build only (ROCm 6.2, hipstdpar)
+    runs-on: ubuntu-22.04
+    env:
+      ROCM_PATH: /opt/rocm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the ROCm 6.2 toolchain, roc-stdpar and oneTBB
+        run: |
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key \
+            | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/6.2.4 jammy main" \
+            | sudo tee /etc/apt/sources.list.d/rocm.list
+          printf 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600\n' \
+            | sudo tee /etc/apt/preferences.d/rocm-pin-600
+          sudo apt-get update
+          sudo apt-get install -y hip-dev hip-runtime-amd rocm-device-libs rocm-llvm \
+            rocthrust-dev rocprim-dev libtbb-dev
+          git clone https://github.com/ROCm/roc-stdpar "$HOME/roc-stdpar"
+          git -C "$HOME/roc-stdpar" checkout 5c7f44d8418273671671378871afc00fddc4aa14
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DTDLS_BUILD_TESTS=OFF
+          -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+          -DTDLS_BUILD_STDPAR_DEVICE_EXAMPLES=ON
+          -DTDLS_STDPAR_DEVICE_FLAGS="--hipstdpar
+          --hipstdpar-path=$HOME/roc-stdpar/include --offload-arch=gfx90a
+          -Wno-#warnings"
+      - name: Build the device targets
+        run: >
+          cmake --build build -j4 --target
+          tdls_example_tiledlupp_implicit_ode_batch_stdpar_gpu
+          tdls_example_tiledlupp_integral_equation_batch_stdpar_gpu
+          tdls_example_tiledlupp_norton_law_batch_stdpar_gpu
+
+  gpu-stdpar-oneapi:
+    # Build-only check of the parallel STL offload with icpx through
+    # the oneAPI pstl offload, backed by oneDPL. Capability check, not
+    # a floor.
+    name: gpu stdpar examples build only (icpx, pstl offload)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the oneAPI DPC++ compiler and oneDPL
+        run: |
+          curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+            | sudo gpg --dearmor -o /usr/share/keyrings/oneapi.gpg
+          echo "deb [signed-by=/usr/share/keyrings/oneapi.gpg] https://apt.repos.intel.com/oneapi all main" \
+            | sudo tee /etc/apt/sources.list.d/oneapi.list
+          sudo apt-get update
+          sudo apt-get install -y intel-oneapi-compiler-dpcpp-cpp intel-oneapi-libdpstd-devel
+      - name: Configure
+        run: |
+          source /opt/intel/oneapi/setvars.sh
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTDLS_BUILD_TESTS=OFF \
+            -DCMAKE_CXX_COMPILER=icpx -DTDLS_BUILD_STDPAR_DEVICE_EXAMPLES=ON \
+            -DTDLS_STDPAR_DEVICE_FLAGS="-fsycl -fsycl-pstl-offload=gpu"
+      - name: Build the device targets
+        run: |
+          source /opt/intel/oneapi/setvars.sh
+          cmake --build build -j4 --target \
+            tdls_example_tiledlupp_implicit_ode_batch_stdpar_gpu \
+            tdls_example_tiledlupp_integral_equation_batch_stdpar_gpu \
+            tdls_example_tiledlupp_norton_law_batch_stdpar_gpu
 
   format:
     runs-on: ubuntu-latest

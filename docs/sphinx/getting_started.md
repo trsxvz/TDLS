@@ -73,16 +73,16 @@ requested toolchain becomes mandatory (point `CMAKE_CUDA_COMPILER` /
 `CMAKE_HIP_COMPILER` at a compiler outside the `PATH`).
 `CMAKE_CUDA_ARCHITECTURES` defaults to `native`, so set it explicitly
 when the build machine has no device. At run time the GPU examples
-report themselves as skipped when no device is present. The parallel
-STL examples run on a GPU with `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES`:
-the offload is a matter of compiler flags, stated in
-`TDLS_STDPAR_DEVICE_FLAGS` (`--acpp-stdpar` with AdaptiveCpp,
-`-stdpar=gpu` with nvc++, `--hipstdpar` with the ROCm clang). The SYCL
+report themselves as skipped when no device is present. The SYCL
 examples are opt-in through `TDLS_BUILD_SYCL_EXAMPLES`: the C++
 compiler must then accept the SYCL flags, `-fsycl` by default with
 icpx, overridable through `TDLS_SYCL_FLAGS`. No device is needed to
 build them; at run time they report themselves skipped when no SYCL
-device is present.
+device is present. The parallel STL examples run on a GPU with
+`TDLS_BUILD_STDPAR_DEVICE_EXAMPLES`: the offload is a matter of
+compiler flags, stated in `TDLS_STDPAR_DEVICE_FLAGS` (`--acpp-stdpar`
+with AdaptiveCpp, `-stdpar=gpu` with nvc++, `--hipstdpar` with the
+ROCm clang).
 
 ## Portability model
 

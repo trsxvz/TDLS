@@ -88,10 +88,10 @@ Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
 
 The examples cover three scientific problems at four execution scales:
-sequential, OpenMP, and two GPU placements, plus the parallel STL and
-SYCL. The GPU and SYCL examples are opt-in through
+sequential, OpenMP, and two GPU placements, plus SYCL and the
+parallel STL. The GPU and SYCL examples are opt-in through
 `TDLS_BUILD_CUDA_EXAMPLES`, `TDLS_BUILD_HIP_EXAMPLES`,
-`TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` or `TDLS_BUILD_SYCL_EXAMPLES`;
+`TDLS_BUILD_SYCL_EXAMPLES` or `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES`;
 nothing probes for a GPU toolchain otherwise.
 
 All the build options (the first three default to ON when TDLS is the
@@ -104,14 +104,14 @@ the GPU switches always default to OFF):
 | `TDLS_BUILD_EXAMPLES` | build the examples |
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
 | `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
-| `TDLS_BUILD_HIP_EXAMPLES` | build the GPU examples with HIP (the toolchain becomes required) |
-| `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` | build the parallel STL examples for a GPU (an offloading compiler becomes required) |
-| `TDLS_STDPAR_DEVICE_FLAGS` | offload flags of that compiler (`--acpp-stdpar`, `-stdpar=gpu`, `--hipstdpar` ...) |
-| `TDLS_BUILD_SYCL_EXAMPLES` | build the SYCL examples (a SYCL compiler such as `icpx` becomes required) |
-| `TDLS_SYCL_FLAGS` | SYCL flags of that compiler (`-fsycl` by default; add `-fsycl-targets=...` for AOT) |
 | `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
 | `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
+| `TDLS_BUILD_HIP_EXAMPLES` | build the GPU examples with HIP (the toolchain becomes required) |
 | `CMAKE_HIP_COMPILER` | HIP compiler of the AMD toolchain |
+| `TDLS_BUILD_SYCL_EXAMPLES` | build the SYCL examples (a SYCL compiler such as `icpx` becomes required) |
+| `TDLS_SYCL_FLAGS` | SYCL flags of that compiler (`-fsycl` by default; add `-fsycl-targets=...` for AOT) |
+| `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` | build the parallel STL examples for a GPU (an offloading compiler becomes required) |
+| `TDLS_STDPAR_DEVICE_FLAGS` | offload flags of that compiler (`--acpp-stdpar`, `-stdpar=gpu`, `--hipstdpar` ...) |
 
 ## Documentation
 
