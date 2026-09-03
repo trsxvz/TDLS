@@ -57,6 +57,10 @@ option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" O
 # compiler and its flags (see examples/tiled_lupp/stdpar) and are
 # opt-in on the same terms.
 option(TDLS_BUILD_STDPAR_DEVICE_EXAMPLES "Build the parallel STL examples for a GPU" OFF)
+# The SYCL examples are single sources compiled by a SYCL C++ compiler
+# such as icpx (see examples/tiled_lupp/sycl); they are opt-in on the
+# same terms.
+option(TDLS_BUILD_SYCL_EXAMPLES "Build the SYCL examples" OFF)
 
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
     enable_language(CXX)

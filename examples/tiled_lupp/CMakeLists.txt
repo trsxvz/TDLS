@@ -2,4 +2,5 @@
 add_subdirectory(cpu_sequential)
 add_subdirectory(cpu_openmp)
 add_subdirectory(stdpar)
+add_subdirectory(sycl)
 add_subdirectory(gpu_cuda_or_hip)

@@ -28,6 +28,15 @@ compiler: `implicit_ode_batch_stdpar`,
 `integral_equation_batch_stdpar` and `norton_law_batch_stdpar`, the
 device targets carrying a `_gpu` suffix.
 
+They also exist as SYCL single sources, in `sycl/`: one `parallel_for`
+kernel per problem, one work-item per system, the solver operands in
+the private memory of each work-item (`implicit_ode_batch_sycl`,
+`integral_equation_batch_sycl`, `norton_law_batch_sycl`). They are
+opt-in through `TDLS_BUILD_SYCL_EXAMPLES`, need no device to build,
+and run on whatever device the default selector picks, an Intel GPU
+under oneAPI included; without a SYCL device they report themselves
+skipped.
+
 ## The compile-time family
 
 The Robertson stiff kinetics is integrated with a 3-stage Radau IIA
