@@ -1267,9 +1267,9 @@ struct TiledLUppSolverDynamic {
     /// \brief Solve with b = e_col generated on the fly: the
     /// consistent-tangent-operator path.
     ///
-    /// Thin alias of the W-column variant below (W=1 collapses to exactly
-    /// the single-column code, so there is no separate implementation to
-    /// maintain).
+    /// Thin alias of the multi-column variant below (nrhs = 1 collapses
+    /// to exactly the single-column code, so there is no separate
+    /// implementation to maintain).
     /// \param[in]  n          system dimension
     /// \param[in]  A          factored matrix produced by factorize
     /// \param[in]  A_stride   element stride of A
@@ -1282,34 +1282,40 @@ struct TiledLUppSolverDynamic {
     substitute_canonical(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
-        substitute_canonical_multirhs<1>(n, A, A_stride, piv, piv_stride, col, x, rhs_stride, 0);
+        substitute_canonical_multirhs(n, 1, A, A_stride, piv, piv_stride, col, x, rhs_stride, 0);
     }
 
-    /// \brief W canonical columns e_col0..e_{col0+W-1} solved per tile
-    /// visit: every L/U tile is loaded once for the block instead of once
-    /// per column.
-    /// \tparam W number of consecutive canonical columns solved together
+    /// \brief nrhs canonical columns e_col0 .. e_{col0+nrhs-1} solved per
+    /// tile visit: every L/U tile is loaded once for the block instead of
+    /// once per column.
+    ///
+    /// The column count is a runtime argument, as every dimension of
+    /// this variant (the compile-time solver takes it as the template
+    /// parameter W). The block is solved in one pass; a caller cutting
+    /// it into passes calls this entry once per pass with the matching
+    /// col0 and x.
     /// \param[in]  n           system dimension
+    /// \param[in]  nrhs        number of consecutive canonical columns
+    ///             solved together
     /// \param[in]  A           factored matrix produced by factorize
     /// \param[in]  A_stride    element stride of A
     /// \param[in]  piv         permutation produced by factorize
     /// \param[in]  piv_stride  element stride of piv
     /// \param[in]  col0        index of the first canonical column
-    /// \param[out] x           W solution columns
+    /// \param[out] x           nrhs solution columns
     /// \param[in]  rhs_stride  element stride of x
     /// \param[in]  xcol_stride element stride between columns of x
-    template<int W>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
-    substitute_canonical_multirhs(const int n, const T* TDLS_RESTRICT A, const int A_stride,
-                                  const int* TDLS_RESTRICT piv, const int piv_stride,
-                                  const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
-                                  const int xcol_stride) noexcept {
+    substitute_canonical_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
+                                  const int A_stride, const int* TDLS_RESTRICT piv,
+                                  const int piv_stride, const int col0, T* TDLS_RESTRICT x,
+                                  const int rhs_stride, const int xcol_stride) noexcept {
         for (int i = 0; i < n; ++i) {
             const int p = TDLS_LUPP_DYN_PIV(i);
-            for (int w = 0; w < W; ++w)
+            for (int w = 0; w < nrhs; ++w)
                 TDLS_LUPP_DYN_XW(w, i) = (p == col0 + w) ? T(1) : T(0);
         }
-        fwd_bwd(n, W, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+        fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
     }
 
     /// \brief One pass of the multi right-hand-side substitution: nrhs

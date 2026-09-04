@@ -318,6 +318,48 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int stride(const DenseType& o) noexcept {
         return policy_stride * runtime_view_stride(o);
     }
+
+    // The three accessors below describe a matrix-like block as the
+    // _multirhs entry points of the raw API see it: a column count, a
+    // total distance between row-consecutive elements and a total
+    // distance between column-consecutive elements. Each reads the
+    // policy type when the extents are compile-time and the policy
+    // instance of the object otherwise, so a fixed-size block needs no
+    // getIndexingPolicy() member, as the structural contract states.
+
+    //! \return the number of columns of a matrix-like block
+    //! \param[in] o dense object
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int columns(const DenseType& o) noexcept {
+        if constexpr (has_runtime_extents) {
+            return runtime_extent1(o);
+        } else {
+            return extent1;
+        }
+    }
+
+    //! \return the total distance between two row-consecutive elements
+    //! of a matrix-like block (the rhs_stride of the _multirhs raw
+    //! entry points)
+    //! \param[in] o dense object
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int row_stride(const DenseType& o) noexcept {
+        if constexpr (has_runtime_extents) {
+            return runtime_row_stride(o) * runtime_view_stride(o);
+        } else {
+            return extent1 * stride(o);
+        }
+    }
+
+    //! \return the total distance between two column-consecutive
+    //! elements of a matrix-like block (the xcol_stride of the _multirhs
+    //! raw entry points)
+    //! \param[in] o dense object
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int col_stride(const DenseType& o) noexcept {
+        if constexpr (has_runtime_extents) {
+            return runtime_col_stride(o) * runtime_view_stride(o);
+        } else {
+            return stride(o);
+        }
+    }
 };
 
 
@@ -405,7 +447,7 @@ struct adaptor_context {
 /// \tparam Scalar     scalar type of the system
 /// \tparam N          system dimension (0 on the runtime path)
 template<typename VectorType, typename Scalar, int N>
-constexpr void check_vector() {
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_vector() {
     using vtraits = storage_traits<std::remove_cv_t<VectorType>>;
     static_assert(vtraits::arity == 1, "tdls adaptors: expected a vector-like object");
     static_assert(N == 0 || vtraits::has_runtime_extents || vtraits::extent0 == N,
@@ -423,7 +465,7 @@ constexpr void check_vector() {
 /// \tparam RhsType      right-hand-side type
 /// \tparam SolutionType solution type
 template<typename RhsType, typename SolutionType>
-constexpr void check_rhs_pair() {
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_rhs_pair() {
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(bt::is_internal == xt::is_internal && bt::policy_stride == xt::policy_stride &&
@@ -444,7 +486,7 @@ constexpr void check_rhs_pair() {
 /// \tparam Scalar       scalar type of the system
 /// \tparam N            system dimension (0 on the runtime path)
 template<typename RhsType, typename SolutionType, typename Scalar, int N>
-constexpr void check_multirhs_pair() {
+TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_multirhs_pair() {
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::arity == 2, "tdls adaptors: a matrix-like right-hand side requires a "
@@ -547,13 +589,9 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
     static_assert(pass_width >= 0, "tdls adaptors: pass_width must not be negative");
     if constexpr (Ctx::runtime_sized) {
         const int n    = mt::runtime_extent0(A);
-        const int m    = bt::has_runtime_extents ? bt::runtime_extent1(b) : bt::extent1;
-        const int rs   = bt::has_runtime_extents
-                             ? xt::runtime_row_stride(x) * xt::runtime_view_stride(x)
-                             : xt::extent1 * xt::stride(x);
-        const int xcol = bt::has_runtime_extents
-                             ? xt::runtime_col_stride(x) * xt::runtime_view_stride(x)
-                             : xt::stride(x);
+        const int m    = bt::columns(b);
+        const int rs   = xt::row_stride(x);
+        const int xcol = xt::col_stride(x);
         if constexpr (inplace) {
             Ctx::dynamic_solver::substitute_inplace_multirhs(n, m, mt::pointer(A), mt::stride(A),
                                                              pa::pointer(piv), pa::stride(piv),
@@ -566,8 +604,8 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
     } else {
         constexpr int M = bt::extent1;
         static_assert(M >= 1, "tdls adaptors: B must have at least one column");
-        const int rs   = xt::extent1 * xt::stride(x);
-        const int xcol = xt::stride(x);
+        const int rs   = xt::row_stride(x);
+        const int xcol = xt::col_stride(x);
         if constexpr (inplace) {
             Ctx::solver::template substitute_inplace_multirhs<M, false, pa::is_internal,
                                                               mt::is_internal, pass_width>(
@@ -1050,10 +1088,12 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
 /// \brief Solve A x = e_col on dense objects, from a prior factorize:
 /// the consistent-tangent-operator path.
 ///
-/// With a matrix-like x, its M columns receive the solutions of the M
-/// consecutive canonical columns e_col .. e_{col+M-1}, every L/U tile
-/// loaded once for the block. The column count is a template parameter
-/// of the raw API, so x must be fixed-size, whatever the matrix.
+/// With a matrix-like x, its columns receive the solutions of the
+/// consecutive canonical columns e_col .. e_{col+M-1}, M being the
+/// column count of x, every L/U tile loaded once for the block. M is
+/// read from x: at compile time on the fixed-size path, at run time
+/// for a runtime-sized x, which the runtime-sized matrix path accepts
+/// exactly as substitute does for its right-hand-side block.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \param[in]  A   factored matrix-like object
@@ -1076,22 +1116,18 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
                   "tdls adaptors: x must not be const here (substitute_canonical writes it)");
     if constexpr (xt::arity == 2) {
         detail::check_multirhs_pair<SolutionType, SolutionType, typename ctx::scalar, ctx::N>();
-        static_assert(!xt::has_runtime_extents,
-                      "tdls adaptors: the canonical column count is a template parameter of "
-                      "the raw API; x must be fixed-size");
-        constexpr int M = xt::extent1;
-        static_assert(M >= 1, "tdls adaptors: x must have at least one column");
-        const int rs   = xt::extent1 * xt::stride(x);
-        const int xcol = xt::stride(x);
         if constexpr (ctx::runtime_sized) {
-            ctx::dynamic_solver::template substitute_canonical_multirhs<M>(
-                mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
-                pa::stride(piv), col, xt::pointer(x), rs, xcol);
+            ctx::dynamic_solver::substitute_canonical_multirhs(
+                mt::runtime_extent0(A), xt::columns(x), mt::pointer(A), mt::stride(A),
+                pa::pointer(piv), pa::stride(piv), col, xt::pointer(x), xt::row_stride(x),
+                xt::col_stride(x));
         } else {
+            constexpr int M = xt::extent1;
+            static_assert(M >= 1, "tdls adaptors: x must have at least one column");
             ctx::solver::template substitute_canonical_multirhs<M, false, pa::is_internal,
                                                                 mt::is_internal>(
                 mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col,
-                xt::pointer(x), rs, xcol);
+                xt::pointer(x), xt::row_stride(x), xt::col_stride(x));
         }
     } else {
         detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();

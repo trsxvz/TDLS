@@ -463,14 +463,22 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-mult
                                             m, 1);
     TDLS_CHECK_BITWISE(Y.v.data(), Y_raw.data(), static_cast<std::size_t>(n) * m);
 
-    // Canonical block: the column count stays a template parameter, so
-    // x is a fixed-size block even on the runtime path.
-    MockRhsMatrix Xc;
+    // Canonical block on a runtime-sized x: the column count is read on
+    // the object, as for B above, and the dynamic canonical entry is
+    // resolved with it.
+    MockRuntimeMatrix Xc(n, m);
     std::vector<double> Xc_raw(static_cast<std::size_t>(n) * m);
     tdls::substitute_canonical(A, piv_p, 4, Xc);
-    RawDynamic::substitute_canonical_multirhs<M>(n, A_raw.data(), 1, piv_raw.data(), 1, 4,
-                                                 Xc_raw.data(), m, 1);
-    TDLS_CHECK_BITWISE(Xc.v, Xc_raw.data(), static_cast<std::size_t>(n) * m);
+    RawDynamic::substitute_canonical_multirhs(n, m, A_raw.data(), 1, piv_raw.data(), 1, 4,
+                                              Xc_raw.data(), m, 1);
+    TDLS_CHECK_BITWISE(Xc.v.data(), Xc_raw.data(), static_cast<std::size_t>(n) * m);
+
+    // A fixed-size x is accepted on the runtime path too (its extents
+    // are the caller's responsibility), with the column count read from
+    // its policy.
+    MockRhsMatrix Xf;
+    tdls::substitute_canonical(A, piv_p, 4, Xf);
+    TDLS_CHECK_BITWISE(Xf.v, Xc_raw.data(), static_cast<std::size_t>(n) * m);
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {
