@@ -46,6 +46,9 @@
 /// the _multirhs entry points of the raw API. Their template parameter pass_width
 /// cuts the substitution into passes (0, the default, means
 /// all columns in one pass; the last pass takes the remainder).
+/// substitute_canonical accepts a matrix-like x the same way: its
+/// columns receive the consecutive canonical columns e_col .. e_{col+M-1},
+/// solved together.
 ///
 /// Two families are rejected at compile time with an explicit message:
 /// row-strided matrix views (sub-matrix views, whose stride between rows
@@ -374,7 +377,7 @@ struct adaptor_context {
     //! \brief scalar type of the system
     using scalar = typename mtraits::value_type;
     static_assert(std::is_floating_point_v<scalar>,
-                  "tdls adaptors: the element type must be float or double");
+                  "tdls adaptors: the element type must be float, double or long double");
     static_assert(mtraits::arity == 2, "tdls adaptors: A must be matrix-like");
     //! \brief true when the matrix is runtime-sized (dynamic solver path)
     static constexpr bool runtime_sized = mtraits::has_runtime_extents;
@@ -413,8 +416,9 @@ constexpr void check_vector() {
 
 /// \brief Checks that the right-hand side and the solution share one
 /// residency and one compile-time stride: the raw API carries a single
-/// rhs_stride for both. With runtime-strided views, both must be mapped
-/// on the same batch (equal runtime strides), which is the caller's
+/// rhs_stride for both. Their extents must match whenever both are
+/// fixed-size. With runtime-strided views, both must be mapped on the
+/// same batch (equal runtime strides), which is the caller's
 /// responsibility.
 /// \tparam RhsType      right-hand-side type
 /// \tparam SolutionType solution type
@@ -426,6 +430,8 @@ constexpr void check_rhs_pair() {
                       bt::has_runtime_stride == xt::has_runtime_stride,
                   "tdls adaptors: b and x must share the same residency and "
                   "stride (the raw API carries a single rhs_stride for both)");
+    static_assert(bt::has_runtime_extents || xt::has_runtime_extents || bt::extent0 == xt::extent0,
+                  "tdls adaptors: b and x extents do not match");
 }
 
 /// \brief Checks a matrix-like right-hand-side block pair (B, X): matching
@@ -451,8 +457,9 @@ constexpr void check_multirhs_pair() {
     static_assert(N == 0 || !bt::has_runtime_extents,
                   "tdls adaptors: a runtime-sized right-hand-side block requires a "
                   "runtime-sized matrix A");
-    static_assert(N == 0 || bt::has_runtime_extents ||
-                      (bt::extent0 == N && xt::extent0 == N && bt::extent1 == xt::extent1),
+    static_assert(bt::has_runtime_extents ||
+                      (bt::extent0 == xt::extent0 && bt::extent1 == xt::extent1 &&
+                       (N == 0 || bt::extent0 == N)),
                   "tdls adaptors: B and X must have N rows and the same column count");
     static_assert(bt::policy_stride == xt::policy_stride &&
                       bt::has_runtime_stride == xt::has_runtime_stride,
@@ -1042,12 +1049,19 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
 
 /// \brief Solve A x = e_col on dense objects, from a prior factorize:
 /// the consistent-tangent-operator path.
+///
+/// With a matrix-like x, its M columns receive the solutions of the M
+/// consecutive canonical columns e_col .. e_{col+M-1}, every L/U tile
+/// loaded once for the block. The column count is a template parameter
+/// of the raw API, so x must be fixed-size, whatever the matrix.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \param[in]  A   factored matrix-like object
 /// \param[in]  piv pivot storage produced by factorize
-/// \param[in]  col index of the canonical column e_col
-/// \param[out] x   vector-like solution
+/// \param[in]  col index of the canonical column e_col (the first one
+///             with a matrix-like x)
+/// \param[out] x   vector-like solution, or matrix-like holding one
+///             solution per canonical column
 template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType,
          typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
@@ -1056,28 +1070,51 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
     using mt = typename ctx::mtraits;
     using pa = detail::pivot_access<PivotType>;
-    detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_canonical writes into x");
     static_assert(!std::is_const_v<SolutionType>,
                   "tdls adaptors: x must not be const here (substitute_canonical writes it)");
-    if constexpr (ctx::runtime_sized) {
-        ctx::dynamic_solver::substitute_canonical(mt::runtime_extent0(A), mt::pointer(A),
-                                                  mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                                                  col, xt::pointer(x), xt::stride(x));
+    if constexpr (xt::arity == 2) {
+        detail::check_multirhs_pair<SolutionType, SolutionType, typename ctx::scalar, ctx::N>();
+        static_assert(!xt::has_runtime_extents,
+                      "tdls adaptors: the canonical column count is a template parameter of "
+                      "the raw API; x must be fixed-size");
+        constexpr int M = xt::extent1;
+        static_assert(M >= 1, "tdls adaptors: x must have at least one column");
+        const int rs   = xt::extent1 * xt::stride(x);
+        const int xcol = xt::stride(x);
+        if constexpr (ctx::runtime_sized) {
+            ctx::dynamic_solver::template substitute_canonical_multirhs<M>(
+                mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
+                pa::stride(piv), col, xt::pointer(x), rs, xcol);
+        } else {
+            ctx::solver::template substitute_canonical_multirhs<M, false, pa::is_internal,
+                                                                mt::is_internal>(
+                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col,
+                xt::pointer(x), rs, xcol);
+        }
     } else {
-        ctx::solver::template substitute_canonical<xt::is_internal, pa::is_internal,
-                                                   mt::is_internal>(
-            mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col, xt::pointer(x),
-            xt::stride(x));
+        detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
+        if constexpr (ctx::runtime_sized) {
+            ctx::dynamic_solver::substitute_canonical(
+                mt::runtime_extent0(A), mt::pointer(A), mt::stride(A), pa::pointer(piv),
+                pa::stride(piv), col, xt::pointer(x), xt::stride(x));
+        } else {
+            ctx::solver::template substitute_canonical<xt::is_internal, pa::is_internal,
+                                                       mt::is_internal>(
+                mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col,
+                xt::pointer(x), xt::stride(x));
+        }
     }
 }
 
 /// \brief Default-configuration overload of substitute_canonical.
 /// \param[in]  A   factored matrix-like object
 /// \param[in]  piv pivot storage produced by factorize
-/// \param[in]  col index of the canonical column e_col
-/// \param[out] x   vector-like solution
+/// \param[in]  col index of the canonical column e_col (the first one
+///             with a matrix-like x)
+/// \param[out] x   vector-like solution, or matrix-like holding one
+///             solution per canonical column
 template<typename MatrixType, typename PivotType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {

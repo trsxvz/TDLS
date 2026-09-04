@@ -64,13 +64,17 @@ set(TDLS_TILEDLUPP_REJECT_CASES
     reject_adaptors_const_matrix
     reject_adaptors_const_pivot
     reject_adaptors_config_scalar_mismatch
-    reject_adaptors_colmajor_config)
+    reject_adaptors_colmajor_config
+    reject_adaptors_rhs_extent_mismatch
+    reject_adaptors_multirhs_extent_mismatch)
 set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
     "singular_floor must not exceed oot_threshold"
     "A must not be const here"
     "the pivot must be mutable here"
     "the config scalar type must match the matrix element type"
-    "dense objects are addressed row-major")
+    "dense objects are addressed row-major"
+    "b and x extents do not match"
+    "B and X must have N rows and the same column count")
 
 foreach(case diagnostic IN ZIP_LISTS TDLS_TILEDLUPP_REJECT_CASES
                                      TDLS_TILEDLUPP_REJECT_DIAGNOSTICS)
