@@ -13,7 +13,8 @@ only the parallel harness, never the solver calls.
 | **Constitutive law** (Norton viscoplasticity, the MFront pattern, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
 
 The sources live under `examples/tiled_lupp/`, split by execution
-scale (`cpu_sequential/`, `cpu_openmp/`, `gpu_cuda_or_hip/`). The GPU
+scale (`cpu_sequential/`, `cpu_openmp/`, `sycl/`, `stdpar/`,
+`gpu_cuda_or_hip/`). The GPU
 examples are single sources in the common CUDA/HIP dialect, compiled
 as CUDA or HIP according to the opt-in option enabled at configure
 time (`TDLS_BUILD_CUDA_EXAMPLES` / `TDLS_BUILD_HIP_EXAMPLES`).

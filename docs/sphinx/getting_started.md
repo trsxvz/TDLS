@@ -5,8 +5,8 @@
 Only a C++20 compiler is mandatory: the library itself has no
 dependency. The oldest releases known to compile the headers are GCC
 10, Clang 12, Visual Studio 2019 16.11, CUDA 12.0 and ROCm 5.3.
-Running every example additionally needs an OpenMP runtime and a CUDA
-or HIP toolchain.
+Running every example additionally needs an OpenMP runtime, a CUDA or
+HIP toolchain, a SYCL compiler and a parallel STL offload compiler.
 
 ## Consuming the library
 

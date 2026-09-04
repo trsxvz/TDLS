@@ -45,7 +45,7 @@ namespace tdls {
 
 /// \brief Compile-time knobs of the TiledLUpp solvers, carrying the tuned
 /// defaults.
-/// \tparam T scalar type (float or double)
+/// \tparam T scalar type (float, double or long double)
 template<typename T>
 struct TiledLUppConfig {
 
