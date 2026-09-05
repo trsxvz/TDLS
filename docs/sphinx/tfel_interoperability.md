@@ -106,4 +106,13 @@ tdls::solve(A2, piv, B, X);
 // last pass taking the remainder: a working-set control knob for very
 // wide right-hand sides. Here, passes of 2 columns.
 tdls::solve<2>(A2, piv, B, X);
+
+// The consistent tangent operator of a constitutive law needs columns
+// of the inverse jacobian. substitute_canonical with a matrix-like x
+// solves consecutive canonical columns together on the factorization
+// left in A2 by solve: here e_0 .. e_5, into the six columns of Xc. A
+// runtime-sized x is accepted with a runtime-sized matrix, and
+// pass_width cuts the block the same way.
+tfel::math::tmatrix<12, 6, double> Xc;
+tdls::substitute_canonical(A2, piv, 0, Xc);
 ```

@@ -168,9 +168,10 @@ namespace tdls {
 /// The columns are solved in passes of pass_width columns (0 = one
 /// single pass); every L/U tile is loaded once per pass, and per-column
 /// results match nrhs single-column calls bitwise whatever the cutting.
-/// nrhs and pass_width are template parameters here, and runtime
-/// arguments of the runtime solver, as the dimension itself.
-/// pass_width trails with a default of 0, so the common case needs no
+/// nrhs is a template parameter here and a runtime argument of the
+/// runtime solver, as the dimension itself; pass_width, a scheduling
+/// knob rather than a dimension, is a template parameter in both. It
+/// trails with a default of 0 here, so the common case needs no
 /// cutting argument at all. nrhs = 1 makes each twin collapse to its
 /// single-column form.
 ///
@@ -1555,9 +1556,9 @@ struct TiledLUppSolverStatic {
     /// \brief Solve with b = e_col generated on the fly: the
     /// consistent-tangent-operator path.
     ///
-    /// Thin alias of the W-column variant below (W=1 collapses to exactly
-    /// the single-column code, so there is no separate implementation to
-    /// maintain).
+    /// Thin alias of the canonical pass engine below with W = 1, which
+    /// collapses to exactly the single-column code, so there is no
+    /// separate implementation to maintain.
     /// \tparam internal_rhs residency of x
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
@@ -1573,18 +1574,16 @@ struct TiledLUppSolverStatic {
     substitute_canonical(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                          const int piv_stride, const int col, T* TDLS_RESTRICT x,
                          const int rhs_stride) noexcept {
-        substitute_canonical_multirhs<1, internal_rhs, internal_piv, internal_matrix>(
+        substitute_canonical_multirhs_pass<1, internal_rhs, internal_piv, internal_matrix>(
             A, A_stride, piv, piv_stride, col, x, rhs_stride, 0);
     }
 
-    /// \brief W canonical columns e_col0..e_{col0+W-1} solved per tile
-    /// visit: every L/U tile is loaded once for the block instead of once
-    /// per column.
-    ///
-    /// Column w lives at x + w*N (internal) or x + w*xcol_stride (remote);
-    /// per-column arithmetic is identical to W separate
-    /// substitute_canonical calls, so results match them bitwise.
-    /// \tparam W number of consecutive canonical columns solved together
+    /// \brief One pass of the canonical multi right-hand-side
+    /// substitution: W canonical columns e_col0 .. e_{col0+W-1}
+    /// generated in permuted order into x, then one triangular sweep
+    /// for all W columns together. Internal engine of
+    /// substitute_canonical_multirhs.
+    /// \tparam W number of columns of this pass
     /// \tparam internal_rhs residency of x
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
@@ -1599,10 +1598,10 @@ struct TiledLUppSolverStatic {
     ///             (external mode)
     template<int W, bool internal_rhs, bool internal_piv, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
-    substitute_canonical_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
-                                  const int* TDLS_RESTRICT piv, const int piv_stride,
-                                  const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
-                                  const int xcol_stride) noexcept {
+    substitute_canonical_multirhs_pass(const T* TDLS_RESTRICT A, const int A_stride,
+                                       const int* TDLS_RESTRICT piv, const int piv_stride,
+                                       const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
+                                       const int xcol_stride) noexcept {
         if constexpr (Config.unroll_inner) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < N; ++i) {
@@ -1620,6 +1619,59 @@ struct TiledLUppSolverStatic {
         }
         fwd_bwd<W, internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, x,
                                                                 rhs_stride, xcol_stride);
+    }
+
+    /// \brief nrhs canonical columns e_col0 .. e_{col0+nrhs-1} solved from
+    /// a prior factorize: the columns of the inverse that a consistent
+    /// tangent operator needs.
+    ///
+    /// Column w lives at x + w*N (internal) or x + w*xcol_stride
+    /// (remote). The columns are solved in passes of pass_width
+    /// columns; within a pass, every L/U tile is loaded once for all the
+    /// columns of the pass. Per-column arithmetic is identical whatever
+    /// the cutting, and identical to nrhs separate substitute_canonical
+    /// calls: results match them bitwise (nrhs = 1 collapses to
+    /// substitute_canonical exactly).
+    /// \tparam nrhs       number of consecutive canonical columns
+    /// \tparam internal_rhs residency of x
+    /// \tparam internal_piv residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \tparam pass_width columns solved together per pass; the default
+    ///         0, or any value >= nrhs, means one single pass of nrhs
+    ///         columns
+    /// \param[in]  A           factored matrix produced by factorize
+    /// \param[in]  A_stride    element stride of A (external mode)
+    /// \param[in]  piv         permutation produced by factorize
+    /// \param[in]  piv_stride  element stride of piv (external mode)
+    /// \param[in]  col0        index of the first canonical column
+    /// \param[out] x           nrhs solution columns
+    /// \param[in]  rhs_stride  element stride of x (external mode)
+    /// \param[in]  xcol_stride element stride between columns of x
+    ///             (external mode)
+    template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int pass_width = 0>
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    substitute_canonical_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
+                                  const int* TDLS_RESTRICT piv, const int piv_stride,
+                                  const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
+                                  const int xcol_stride) noexcept {
+        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+        constexpr int P = (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+        for (int c0 = 0; c0 + P <= nrhs; c0 += P) {
+            const unsigned off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            substitute_canonical_multirhs_pass<P, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
+        }
+        if constexpr (nrhs % P > 0) {
+            constexpr int c0 = nrhs - nrhs % P;
+            const unsigned off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            substitute_canonical_multirhs_pass<nrhs % P, internal_rhs, internal_piv,
+                                               internal_matrix>(
+                A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
+        }
     }
 
     /// \brief One pass of the multi right-hand-side substitution: W

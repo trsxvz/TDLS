@@ -1,7 +1,7 @@
 # Use of AI
 
 TDLS is developed with the help of AI coding assistants, currently
-Claude Fable 5 (Anthropic) and GPT 5.6 (OpenAI). They are used as
+Claude Fable 5.1 (Anthropic) and GPT 5.6 (OpenAI). They are used as
 tools: code drafting, refactoring, test scaffolding, documentation
 editing. The scientific reasoning is human. The choice of algorithms,
 the design of the linear solvers and the interpretation of the

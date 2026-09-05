@@ -12,7 +12,8 @@
 /// both solvers: substitute_multirhs against NRHS separate substitute
 /// calls (the baseline, itself anchored by the oracle suites), the
 /// pass_width cuttings against the single pass, the in-place twins
-/// against the two-buffer forms, the solve_multirhs /
+/// against the two-buffer forms, the canonical block against single
+/// canonical columns, the solve_multirhs /
 /// solve_inplace_multirhs wrappers against their split forms, the
 /// diagnostics-free overloads against the counting ones, and the
 /// runtime solver against the compile-time one on the same systems.
@@ -96,6 +97,35 @@ void multirhs_case(const int count, const double bound, const std::uint64_t seed
             TDLS_CHECK_BITWISE(X_ref, Yc, static_cast<std::size_t>(NRHS) * N);
         }
 
+        // The canonical block: NC consecutive canonical columns solved
+        // together must match NC single canonical columns bitwise, in
+        // one pass and under a pass cutting, on both solvers (the
+        // runtime one reads the factorization the compile-time one
+        // produced, identical by the static-dynamic bridge).
+        {
+            constexpr int NC = NRHS < N ? NRHS : N;
+            T Xc_ref[NC * N];
+            for (int w = 0; w < NC; ++w)
+                Static::template substitute_canonical<true, true, false>(
+                    A_split.data(), 1, piv_split, 1, w, Xc_ref + w * N, 1);
+            T Xc[NC * N];
+            Static::template substitute_canonical_multirhs<NC, true, true, false>(
+                A_split.data(), 1, piv_split, 1, 0, Xc, 1, 0);
+            TDLS_CHECK_BITWISE(Xc_ref, Xc, static_cast<std::size_t>(NC) * N);
+            T Xcc[NC * N];
+            Static::template substitute_canonical_multirhs<NC, true, true, false, 2>(
+                A_split.data(), 1, piv_split, 1, 0, Xcc, 1, 0);
+            TDLS_CHECK_BITWISE(Xc_ref, Xcc, static_cast<std::size_t>(NC) * N);
+            T Xd[NC * N];
+            Dynamic::substitute_canonical_multirhs(N, NC, A_split.data(), 1, piv_split, 1, 0, Xd, 1,
+                                                   N);
+            TDLS_CHECK_BITWISE(Xc_ref, Xd, static_cast<std::size_t>(NC) * N);
+            T Xdc[NC * N];
+            Dynamic::template substitute_canonical_multirhs<2>(N, NC, A_split.data(), 1, piv_split,
+                                                               1, 0, Xdc, 1, N);
+            TDLS_CHECK_BITWISE(Xc_ref, Xdc, static_cast<std::size_t>(NC) * N);
+        }
+
         // substitute_multirhs, external residency, interleaved columns
         // (element stride NRHS, column stride 1).
         {
@@ -154,9 +184,10 @@ void multirhs_case(const int count, const double bound, const std::uint64_t seed
             int piv[N], oot = 0;
             T X[NRHS * N];
             const bool ok_dyn =
-                Dynamic::solve_multirhs(N, NRHS, 0, A_other.data(), 1, piv, 1, B, X, 1, N, oot);
+                Dynamic::solve_multirhs(N, NRHS, A_other.data(), 1, piv, 1, B, X, 1, N, oot);
             T Xc[NRHS * N];
-            Dynamic::substitute_multirhs(N, NRHS, A_other.data(), 1, piv, 1, B, Xc, 1, N, 2);
+            Dynamic::template substitute_multirhs<2>(N, NRHS, A_other.data(), 1, piv, 1, B, Xc, 1,
+                                                     N);
             TDLS_CHECK_BITWISE(X_ref, Xc, static_cast<std::size_t>(NRHS) * N);
             TDLS_CHECK(ok_dyn);
             TDLS_CHECK_BITWISE(A_split.data(), A_other.data(), static_cast<std::size_t>(N) * N);
@@ -174,7 +205,7 @@ void multirhs_case(const int count, const double bound, const std::uint64_t seed
             for (int e = 0; e < NRHS * N; ++e)
                 Y[e] = B[e];
             const bool ok_free =
-                Dynamic::solve_inplace_multirhs(N, NRHS, 0, A_other.data(), 1, piv, 1, Y, 1, N);
+                Dynamic::solve_inplace_multirhs(N, NRHS, A_other.data(), 1, piv, 1, Y, 1, N);
             TDLS_CHECK(ok_free);
             TDLS_CHECK_BITWISE(X_ref, Y, static_cast<std::size_t>(NRHS) * N);
         }

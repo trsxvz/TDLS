@@ -431,7 +431,7 @@ constexpr bool multirhs_certificate(const unsigned seed) {
     Static::template substitute_multirhs<W, true, true, true, 2>(A, 1, piv, 1, B, X, 1, 0);
     for (int e = 0; e < W * N; ++e)
         if (X[e] != X_ref[e]) return false;
-    Dynamic::substitute_multirhs(N, W, A, 1, piv, 1, B, X, 1, N, 2);
+    Dynamic::template substitute_multirhs<2>(N, W, A, 1, piv, 1, B, X, 1, N);
     for (int e = 0; e < W * N; ++e)
         if (X[e] != X_ref[e]) return false;
     return true;

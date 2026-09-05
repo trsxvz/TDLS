@@ -423,6 +423,11 @@ TDLS_TEST_CASE("tiledlupp/adaptors/matrix-rhs-routes-to-the-multirhs-entry-point
     RawSolver::substitute_canonical_multirhs<M, false, true, true>(A_raw, 1, piv_raw, 1, 3, Xc_raw,
                                                                    M, 1);
     TDLS_CHECK_BITWISE(Xc.v, Xc_raw, static_cast<std::size_t>(N) * M);
+
+    // A pass cutting on the canonical block lands on the same values.
+    MockRhsMatrix Xcc;
+    tdls::substitute_canonical<2>(A, piv, 3, Xcc);
+    TDLS_CHECK_BITWISE(Xcc.v, Xc_raw, static_cast<std::size_t>(N) * M);
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-multirhs") {
@@ -443,7 +448,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-mult
 
     int* piv_p = piv.data();
     TDLS_CHECK(tdls::solve(A, piv_p, B, X));
-    TDLS_CHECK(RawDynamic::solve_multirhs(n, m, 0, A_raw.data(), 1, piv_raw.data(), 1, B.v.data(),
+    TDLS_CHECK(RawDynamic::solve_multirhs(n, m, A_raw.data(), 1, piv_raw.data(), 1, B.v.data(),
                                           X_raw.data(), m, 1));
     TDLS_CHECK_BITWISE(A.v.data(), A_raw.data(), static_cast<std::size_t>(n) * n);
     TDLS_CHECK_BITWISE(piv.data(), piv_raw.data(), static_cast<std::size_t>(n));
@@ -479,6 +484,12 @@ TDLS_TEST_CASE("tiledlupp/adaptors/runtime-matrix-rhs-routes-to-the-dynamic-mult
     MockRhsMatrix Xf;
     tdls::substitute_canonical(A, piv_p, 4, Xf);
     TDLS_CHECK_BITWISE(Xf.v, Xc_raw.data(), static_cast<std::size_t>(n) * m);
+
+    // A pass cutting on the runtime canonical block lands on the same
+    // values.
+    MockRuntimeMatrix Xcc(n, m);
+    tdls::substitute_canonical<2>(A, piv_p, 4, Xcc);
+    TDLS_CHECK_BITWISE(Xcc.v.data(), Xc_raw.data(), static_cast<std::size_t>(n) * m);
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {

@@ -43,12 +43,12 @@
 /// solve, solve_inplace, substitute and substitute_inplace also accept a
 /// matrix-like right-hand side holding one right-hand side per column:
 /// A X = B, every column solved against the one factorization through
-/// the _multirhs entry points of the raw API. Their template parameter pass_width
-/// cuts the substitution into passes (0, the default, means
-/// all columns in one pass; the last pass takes the remainder).
-/// substitute_canonical accepts a matrix-like x the same way: its
-/// columns receive the consecutive canonical columns e_col .. e_{col+M-1},
-/// solved together.
+/// the _multirhs entry points of the raw API. substitute_canonical
+/// accepts a matrix-like x the same way: its columns receive the
+/// consecutive canonical columns e_col .. e_{col+M-1}. On all five, the
+/// template parameter pass_width cuts the substitution into passes (0,
+/// the default, means all columns in one pass; the last pass takes the
+/// remainder).
 ///
 /// Two families are rejected at compile time with an explicit message:
 /// row-strided matrix views (sub-matrix views, whose stride between rows
@@ -593,13 +593,13 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
         const int rs   = xt::row_stride(x);
         const int xcol = xt::col_stride(x);
         if constexpr (inplace) {
-            Ctx::dynamic_solver::substitute_inplace_multirhs(n, m, mt::pointer(A), mt::stride(A),
-                                                             pa::pointer(piv), pa::stride(piv),
-                                                             xt::pointer(x), rs, xcol, pass_width);
-        } else {
-            Ctx::dynamic_solver::substitute_multirhs(
+            Ctx::dynamic_solver::template substitute_inplace_multirhs<pass_width>(
                 n, m, mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
-                bt::pointer(b), xt::pointer(x), rs, xcol, pass_width);
+                xt::pointer(x), rs, xcol);
+        } else {
+            Ctx::dynamic_solver::template substitute_multirhs<pass_width>(
+                n, m, mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
+                bt::pointer(b), xt::pointer(x), rs, xcol);
         }
     } else {
         constexpr int M = bt::extent1;
@@ -1093,17 +1093,21 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
 /// column count of x, every L/U tile loaded once for the block. M is
 /// read from x: at compile time on the fixed-size path, at run time
 /// for a runtime-sized x, which the runtime-sized matrix path accepts
-/// exactly as substitute does for its right-hand-side block.
+/// exactly as substitute does for its right-hand-side block. pass_width
+/// then cuts the substitution into passes (0 = all columns in one pass;
+/// the last pass takes the remainder).
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
+/// \tparam pass_width columns per substitution pass for a matrix-like x
+///         (0 = all at once; must be 0 for a vector-like x)
 /// \param[in]  A   factored matrix-like object
 /// \param[in]  piv pivot storage produced by factorize
 /// \param[in]  col index of the canonical column e_col (the first one
 ///             with a matrix-like x)
 /// \param[out] x   vector-like solution, or matrix-like holding one
 ///             solution per canonical column
-template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType,
-         typename SolutionType>
+template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
+         typename PivotType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
     using ctx =
@@ -1116,8 +1120,9 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
                   "tdls adaptors: x must not be const here (substitute_canonical writes it)");
     if constexpr (xt::arity == 2) {
         detail::check_multirhs_pair<SolutionType, SolutionType, typename ctx::scalar, ctx::N>();
+        static_assert(pass_width >= 0, "tdls adaptors: pass_width must not be negative");
         if constexpr (ctx::runtime_sized) {
-            ctx::dynamic_solver::substitute_canonical_multirhs(
+            ctx::dynamic_solver::template substitute_canonical_multirhs<pass_width>(
                 mt::runtime_extent0(A), xt::columns(x), mt::pointer(A), mt::stride(A),
                 pa::pointer(piv), pa::stride(piv), col, xt::pointer(x), xt::row_stride(x),
                 xt::col_stride(x));
@@ -1125,11 +1130,13 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
             constexpr int M = xt::extent1;
             static_assert(M >= 1, "tdls adaptors: x must have at least one column");
             ctx::solver::template substitute_canonical_multirhs<M, false, pa::is_internal,
-                                                                mt::is_internal>(
+                                                                mt::is_internal, pass_width>(
                 mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv), col,
                 xt::pointer(x), xt::row_stride(x), xt::col_stride(x));
         }
     } else {
+        static_assert(pass_width == 0,
+                      "tdls adaptors: pass_width only applies to matrix-like right-hand sides");
         detail::check_vector<SolutionType, typename ctx::scalar, ctx::N>();
         if constexpr (ctx::runtime_sized) {
             ctx::dynamic_solver::substitute_canonical(
@@ -1145,16 +1152,19 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
 }
 
 /// \brief Default-configuration overload of substitute_canonical.
+/// \tparam pass_width columns per substitution pass for a matrix-like x
+///         (0 = all at once; must be 0 for a vector-like x)
 /// \param[in]  A   factored matrix-like object
 /// \param[in]  piv pivot storage produced by factorize
 /// \param[in]  col index of the canonical column e_col (the first one
 ///             with a matrix-like x)
 /// \param[out] x   vector-like solution, or matrix-like holding one
 ///             solution per canonical column
-template<typename MatrixType, typename PivotType, typename SolutionType>
+template<int pass_width = 0, typename MatrixType, typename PivotType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
-    substitute_canonical<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv, col, x);
+    substitute_canonical<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv,
+                                                                                           col, x);
 }
 
 
