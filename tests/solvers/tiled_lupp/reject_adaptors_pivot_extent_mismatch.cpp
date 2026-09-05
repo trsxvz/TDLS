@@ -9,7 +9,7 @@
 /// licensing conditions.
 ///
 /// This translation unit must NOT compile. ctest builds it on purpose
-/// and passes only when the compiler emits the pivot-extent diagnostic
+/// and passes only when the compiler emits the pivot-shape diagnostic
 /// of the adaptors: the factorization writes N permutation entries, so
 /// a shorter pivot would overflow.
 

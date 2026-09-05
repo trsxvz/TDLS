@@ -22,9 +22,11 @@
 ///
 /// StructuralReal therefore stores a floating-point value as an odd
 /// integer mantissa and a power-of-two exponent, m * 2^e. Every finite
-/// value of the scalar type is represented exactly (53 significant bits
-/// fit a 64-bit mantissa), so a configuration threshold round-trips bit
-/// for bit and the solvers see exactly the value written by the caller.
+/// float or double value is represented exactly (53 significant bits fit
+/// the 63 of a signed 64-bit mantissa), and so is a long double value
+/// within those 63 bits, which every double literal is: a configuration
+/// threshold round-trips bit for bit and the solvers see exactly the
+/// value written by the caller.
 /// The representation is canonical (odd mantissa, zero as (0, 0)), so
 /// two configurations built from equal values name the same solver
 /// instantiation, as they would with plain floating-point members.
@@ -90,9 +92,9 @@ struct StructuralReal {
     /// \brief Exact decomposition of a finite value into m * 2^e.
     ///
     /// The magnitude is first halved below 2^62 (exact on a normal
-    /// number), then doubled until integral (exact: the value stays
-    /// below 2^54), and the integer mantissa is finally reduced to its
-    /// odd part. Signed zeros both map to (0, 0): thresholds are
+    /// number), then doubled until integral (exact, and stopped by the
+    /// sentinel below 2^63), and the integer mantissa is finally reduced
+    /// to its odd part. Signed zeros both map to (0, 0): thresholds are
     /// magnitudes, the sign of zero carries nothing.
     /// \param[in] v the value to store
     TDLS_HOST_DEVICE constexpr StructuralReal(const T v) noexcept {

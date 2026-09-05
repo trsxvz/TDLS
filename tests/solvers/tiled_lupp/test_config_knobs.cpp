@@ -13,7 +13,8 @@
 /// the out-of-tile counter stays at zero in the default regime, fires in
 /// the stress regime, and counts every column when the threshold is
 /// raised above any entry; a raised singular_floor turns tiny-pivot
-/// batches into singular verdicts.
+/// batches into singular verdicts; a long double configuration takes
+/// its thresholds as double literals, stored exactly.
 
 #include <algorithm>
 #include <cstdint>
@@ -213,6 +214,32 @@ TDLS_TEST_CASE("tiledlupp/config/strict-singular_floor-rejects-tiny-pivots/N=12,
         TDLS_CHECK(
             (Default::solve<false, true, false>(A.data(), 1, piv, 1, batch.rhs(s), x.data(), 1)));
     }
+}
+
+TDLS_TEST_CASE("tiledlupp/config/long-double-thresholds-from-double-literals/N=12,TS=3") {
+    // Double literals are stored exactly and read back bit for bit by a
+    // long double solver, which stays anchored on the backward error.
+    constexpr int N       = 12;
+    constexpr auto config = tdls::TiledLUppConfig<long double>{
+        .tile_size = 3, .oot_threshold = 1e-12, .singular_floor = 1e-300};
+    using Solver = tdls::TiledLUppSolverStatic<long double, N, config>;
+    static_assert(Solver::oot_threshold == static_cast<long double>(1e-12));
+    static_assert(Solver::singular_floor == static_cast<long double>(1e-300));
+    const auto batch = tdls_tests::make_batch<long double>(N, 100, 190800, 0.5);
+    std::vector<long double> A(N * N), x(N);
+    int piv[N];
+    int solved    = 0;
+    double be_max = 0.0;
+    for (int s = 0; s < batch.count; ++s) {
+        std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
+        if (!Solver::solve<false, true, false>(A.data(), 1, piv, 1, batch.rhs(s), x.data(), 1))
+            continue;
+        ++solved;
+        be_max = std::max(be_max,
+                          tdls_tests::backward_error(batch.matrix(s), x.data(), batch.rhs(s), N));
+    }
+    TDLS_CHECK(solved == batch.count);
+    TDLS_CHECK_LE(be_max, 1e-9);
 }
 
 TDLS_TEST_MAIN

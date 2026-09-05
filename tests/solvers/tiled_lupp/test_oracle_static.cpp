@@ -132,4 +132,10 @@ TDLS_ANCHOR_CASES(float, 12, 3, "default", 1000, 0.5, 1e-2, 301230)
 TDLS_ANCHOR_CASES(float, 13, 6, "default", 1000, 0.5, 1e-2, 301360)
 TDLS_ANCHOR_CASES(float, 12, 3, "stress", 1000, 5e-10, 1e-2, 401230)
 
+// Long double: the same two shapes under the default configuration,
+// whose thresholds are double literals. The backward error accumulates
+// in double, so the double tolerance applies.
+TDLS_ANCHOR_CASES(long double, 12, 3, "default", 1000, 0.5, 1e-9, 501230)
+TDLS_ANCHOR_CASES(long double, 13, 6, "default", 1000, 0.5, 1e-9, 501360)
+
 TDLS_TEST_MAIN

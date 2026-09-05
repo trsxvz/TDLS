@@ -170,7 +170,12 @@ inline constexpr bool is_dense_v =
 ///
 /// The primary template covers, structurally, every type following the
 /// TFEL protocol: a data() member and an indexing_policy type (see the
-/// file documentation). Specialize it for other types.
+/// file documentation). Specialize it for other types, with the
+/// members the entry points read: value_type, is_mutable, arity,
+/// extent0, extent1, has_runtime_extents, has_runtime_stride,
+/// policy_stride, is_internal, pointer(o), stride(o),
+/// runtime_extent0(o), columns(o), row_stride(o) and col_stride(o),
+/// with the meanings documented on the structural specialization below.
 /// \tparam DenseType dense object type (without cv-qualifiers/references)
 template<typename DenseType, typename = void>
 struct storage_traits;
@@ -534,9 +539,9 @@ struct pivot_access {
     static_assert(is_raw || is_dense, "tdls adaptors: the pivot must be an int pointer/array or "
                                       "a dense int object");
 
-    //! \brief true when the pivot is vector-like and its extent matches
-    //! the dimension (only checkable when both are fixed-size)
-    static constexpr bool has_matching_extent = [] {
+    //! \brief true when the pivot is vector-like, of the system
+    //! dimension when both are fixed-size
+    static constexpr bool has_matching_shape = [] {
         if constexpr (is_raw) {
             return true;
         } else {
@@ -544,8 +549,8 @@ struct pivot_access {
             return pt::arity == 1 && (N == 0 || pt::has_runtime_extents || pt::extent0 == N);
         }
     }();
-    static_assert(has_matching_extent,
-                  "tdls adaptors: pivot extent does not match the system dimension");
+    static_assert(has_matching_shape, "tdls adaptors: the pivot must be vector-like, of the "
+                                      "system dimension when both are fixed-size");
 
     //! \brief true when the pivot argument may be written (non-const
     //! object, non-const pointee for raw pointers)

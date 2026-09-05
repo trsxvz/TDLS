@@ -186,7 +186,7 @@ namespace tdls {
 /// silent default could mismatch the actual argument and corrupt results
 /// without any diagnostic.
 ///
-/// \tparam T      scalar type (float or double)
+/// \tparam T      scalar type (float, double or long double)
 /// \tparam N      system dimension (N >= 1)
 /// \tparam Config compile-time knobs, passed as a constexpr value: tile
 ///         size, schedule, pivoting thresholds, unroll policy; see

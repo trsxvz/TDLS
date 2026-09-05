@@ -149,7 +149,7 @@ namespace tdls {
 /// in TiledLUppSolverStatic: a factorization produced here must be consumed by the
 /// substitution routines of this family.
 ///
-/// \tparam T      scalar type (float or double)
+/// \tparam T      scalar type (float, double or long double)
 /// \tparam Config compile-time knobs, passed as a constexpr value: tile
 ///         size (may exceed n), schedule, pivoting thresholds; see
 ///         TiledLUppConfig (unroll_inner is ignored by this variant)

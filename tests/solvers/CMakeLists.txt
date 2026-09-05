@@ -78,7 +78,7 @@ set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
     "dense objects are addressed row-major"
     "b and x extents do not match"
     "B and X must have N rows and the same column count"
-    "pivot extent does not match the system dimension")
+    "the pivot must be vector-like")
 
 foreach(case diagnostic IN ZIP_LISTS TDLS_TILEDLUPP_REJECT_CASES
                                      TDLS_TILEDLUPP_REJECT_DIAGNOSTICS)
