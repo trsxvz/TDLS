@@ -47,12 +47,12 @@ constexpr tdls::TiledLUppConfig<double> config{
 
 // LU solver for systems of dimension 9: the 9 x 9 matrix is cut
 // into 3 x 3 register tiles. One call: factorize M in place, then
-// overwrite y with the solution. The residency booleans declare
-// every operand caller-local, so the stride arguments (the 1s) are
-// ignored at compile time; with external operands they carry the
-// element stride of each array.
+// overwrite y with the solution; false means a singular matrix. The
+// residency booleans declare every operand caller-local, so the
+// stride arguments (the 1s) are ignored at compile time; with
+// external operands they carry the element stride of each array.
 using Solver = tdls::TiledLUppSolverStatic<double, 9, config>;
-Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
+const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 ```
 
 The `tfel::math` objects (matrices, vectors, strided views) can also
@@ -103,11 +103,13 @@ the GPU switches always default to OFF):
 | `TDLS_BUILD_TESTS` | build the test suites |
 | `TDLS_BUILD_EXAMPLES` | build the examples |
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
+| `TDLS_TESTS_OPTIMIZATION` | optimization flag of the test suites in the Release configuration (`-O1` by default) |
 | `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
 | `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
 | `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
 | `TDLS_BUILD_HIP_EXAMPLES` | build the GPU examples with HIP (the toolchain becomes required) |
 | `CMAKE_HIP_COMPILER` | HIP compiler of the AMD toolchain |
+| `CMAKE_HIP_ARCHITECTURES` | target GPU architectures (the compiler default if unset) |
 | `TDLS_BUILD_SYCL_EXAMPLES` | build the SYCL examples (a SYCL compiler such as `icpx` becomes required) |
 | `TDLS_SYCL_FLAGS` | SYCL flags of that compiler (`-fsycl` by default; add `-fsycl-targets=...` for AOT) |
 | `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` | build the parallel STL examples for a GPU (an offloading compiler becomes required) |

@@ -4,39 +4,35 @@ The examples double as living documentation and as tests: each one is
 a self-checking program executed by ctest under the `examples` label.
 They are organized as three scientific problems, each declined at every
 execution scale, so that moving from one column to the next changes
-only the parallel harness, never the solver calls.
+the parallel harness and the placement of the operands, never the
+physics.
 
-| | CPU, sequential | CPU, parallel | GPU, thread-local memory | GPU, global device memory |
-|---|---|---|---|---|
-| **Compile-time dimension** (stiff chemistry, Radau IIA, N = 9) | `implicit_ode` | `implicit_ode_batch_omp` | `implicit_ode_batch_gpu` | `implicit_ode_batch_gpu_soa` |
-| **Runtime dimension** (Love integral equation, Nystroem, n chosen at launch) | `integral_equation` | `integral_equation_batch_omp` | `integral_equation_batch_gpu` | `integral_equation_batch_gpu_soa` |
-| **Constitutive law** (Norton viscoplasticity, the MFront pattern, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
+| | CPU, sequential | CPU, OpenMP | parallel STL | SYCL | CUDA or HIP, thread-local memory | CUDA or HIP, device memory |
+|---|---|---|---|---|---|---|
+| **Compile-time dimension** (stiff chemistry, Radau IIA, N = 9) | `implicit_ode` | `implicit_ode_batch_omp` | `implicit_ode_batch_stdpar` | `implicit_ode_batch_sycl` | `implicit_ode_batch_gpu` | `implicit_ode_batch_gpu_soa` |
+| **Runtime dimension** (Love integral equation, Nystroem, n chosen at launch) | `integral_equation` | `integral_equation_batch_omp` | `integral_equation_batch_stdpar` | `integral_equation_batch_sycl` | `integral_equation_batch_gpu` | `integral_equation_batch_gpu_soa` |
+| **Constitutive law** (Norton viscoplasticity, the MFront pattern, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_stdpar` | `norton_law_batch_sycl` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
 
 The sources live under `examples/tiled_lupp/`, split by execution
-scale (`cpu_sequential/`, `cpu_openmp/`, `sycl/`, `stdpar/`,
-`gpu_cuda_or_hip/`). The GPU
-examples are single sources in the common CUDA/HIP dialect, compiled
-as CUDA or HIP according to the opt-in option enabled at configure
-time (`TDLS_BUILD_CUDA_EXAMPLES` / `TDLS_BUILD_HIP_EXAMPLES`).
+scale (`cpu_sequential/`, `cpu_openmp/`, `stdpar/`, `sycl/`,
+`gpu_cuda_or_hip/`). The GPU examples are single sources in the common
+CUDA/HIP dialect, compiled as CUDA or HIP according to the opt-in
+option enabled at configure time (`TDLS_BUILD_CUDA_EXAMPLES` /
+`TDLS_BUILD_HIP_EXAMPLES`).
 
-The three problems also exist as SYCL single sources, in `sycl/`: one
-`parallel_for` kernel per problem, one work-item per system, the
-solver operands in the private memory of each work-item
-(`implicit_ode_batch_sycl`, `integral_equation_batch_sycl`,
-`norton_law_batch_sycl`). They are opt-in through
-`TDLS_BUILD_SYCL_EXAMPLES`, need no device to build, and run on
-whatever device the default selector picks, an Intel GPU under oneAPI
-included; without a SYCL device they report themselves skipped.
+The parallel STL examples run `std::for_each` with the `par_unseq`
+policy over the system indices, the linear systems local to the
+lambda. The same source serves the CPU cores, built whenever the
+compiler offers a backend (nvc++, or libstdc++ with oneTBB), and a GPU
+through `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` and the offload flags of
+the compiler; the device targets carry a `_gpu` suffix.
 
-They also run on the parallel STL, in `stdpar/`: one source per
-problem, `std::for_each` with the `par_unseq` policy over the system
-indices, the linear systems local to the lambda. The same source
-serves the CPU cores, built whenever the compiler offers a backend
-(nvc++, or libstdc++ with oneTBB), and a GPU through
-`TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` and the offload flags of the
-compiler: `implicit_ode_batch_stdpar`,
-`integral_equation_batch_stdpar` and `norton_law_batch_stdpar`, the
-device targets carrying a `_gpu` suffix.
+The SYCL examples are single-source `parallel_for` kernels, one
+work-item per system, the solver operands in the private memory of
+each work-item. They are opt-in through `TDLS_BUILD_SYCL_EXAMPLES`,
+need no device to build, and run on whatever device the default
+selector picks, an Intel GPU under oneAPI included; without a SYCL
+device they report themselves skipped.
 
 ## The compile-time family
 

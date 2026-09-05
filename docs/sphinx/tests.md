@@ -1,10 +1,9 @@
 # Tests
 
 The test tree is split into separated spaces, each tagged with a ctest
-label so they run independently: `solvers` validates the library
-itself, `examples` runs the self-checking examples (see
-{doc}`examples`), and `benchmarks` will validate the benchmark harness
-once that part exists.
+label so they run independently: `common` validates the shared test
+infrastructure, `solvers` validates the library itself and `examples`
+runs the self-checking examples (see {doc}`examples`).
 
 ```sh
 cmake --build build --target buildtests
@@ -41,7 +40,8 @@ localizes a divergence exactly.
 
 | Suite | What it locks |
 |---|---|
-| `oracle_static`, `oracle_dynamic` | backward error of every entry point against the naive LU, on the boundary-crossing dimension grid |
+| `backward_error` (label `common`) | the metric every anchor rests on: the exact solution sits at the noise floor, wrong and non-finite solutions are flagged |
+| `oracle_static`, `oracle_dynamic` | backward error of `solve` against the naive LU, on the boundary-crossing dimension grid, in float, double and long double |
 | `static_vs_dynamic` | bitwise equality of the two variants |
 | `residencies` | every residency combination reproduces the anchored path bitwise |
 | `layouts` | AoS, SoA and AoSoA addressing, bitwise |
@@ -60,14 +60,13 @@ localizes a divergence exactly.
 
 The `reject_*` entries deserve a word: they compile, on purpose,
 translation units that must be rejected by the compile-time contracts
-(threshold ordering and positivity, const-ness of the adaptor
-arguments, the match between the config scalar and the matrix scalar,
-the row-major addressing contract of the adaptors, and the extent
-coherence of fixed-size operands, pivots included). Each test
-passes only when the compiler emits the exact diagnostic of its
-contract, so a silently dropped contract turns the suite red. The
-scalar type of the thresholds needs no test anymore: the configuration
-members carry it by construction.
+(threshold ordering and positivity, the dense contract of the matrix
+argument, const-ness of the adaptor arguments, the match between the
+config scalar and the matrix scalar, the row-major addressing contract
+of the adaptors, and the extent coherence of fixed-size operands,
+pivots included). Each test passes only when the compiler emits the
+exact diagnostic of its contract, so a silently dropped contract turns
+the suite red.
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in

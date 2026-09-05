@@ -33,13 +33,13 @@
 /// Offsets are computed in 32-bit arithmetic: the flat element index
 /// (for the matrix, N*N) must stay below 2^31 and the largest element
 /// offset of every array (for the matrix, (N*N-1)*A_stride) below
-/// 2^32. Each
-/// of the three arrays has an *internal* residency mode (plain
-/// caller-local array, stride ignored) selected by the `internal_rhs` /
-/// `internal_piv` / `internal_matrix` template booleans. The
-/// ternary on a constexpr bool costs nothing. The single form
-/// `base[e*stride]` covers every batched layout without touching the
-/// solver: AoS (stride 1), SoA (stride = batch size), AoSoA (stride = W).
+/// 2^32. Each of the three arrays has an *internal* residency mode
+/// (plain caller-local array, stride ignored) selected by the
+/// `internal_rhs` / `internal_piv` / `internal_matrix` template
+/// booleans. The ternary on a constexpr bool costs nothing. The single
+/// form `base[e*stride]` covers every batched layout without touching
+/// the solver: AoS (stride 1), SoA (stride = batch size), AoSoA
+/// (stride = W).
 ///
 /// **Tile grid.** F = N/TS full tiles per dimension, plus one trailing
 /// tile of extent TAIL = N - F*TS when N is not a multiple of TS; TS may
@@ -161,11 +161,12 @@ namespace tdls {
 ///   - substitute_canonical:  idem with b = e_col (tangent-operator columns)
 ///   - substitute_inplace:    idem with b == x (cycle-decomposition permute)
 ///   - solve:                 factorize + substitute
-///   - solve_inplace:           factorize with the forward pass folded in
+///   - solve_inplace:         factorize with the forward pass folded in
 ///
 /// Each substitution and solve entry point has a _multirhs twin taking
 /// nrhs right-hand-side columns per call (substitute_multirhs,
-/// substitute_inplace_multirhs, solve_multirhs, solve_inplace_multirhs).
+/// substitute_canonical_multirhs, substitute_inplace_multirhs,
+/// solve_multirhs, solve_inplace_multirhs).
 /// The columns are solved in passes of pass_width columns (0 = one
 /// single pass); every L/U tile is loaded once per pass, and per-column
 /// results match nrhs single-column calls bitwise whatever the cutting.
@@ -227,7 +228,7 @@ struct TiledLUppSolverStatic {
        `load/store_tile` go through a cached physical-row segment (the RL
        schedule keeps one per tile); `load/store_tile_piv` read the
        permutation inline, once per row (LL schedule and the substitution
-       do this - it adds no integer registers).
+       do this; it adds no integer registers).
        ===================================================================== */
 
     /// \brief Load an RxC tile through a cached physical-row segment.
@@ -431,10 +432,10 @@ struct TiledLUppSolverStatic {
        Diagonal-tile factorization with out-of-tile pivoting.
        Shared by both schedules; the only schedule-dependent part is the
        replay a candidate row needs before it can be compared:
-         RL - the trailing matrix is already Schur-updated, so a candidate
-              only misses the current tile's columns t < c.
-         LL - rows below additionally miss every prior tile's L*U
-              contribution (columns [0, k0)), replayed term by term.
+         RL: the trailing matrix is already Schur-updated, so a candidate
+             only misses the current tile's columns t < c.
+         LL: rows below additionally miss every prior tile's L*U
+             contribution (columns [0, k0)), replayed term by term.
        ===================================================================== */
 
     /// \brief One column step of the diagonal-tile factorization: pivot
@@ -1151,8 +1152,8 @@ struct TiledLUppSolverStatic {
     ///         substitution of y into the factorization
     /// \tparam internal_rhs residency of the fused y (meaningful with
     ///         fuse_rhs only)
-    /// \param[out]    oot_count  number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count  number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \param[in,out] y          fused right-hand side (fuse_rhs only)
     /// \param[in]     rhs_stride element stride of y (external mode)
     /// \return false on a singular matrix.
@@ -2056,8 +2057,8 @@ struct TiledLUppSolverStatic {
     /// \param[in]     b          right-hand side, in original order
     /// \param[out]    x          solution
     /// \param[in]     rhs_stride element stride of b and x (external mode)
-    /// \param[out]    oot_count  number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count  number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix.
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              bool oot_diagnostics = true>
@@ -2118,8 +2119,8 @@ struct TiledLUppSolverStatic {
     /// \param[in]     rhs_stride  element stride of b and x (external mode)
     /// \param[in]     xcol_stride element stride between columns of b and
     ///                x (external mode)
-    /// \param[out]    oot_count   number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count   number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix.
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
              int pass_width = 0, bool oot_diagnostics = true>
@@ -2189,8 +2190,8 @@ struct TiledLUppSolverStatic {
     /// \param[in]     piv_stride element stride of piv (external mode)
     /// \param[in,out] y          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of y (external mode)
-    /// \param[out]    oot_count  number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count  number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix (y left partially updated).
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              bool oot_diagnostics = true>
@@ -2256,8 +2257,8 @@ struct TiledLUppSolverStatic {
     /// \param[in]     rhs_stride  element stride of y (external mode)
     /// \param[in]     xcol_stride element stride between columns of y
     ///                (external mode)
-    /// \param[out]    oot_count   number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count   number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix (y left untouched).
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
              int pass_width = 0, bool oot_diagnostics = true>
@@ -2308,7 +2309,7 @@ struct TiledLUppSolverStatic {
 
     /* =====================================================================
        Note on pivot ownership: the pivot storage is ALWAYS caller-provided
-       (internal array or remote scratch), for every entry point - one
+       (internal array or remote scratch), for every entry point: one
        uniform calling convention. A solver-internal pivot would only be
        expressible for the single combination {solve/solve_inplace x internal
        pivot}; externalizing it there costs nothing (the caller's int

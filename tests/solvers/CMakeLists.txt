@@ -56,12 +56,11 @@ endforeach()
 # Negative compilation tests of the compile-time contracts: each
 # target must fail to build with its contract diagnostic. ctest
 # builds them on demand and passes only when the diagnostic appears,
-# so a contract silently dropped turns these tests red. The scalar
-# type of the thresholds needs no test anymore: the configuration
-# members carry the scalar type by construction.
+# so a contract silently dropped turns these tests red.
 set(TDLS_TILEDLUPP_REJECT_CASES
     reject_config_floor_above_threshold
     reject_config_zero_floor
+    reject_adaptors_gather_view
     reject_adaptors_const_matrix
     reject_adaptors_const_pivot
     reject_adaptors_config_scalar_mismatch
@@ -72,6 +71,7 @@ set(TDLS_TILEDLUPP_REJECT_CASES
 set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
     "singular_floor must not exceed oot_threshold"
     "singular_floor must be positive"
+    "A must be a dense object"
     "A must not be const here"
     "the pivot must be mutable here"
     "the config scalar type must match the matrix element type"

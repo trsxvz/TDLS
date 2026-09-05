@@ -51,8 +51,8 @@ struct TiledLUppConfig {
 
     /// Tile extent: the matrix is processed as a grid of tile_size x
     /// tile_size register tiles. This is the main performance axis of the
-    /// solvers. Tune it per system dimension (measured optima in the
-    /// source project: 3, 4 or 6 depending on N). Both TiledLUpp solvers only
+    /// solvers. Tune it per system dimension (measured optima in tfelGPU,
+    /// the source project: 3, 4 or 6 depending on N). Both TiledLUpp solvers only
     /// require tile_size >= 1. The tile size may exceed the dimension (the
     /// grid is then a single partial tile), and tile_size = 1 degenerates
     /// into an untiled scalar elimination.
@@ -74,9 +74,10 @@ struct TiledLUppConfig {
     StructuralReal<T> oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
 
     /// Singularity floor: the factorization is declared singular when even
-    /// the best candidate of the out-of-tile recovery stays below it. The
-    /// floor only guards the recovery path (a pivot reaching oot_threshold
-    /// is accepted directly), so it must not exceed oot_threshold, and it
+    /// the best candidate of the out-of-tile recovery stays below it, or
+    /// when the best pivot of a trailing tile does. The floor only guards
+    /// the pivots below oot_threshold (a pivot reaching it is accepted
+    /// directly), so it must not exceed oot_threshold, and it
     /// must be positive, a zero floor letting a zero pivot through; the
     /// solvers enforce both contracts at compile time. `numeric_limits<T>::min()`
     /// rejects only a zero/subnormal pivot, a genuine structural

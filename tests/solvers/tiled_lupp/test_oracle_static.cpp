@@ -6,15 +6,15 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 ///
-/// TiledLUppSolverStatic is compared against the independent reference LU
-/// (tests/common/reference_lu.hpp) on a grid of shapes covering the
-/// structural boundaries of the algorithm: minimal N, trailing tiles,
-/// the 32/33 mask boundary of substitute_inplace, TS = N, and large N
-/// exercising the cycle-leader path. Both schedules, both scalar types
-/// and both input regimes (default +-0.5 and out-of-tile stress +-5e-10)
-/// are covered. The verdict of every case is the normwise backward error
-/// of both solvers, plus the exact agreement of the singularity verdicts
-/// (one structurally singular system is injected in every batch).
+/// TiledLUppSolverStatic::solve is compared against the independent
+/// reference LU (tests/common/reference_lu.hpp) on a grid of shapes
+/// covering the structural boundaries of the factorization: minimal N,
+/// trailing tiles, TS = N, and dimensions up to 128. Both schedules,
+/// the three scalar types and both input regimes (default +-0.5 and
+/// out-of-tile stress +-5e-10) are covered. The verdict of every case
+/// is the normwise backward error of both solvers, plus the exact
+/// agreement of the singularity verdicts (one structurally singular
+/// system is injected in every batch).
 
 #include <algorithm>
 #include <cstdint>

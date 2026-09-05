@@ -5,8 +5,9 @@
 Only a C++20 compiler is mandatory: the library itself has no
 dependency. The oldest releases known to compile the headers are GCC
 10, Clang 12, Visual Studio 2019 16.11, CUDA 12.0 and ROCm 5.3.
-Running every example additionally needs an OpenMP runtime, a CUDA or
-HIP toolchain, a SYCL compiler and a parallel STL offload compiler.
+Running every example additionally needs an OpenMP runtime, oneTBB or
+nvc++ for the parallel STL on the CPU cores, a CUDA or HIP toolchain, a
+SYCL compiler and a parallel STL offload compiler.
 
 ## Consuming the library
 
@@ -64,6 +65,9 @@ ctest --test-dir build -L examples   # rerun the self-checking examples
 
 Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
+In the Release configuration the test suites compile at `-O1`, which
+keeps the fully unrolled solver templates fast to build;
+`TDLS_TESTS_OPTIMIZATION` changes that flag.
 
 The OpenMP examples build when an OpenMP runtime is found, the
 parallel STL examples when the compiler offers a backend (nvc++, or
@@ -95,3 +99,7 @@ host code elsewhere. Single-source models (SYCL, stdpar, OpenMP
 target, Kokkos through its backend compiler) need no decoration at
 all. Every macro is `#ifndef`-guarded, so any of them can be
 overridden from the command line without editing the headers.
+
+Every entry point is also `constexpr` and `noexcept`: a solve on
+caller-local arrays can run during constant evaluation. The test suite
+uses this as a certificate against undefined behaviour.

@@ -47,9 +47,13 @@ shapes are rejected at compile time with an explicit message:
 convention: a configuration selecting the column-major layout is
 rejected at compile time.
 
-The out-of-tile counter of the raw interface is available here too:
-`factorize`, `solve` and `solve_inplace` take an optional trailing
-`int&`.
+The six operations of the raw interface keep their names: `factorize`,
+`solve`, `solve_inplace`, `substitute`, `substitute_inplace` and
+`substitute_canonical`. The pivot is an `int` pointer or array, or a
+dense `int` object. The factorizing entry points return `false` on a
+singular matrix, as in the raw interface. The out-of-tile counter is
+available here too: `factorize`, `solve` and `solve_inplace` take an
+optional trailing `int&`.
 
 For other types the detection can be overridden by specializing
 `tdls::storage_traits`.
@@ -70,7 +74,7 @@ Plain `TFEL` objects, then `TFEL` strided-coalesced views, in action:
 tfel::math::tmatrix<12, 12, double> A = ...;
 tfel::math::tvector<12, double> y = ...; // right-hand side, overwritten
 tfel::math::tvector<12, int> piv;
-tdls::solve_inplace(A, piv, y);
+bool ok = tdls::solve_inplace(A, piv, y); // false on a singular matrix
 
 // Strided SoA views: system number s of a batch of `stride`
 // interleaved systems, mapped with tfel::math::map_strided. The
@@ -81,7 +85,7 @@ tdls::solve_inplace(A, piv, y);
 // declared above: placements mix freely.
 auto As = tfel::math::map_strided<tfel::math::tmatrix<12, 12, double>>(a_base + s, stride);
 auto ys = tfel::math::map_strided<tfel::math::tvector<12, double>>(y_base + s, stride);
-tdls::solve_inplace(As, piv, ys);
+ok = tdls::solve_inplace(As, piv, ys);
 
 // Runtime-sized TFEL objects: the same call, resolved on the runtime
 // TiledLUpp solver, the dimension read from the objects. The extent
@@ -90,7 +94,7 @@ tdls::solve_inplace(As, piv, ys);
 tfel::math::matrix<double> Ar(n, n);
 tfel::math::vector<double> yr(n);
 tfel::math::vector<int> pivr(n);
-tdls::solve_inplace(Ar, pivr, yr);
+ok = tdls::solve_inplace(Ar, pivr, yr);
 
 // A matrix as right-hand side: one system per column, all solved
 // against a single factorization (A X = B). Works with fixed-size and
@@ -98,14 +102,14 @@ tdls::solve_inplace(Ar, pivr, yr);
 tfel::math::tmatrix<12, 12, double> A2 = ...;
 tfel::math::tmatrix<12, 4, double> B = ...;
 tfel::math::tmatrix<12, 4, double> X;
-tdls::solve(A2, piv, B, X);
+ok = tdls::solve(A2, piv, B, X);
 
 // By default all columns are solved in one pass: every tile of the
 // factorization is loaded once for all the columns. The template
 // parameter pass_width cuts the substitution into passes instead, the
 // last pass taking the remainder: a working-set control knob for very
 // wide right-hand sides. Here, passes of 2 columns.
-tdls::solve<2>(A2, piv, B, X);
+ok = tdls::solve<2>(A2, piv, B, X);
 
 // The consistent tangent operator of a constitutive law needs columns
 // of the inverse jacobian. substitute_canonical with a matrix-like x

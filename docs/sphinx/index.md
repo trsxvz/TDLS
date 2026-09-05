@@ -75,16 +75,20 @@ using DynamicSolver = tdls::TiledLUppSolverDynamic<double, config>;
 // - split: factorize once, then one substitute call per right-hand
 //   side, reusing the factorization;
 // - one-call: solve (two buffers) or solve_inplace (single buffer).
+// substitute_canonical solves A x = e_col from the factorization: the
+// columns of the inverse that a consistent tangent operator needs.
 // Each substitution and solve entry point also has a _multirhs twin
 // taking several right-hand-side columns per call (A X = B), every
 // tile loaded once for the whole block.
 
 // Static variant, split interface, contiguous storage (stride 1).
-// substitute reads b and writes x; substitute_inplace overwrites its
-// single buffer y instead.
-StaticSolver::factorize<true, true>(M, 1, piv, 1);
+// factorize returns false on a singular matrix. substitute reads b
+// and writes x; substitute_inplace overwrites its single buffer y
+// instead; substitute_canonical writes the solution of A x = e_col.
+const bool factored = StaticSolver::factorize<true, true>(M, 1, piv, 1);
 StaticSolver::substitute<true, true, true>(M, 1, piv, 1, b, x, 1);
 StaticSolver::substitute_inplace<true, true, true>(M, 1, piv, 1, y, 1);
+StaticSolver::substitute_canonical<true, true, true>(M, 1, piv, 1, col, x, 1);
 
 // Runtime variant, one-call interface, on a structure-of-arrays batch
 // of interleaved systems: element k of the system number s sits at
@@ -93,14 +97,34 @@ StaticSolver::substitute_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 // mixed freely, one stride per operand. solve reads b and writes x;
 // solve_inplace overwrites its single buffer y and folds the forward
 // pass into the factorization.
-DynamicSolver::solve_inplace(matrixSize, A + s, stride, piv, 1, y + s, stride);
+const bool solved =
+    DynamicSolver::solve_inplace(matrixSize, A + s, stride, piv, 1, y + s, stride);
 ```
+
+## Conventions
+
+The scalar type `T` is `float`, `double` or `long double`.
+
+The factorizing entry points (`factorize`, `solve`, `solve_inplace`,
+`solve_multirhs` and `solve_inplace_multirhs`) return `false` on a
+singular matrix, when no pivot reaches `singular_floor`. The return
+value is `[[nodiscard]]`. The substitutions return nothing: they
+cannot fail on a factorization that succeeded.
+
+The factored matrix holds L and U in place. Its diagonal holds the
+reciprocals of the pivots, not the pivots, which differs from the
+LAPACK `getrf` format. A factorization produced by TDLS is consumed by
+the substitutions of TDLS.
+
+Offsets are computed in 32-bit arithmetic. The flat element index of
+an object (N*N for a matrix) must stay below 2^31, and every element
+offset, index times stride, below 2^32.
 
 ## Diagnostics
 
-Every factorizing entry point (`factorize`, `solve`, `solve_inplace`
-and their `_multirhs` twins) has an overload taking a trailing
-`int& oot_count` argument. It counts the columns whose best in-tile
+Every factorizing entry point (`factorize`, `solve`, `solve_inplace`,
+`solve_multirhs` and `solve_inplace_multirhs`) has an overload taking a
+trailing `int& oot_count` argument. It counts the columns whose best in-tile
 pivot fell below `oot_threshold`, because this is what triggers the
 out-of-tile pivot search. Without the argument, the diagnostic is
 compiled out entirely and costs nothing. The adaptors expose the same
@@ -114,7 +138,7 @@ int piv[9];
 int oot_count;
 
 // Factorization of the matrix M with out-of-tile diagnostics enabled
-StaticSolver::factorize<true, true>(M, 1, piv, 1, oot_count);
+const bool factored = StaticSolver::factorize<true, true>(M, 1, piv, 1, oot_count);
 
 // Post-processing
 if (oot_count == 0) {

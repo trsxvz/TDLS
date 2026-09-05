@@ -3,8 +3,7 @@
 # tests/common validates the shared test infrastructure ("common");
 # tests/solvers validates the library itself ("solvers"); the examples
 # register themselves as self-checking tests from examples/
-# ("examples"); tests/benchmarks will validate the benchmark harness
-# once that part exists.
+# ("examples").
 
 # Optimization flag of the test suites in the Release configuration.
 # The suites are correctness tests whose checks do not depend on the
@@ -16,7 +15,7 @@ set(TDLS_TESTS_OPTIMIZATION "-O1" CACHE STRING
     "Optimization flag of the test suites in the Release configuration")
 # Clang >=22 flags the harness's __COUNTER__ (unique test-case ids) under
 # -Wc2y-extensions, which the tests' -Werror turns fatal. Suppress just
-# that diagnostic - but only where the compiler recognises the flag: older
+# that diagnostic, but only where the compiler recognises the flag: older
 # Clang and GCC reject the unknown option under -Werror. Probing with
 # -Werror makes the check fail (rather than silently pass) when it is absent.
 include(CheckCXXCompilerFlag)

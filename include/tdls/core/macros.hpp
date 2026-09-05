@@ -89,8 +89,9 @@
 /// Dialect only: which loops carry it is a compile-time Config knob of each
 /// solver, applied through a two-branch `if constexpr` whose no-unroll
 /// branch carries no pragma at all. The GCC dialect needs an explicit
-/// bound; 64 covers every annotated loop (all bounded by the tile size or
-/// by the system dimension).
+/// unrolling factor. 64 fully unrolls the loops bounded by the tile size
+/// and those bounded by a system dimension up to 64; beyond, GCC unrolls
+/// them partially.
 
 #ifndef TDLS_UNROLL_FORCE
 #if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__) ||          \

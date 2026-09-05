@@ -371,11 +371,31 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
 
 namespace detail {
 
+/// \brief Detects a complete storage_traits: the structural contract or
+/// a user specialization.
+template<typename T, typename = void>
+struct has_storage_traits : std::false_type {};
+template<typename T>
+struct has_storage_traits<T, std::void_t<typename storage_traits<T>::value_type>> : std::true_type {
+};
+
 /// \brief Scalar type of a dense matrix argument, read from its storage
-/// description.
+/// description; a matrix argument without storage_traits is rejected
+/// here with an explicit message.
 /// \tparam MatrixType dense matrix type
 template<typename MatrixType>
-using matrix_scalar = typename storage_traits<std::remove_cv_t<MatrixType>>::value_type;
+struct matrix_scalar_of {
+    static_assert(has_storage_traits<std::remove_cv_t<MatrixType>>::value,
+                  "tdls adaptors: A must be a dense object exposing data() and an indexing_policy "
+                  "type (a gather view holding one pointer per element is not one)");
+    //! \brief scalar type of the matrix
+    using type = typename storage_traits<std::remove_cv_t<MatrixType>>::value_type;
+};
+
+/// \brief Scalar type of a dense matrix argument, see matrix_scalar_of.
+/// \tparam MatrixType dense matrix type
+template<typename MatrixType>
+using matrix_scalar = typename matrix_scalar_of<MatrixType>::type;
 
 /// \brief Detects the configuration value types accepted by the entry
 /// points. Only the TiledLUpp family exists today; a specialization per
@@ -513,14 +533,6 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_multirhs_pair() {
                   "tdls adaptors: B and X must share the same layout (the raw API "
                   "carries a single stride pair for both)");
 }
-
-/// \brief Detects a complete storage_traits: the structural contract or
-/// a user specialization.
-template<typename T, typename = void>
-struct has_storage_traits : std::false_type {};
-template<typename T>
-struct has_storage_traits<T, std::void_t<typename storage_traits<T>::value_type>> : std::true_type {
-};
 
 /// \brief Pivot argument unwrapping: accepts a raw int pointer/array
 /// (treated as contiguous caller-local storage) or any int object with
@@ -804,13 +816,13 @@ template<typename MatrixType, typename PivotType>
 }
 
 /// \brief Counting overload of factorize: also reports the number of
-/// columns that needed the out-of-tile pivot search.
+/// columns whose best in-tile pivot fell below oot_threshold.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
-/// \param[out]    oot_count number of columns that needed the
-///                out-of-tile pivot search
+/// \param[out]    oot_count number of columns whose best in-tile
+///                pivot fell below oot_threshold
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
@@ -821,8 +833,8 @@ factorize(MatrixType& A, PivotType& piv, int& oot_count) {
 /// \brief Default-configuration counting overload of factorize.
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
-/// \param[out]    oot_count number of columns that needed the
-///                out-of-tile pivot search
+/// \param[out]    oot_count number of columns whose best in-tile
+///                pivot fell below oot_threshold
 /// \return false on a singular matrix.
 template<typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
@@ -872,7 +884,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 }
 
 /// \brief Counting overload of solve: also reports the number of
-/// columns that needed the out-of-tile pivot search.
+/// columns whose best in-tile pivot fell below oot_threshold.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like b
@@ -881,8 +893,8 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[in]     b         right-hand side, in original order
 /// \param[out]    x         solution, of the same shape as b
-/// \param[out]    oot_count number of columns that needed the
-///                out-of-tile pivot search
+/// \param[out]    oot_count number of columns whose best in-tile
+///                pivot fell below oot_threshold
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename RhsType, typename SolutionType>
@@ -898,8 +910,8 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[in]     b         right-hand side, in original order
 /// \param[out]    x         solution, of the same shape as b
-/// \param[out]    oot_count number of columns that needed the
-///                out-of-tile pivot search
+/// \param[out]    oot_count number of columns whose best in-tile
+///                pivot fell below oot_threshold
 /// \return false on a singular matrix.
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
@@ -954,7 +966,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 }
 
 /// \brief Counting overload of solve_inplace: also reports the number
-/// of columns that needed the out-of-tile pivot search.
+/// of columns whose best in-tile pivot fell below oot_threshold.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like y
@@ -962,8 +974,8 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[in,out] y         right-hand side on entry, solution on exit
-/// \param[out]    oot_count number of columns that needed the
-///                out-of-tile pivot search
+/// \param[out]    oot_count number of columns whose best in-tile
+///                pivot fell below oot_threshold
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
@@ -979,8 +991,8 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[in,out] y         right-hand side on entry, solution on exit
-/// \param[out]    oot_count number of columns that needed the
-///                out-of-tile pivot search
+/// \param[out]    oot_count number of columns whose best in-tile
+///                pivot fell below oot_threshold
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename VectorType>

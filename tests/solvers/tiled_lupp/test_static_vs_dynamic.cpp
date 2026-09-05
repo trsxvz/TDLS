@@ -11,9 +11,9 @@
 /// inputs, TiledLUppSolverDynamic and TiledLUppSolverStatic execute the same
 /// arithmetic sequence: the factored matrix, the pivot, the solution and
 /// the out-of-tile counter must be bitwise identical. The bridge runs on
-/// the boundary-covering shape grid so that every structural code path
-/// (trailing tiles, mask widths, cycle-leader, TS = N, TS > N) is
-/// crossed by the equivalence proof.
+/// the boundary-covering shape grid so that the structural code paths of
+/// factorize and substitute (trailing tiles, TS = N, TS > N, the scalar
+/// corner) are crossed by the equivalence proof.
 
 #include <algorithm>
 #include <cstdint>

@@ -5,7 +5,7 @@
 
 /// \file
 /// \brief Independent reference solver and error metric of the test
-/// suites, shared later with the benchmark harness.
+/// suites.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License

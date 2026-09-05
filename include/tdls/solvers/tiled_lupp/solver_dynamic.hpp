@@ -11,14 +11,14 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 ///
-/// Same algorithm as TiledLUppSolverStatic (solver_static.hpp): tiled LU with logical
-/// partial pivoting, out-of-tile recovery, reciprocal-diagonal factored
-/// format, right- and left-looking schedules. The difference is that the
-/// system dimension n
-/// is a runtime function parameter instead of a template parameter. Only
-/// the tile size (Config.tile_size) stays compile-time:
-/// register tiles keep a fixed TSxTS footprint, while all loop bounds
-/// over tiles and inside partial tiles are runtime values.
+/// Same algorithm as TiledLUppSolverStatic (solver_static.hpp): tiled LU
+/// with logical partial pivoting, out-of-tile recovery,
+/// reciprocal-diagonal factored format, right- and left-looking
+/// schedules. The difference is that the system dimension n is a
+/// runtime function parameter instead of a template parameter. Only the
+/// tile size (Config.tile_size) stays compile-time: register tiles keep
+/// a fixed TSxTS footprint, while all loop bounds over tiles and inside
+/// partial tiles are runtime values.
 ///
 /// Deliberate differences with the compile-time solver:
 ///   - No unroll pragma anywhere: with runtime bounds nothing can be
@@ -128,13 +128,14 @@ namespace tdls {
 ///   - factorize:             A := P*L*U in place, pivots out (RL or LL)
 ///   - substitute:            x := U^-1 L^-1 P b (b and x distinct)
 ///   - substitute_canonical:  idem with b = e_col (tangent-operator columns)
-///   - substitute_inplace:    idem with b == x (cycle-leader permute)
+///   - substitute_inplace:    idem with b == x (cycle-decomposition permute)
 ///   - solve:                 factorize + substitute
-///   - solve_inplace:           factorize with the forward pass folded in
+///   - solve_inplace:         factorize with the forward pass folded in
 ///
 /// Each substitution and solve entry point has a _multirhs twin taking
 /// nrhs right-hand-side columns per call (substitute_multirhs,
-/// substitute_inplace_multirhs, solve_multirhs, solve_inplace_multirhs).
+/// substitute_canonical_multirhs, substitute_inplace_multirhs,
+/// solve_multirhs, solve_inplace_multirhs).
 /// The columns are solved in passes of pass_width columns (0 = one
 /// single pass); every L/U tile is loaded once per pass, and per-column
 /// results match nrhs single-column calls bitwise whatever the cutting.
@@ -951,8 +952,8 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     A_stride   element stride of A
     /// \param[out]    piv        permutation storage (always caller-provided)
     /// \param[in]     piv_stride element stride of piv
-    /// \param[out]    oot_count  number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count  number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \param[in,out] y          fused right-hand side (fuse_rhs only)
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
@@ -1546,8 +1547,8 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     b          right-hand side, in original order
     /// \param[out]    x          solution
     /// \param[in]     rhs_stride element stride of b and x
-    /// \param[out]    oot_count  number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count  number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix.
     template<bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
@@ -1598,8 +1599,8 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    x           nrhs solution columns
     /// \param[in]     rhs_stride  element stride of b and x
     /// \param[in]     xcol_stride element stride between columns of b and x
-    /// \param[out]    oot_count   number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count   number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix.
     template<int pass_width = 0, bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
@@ -1660,8 +1661,8 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     piv_stride element stride of piv
     /// \param[in,out] y          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of y
-    /// \param[out]    oot_count  number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count  number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix (y left partially updated).
     template<bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
@@ -1718,8 +1719,8 @@ struct TiledLUppSolverDynamic {
     ///                nrhs solution columns on exit
     /// \param[in]     rhs_stride  element stride of y
     /// \param[in]     xcol_stride element stride between columns of y
-    /// \param[out]    oot_count   number of columns that needed the
-    ///                out-of-tile pivot search
+    /// \param[out]    oot_count   number of columns whose best in-tile
+    ///                pivot fell below oot_threshold
     /// \return false on a singular matrix (y left untouched).
     template<int pass_width = 0, bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool

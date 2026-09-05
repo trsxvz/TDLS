@@ -9,8 +9,8 @@ its version, and a minimal reproducer when possible.
 ## Proposing changes
 
 Contributions are welcome through pull requests. Before submitting,
-format the code with the repository `.clang-format` and make sure the
-test suite passes:
+format the code with the repository `.clang-format` (the CI runs
+clang-format 22) and make sure the test suite passes:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

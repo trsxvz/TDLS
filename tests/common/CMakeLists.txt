@@ -1,8 +1,8 @@
 # Tests of the shared test infrastructure itself (this directory): the
 # reference solver and the backward-error metric that every solver suite
 # anchors its accuracy claim on. Tagged "common". These translation
-# units use only the homemade harness - they do not include the library
-# - so they stay cheap to compile.
+# units use only the homemade harness, not the library, so they stay
+# cheap to compile.
 add_executable(tdls_test_common_backward_error EXCLUDE_FROM_ALL backward_error.cpp)
 add_dependencies(buildtests tdls_test_common_backward_error)
 target_include_directories(tdls_test_common_backward_error PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
