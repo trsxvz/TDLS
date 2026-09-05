@@ -61,20 +61,24 @@ endforeach()
 # members carry the scalar type by construction.
 set(TDLS_TILEDLUPP_REJECT_CASES
     reject_config_floor_above_threshold
+    reject_config_zero_floor
     reject_adaptors_const_matrix
     reject_adaptors_const_pivot
     reject_adaptors_config_scalar_mismatch
     reject_adaptors_colmajor_config
     reject_adaptors_rhs_extent_mismatch
-    reject_adaptors_multirhs_extent_mismatch)
+    reject_adaptors_multirhs_extent_mismatch
+    reject_adaptors_pivot_extent_mismatch)
 set(TDLS_TILEDLUPP_REJECT_DIAGNOSTICS
     "singular_floor must not exceed oot_threshold"
+    "singular_floor must be positive"
     "A must not be const here"
     "the pivot must be mutable here"
     "the config scalar type must match the matrix element type"
     "dense objects are addressed row-major"
     "b and x extents do not match"
-    "B and X must have N rows and the same column count")
+    "B and X must have N rows and the same column count"
+    "pivot extent does not match the system dimension")
 
 foreach(case diagnostic IN ZIP_LISTS TDLS_TILEDLUPP_REJECT_CASES
                                      TDLS_TILEDLUPP_REJECT_DIAGNOSTICS)

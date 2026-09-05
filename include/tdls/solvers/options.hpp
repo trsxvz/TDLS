@@ -19,8 +19,10 @@
 /// The families also share one calling convention. Every operand is a
 /// raw pointer pre-offset by the caller plus one runtime element
 /// stride, which covers the AoS, SoA and AoSoA batch layouts alike.
-/// Offsets are computed in unsigned 32-bit arithmetic and must stay
-/// below 2^32. Residency template booleans, where a solver offers
+/// Offsets are computed in 32-bit arithmetic: the flat element index
+/// of an object (N*N for a matrix) must stay below 2^31 and every
+/// element offset, index times stride, below 2^32. Residency template
+/// booleans, where a solver offers
 /// them, describe what the passed buffers are and carry no default.
 /// Factorizing entry points come in counting and diagnostics-free
 /// overloads, the latter compiling the diagnostics out entirely.

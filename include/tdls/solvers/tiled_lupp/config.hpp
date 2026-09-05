@@ -65,7 +65,8 @@ struct TiledLUppConfig {
     /// thresholds carry the scalar type T by construction, stored
     /// exactly as tdls::StructuralReal values so that the configuration
     /// stays a template argument everywhere; write them as plain T
-    /// values, the conversions are implicit. An in-tile
+    /// values, the conversions are implicit (a long double value must
+    /// fit a 63-bit odd mantissa, as every double literal does). An in-tile
     /// pivot candidate whose magnitude reaches this value is accepted
     /// without looking outside the tile; below it, the search extends to
     /// the rows under the tile (out-of-tile pivoting) and the best
@@ -75,8 +76,9 @@ struct TiledLUppConfig {
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it. The
     /// floor only guards the recovery path (a pivot reaching oot_threshold
-    /// is accepted directly), so it must not exceed oot_threshold; the
-    /// solvers enforce this contract at compile time. `numeric_limits<T>::min()`
+    /// is accepted directly), so it must not exceed oot_threshold, and it
+    /// must be positive, a zero floor letting a zero pivot through; the
+    /// solvers enforce both contracts at compile time. `numeric_limits<T>::min()`
     /// rejects only a zero/subnormal pivot, a genuine structural
     /// singularity. A merely small pivot is kept on purpose: the loss of
     /// stability is surfaced by the backward error and overflow is caught

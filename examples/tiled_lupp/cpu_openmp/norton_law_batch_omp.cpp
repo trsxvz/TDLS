@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < points; ++i) {
         double eel[stensor_size] = {};
         double p_i               = 0;
-        double sig_i[stensor_size], Dt_i[stensor_size * stensor_size];
+        double sig_i[stensor_size], Dt_i[stensor_size * stensor_size] = {};
         double J[N * N], r[N];
         int piv[N];
         double deto[stensor_size];

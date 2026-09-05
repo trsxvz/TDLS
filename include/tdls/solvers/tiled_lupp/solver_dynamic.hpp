@@ -45,9 +45,10 @@
 /// for column-major storage, resolved at compile time.
 ///
 /// Preconditions: n >= 1. TS may exceed n (the grid is then a single
-/// partial tile). Offsets are computed in unsigned 32-bit arithmetic:
-/// the largest element offset of every array (for the matrix,
-/// (n*n-1)*A_stride) must stay below 2^32.
+/// partial tile). Offsets are computed in 32-bit arithmetic: the flat
+/// element index (for the matrix, n*n) must stay below 2^31 and the
+/// largest element offset of every array (for the matrix,
+/// (n*n-1)*A_stride) below 2^32.
 
 
 
@@ -166,8 +167,11 @@ struct TiledLUppSolverDynamic {
     /// from the configuration (see TiledLUppConfig::singular_floor).
     static constexpr T singular_floor = Config.singular_floor;
 
-    static_assert(Config.oot_threshold.is_finite() && Config.singular_floor.is_finite(),
-                  "TiledLUppSolverDynamic: oot_threshold and singular_floor must be finite");
+    static_assert(
+        Config.oot_threshold.is_finite() && Config.singular_floor.is_finite(),
+        "TiledLUppSolverDynamic: oot_threshold and singular_floor must be finite (and fit a "
+        "63-bit mantissa)");
+    static_assert(singular_floor > T(0), "TiledLUppSolverDynamic: singular_floor must be positive");
     static_assert(singular_floor <= oot_threshold,
                   "TiledLUppSolverDynamic: singular_floor must not exceed oot_threshold (the "
                   "floor applies to the out-of-tile recovery path)");

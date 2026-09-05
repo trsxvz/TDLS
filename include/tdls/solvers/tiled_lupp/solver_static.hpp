@@ -30,9 +30,10 @@
 /// index to `((c)*N+(r))` for column-major storage, resolved at
 /// compile time and with bitwise-identical results. The pivot array
 /// and the right-hand sides follow the same convention.
-/// Offsets are computed in unsigned 32-bit arithmetic: the largest
-/// element offset of every array (for the matrix, (N*N-1)*A_stride)
-/// must stay below 2^32. Each
+/// Offsets are computed in 32-bit arithmetic: the flat element index
+/// (for the matrix, N*N) must stay below 2^31 and the largest element
+/// offset of every array (for the matrix, (N*N-1)*A_stride) below
+/// 2^32. Each
 /// of the three arrays has an *internal* residency mode (plain
 /// caller-local array, stride ignored) selected by the `internal_rhs` /
 /// `internal_piv` / `internal_matrix` template booleans. The
@@ -205,8 +206,11 @@ struct TiledLUppSolverStatic {
     static constexpr T singular_floor = Config.singular_floor;
 
     static_assert(N >= 1, "TiledLUppSolverStatic: N must be >= 1");
-    static_assert(Config.oot_threshold.is_finite() && Config.singular_floor.is_finite(),
-                  "TiledLUppSolverStatic: oot_threshold and singular_floor must be finite");
+    static_assert(
+        Config.oot_threshold.is_finite() && Config.singular_floor.is_finite(),
+        "TiledLUppSolverStatic: oot_threshold and singular_floor must be finite (and fit a "
+        "63-bit mantissa)");
+    static_assert(singular_floor > T(0), "TiledLUppSolverStatic: singular_floor must be positive");
     static_assert(singular_floor <= oot_threshold,
                   "TiledLUppSolverStatic: singular_floor must not exceed oot_threshold (the "
                   "floor applies to the out-of-tile recovery path)");

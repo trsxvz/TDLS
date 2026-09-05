@@ -50,16 +50,18 @@ namespace tdls {
 ///
 /// Built implicitly from a value of the scalar type and converted back
 /// implicitly, so a designated initializer such as
-/// `.oot_threshold = 1e-10` needs no wrapper. Only finite values are
-/// meaningful: a NaN or an infinity is stored as a sentinel that
-/// is_finite() reports, and the solvers reject at compile time.
+/// `.oot_threshold = 1e-10` needs no wrapper. Only finite values whose
+/// odd mantissa fits 63 bits are representable: every float and double,
+/// and the long double values built from double literals. A NaN, an
+/// infinity or a wider long double mantissa is stored as a sentinel
+/// that is_finite() reports, and the solvers reject at compile time.
 ///
 /// The member-wise constructor exists for the CUDA toolchain: when nvcc
 /// re-emits a translation unit for the host compiler, it spells every
 /// class-type template argument as a brace list of its members, nested
 /// classes included, so `{mantissa, exponent}` must be an accepted
 /// initialization of this type.
-/// \tparam T scalar type (float or double)
+/// \tparam T scalar type (float, double or long double)
 template<typename T>
 struct StructuralReal {
 
@@ -115,6 +117,12 @@ struct StructuralReal {
             ++e;
         }
         while (T(static_cast<long long>(a)) != a) {
+            // A mantissa wider than 63 bits (long double): the sentinel.
+            if (a >= big || a <= -big) {
+                mantissa = 0;
+                exponent = 1;
+                return;
+            }
             a *= T(2);
             --e;
         }
@@ -127,9 +135,10 @@ struct StructuralReal {
         exponent = e;
     }
 
-    /// \brief Whether the stored value is finite (a NaN or an infinity
-    /// given to the constructor is stored as a sentinel instead).
-    /// \return true for every finite value, zero included
+    /// \brief Whether the stored value is representable (a NaN, an
+    /// infinity or a mantissa wider than 63 bits given to the constructor
+    /// is stored as a sentinel instead).
+    /// \return true for every representable value, zero included
     [[nodiscard]] TDLS_HOST_DEVICE constexpr bool is_finite() const noexcept {
         return !(mantissa == 0 && exponent != 0);
     }

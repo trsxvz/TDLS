@@ -60,10 +60,10 @@ localizes a divergence exactly.
 
 The `reject_*` entries deserve a word: they compile, on purpose,
 translation units that must be rejected by the compile-time contracts
-(threshold ordering, const-ness of the adaptor arguments, the match
-between the config scalar and the matrix scalar, the row-major
-addressing contract of the adaptors, and the extent coherence of
-fixed-size operand pairs). Each test
+(threshold ordering and positivity, const-ness of the adaptor
+arguments, the match between the config scalar and the matrix scalar,
+the row-major addressing contract of the adaptors, and the extent
+coherence of fixed-size operands, pivots included). Each test
 passes only when the compiler emits the exact diagnostic of its
 contract, so a silently dropped contract turns the suite red. The
 scalar type of the thresholds needs no test anymore: the configuration

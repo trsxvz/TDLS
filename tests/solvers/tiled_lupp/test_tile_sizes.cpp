@@ -44,6 +44,7 @@ void tile_size_case(const int count, const double bound, const double tolerance,
     const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     double be_max = 0.0;
+    int solved    = 0;
     std::vector<T> A_static(static_cast<std::size_t>(N) * N);
     std::vector<T> A_dynamic(static_cast<std::size_t>(N) * N);
     std::vector<T> x_static(N), x_dynamic(N);
@@ -57,6 +58,7 @@ void tile_size_case(const int count, const double bound, const double tolerance,
                                                batch.rhs(s), x_dynamic.data(), 1);
         TDLS_CHECK(ok_static == ok_dynamic);
         if (!ok_static || !ok_dynamic) continue;
+        ++solved;
         be_max = std::max(
             be_max, tdls_tests::backward_error(batch.matrix(s), x_static.data(), batch.rhs(s), N));
         TDLS_CHECK_BITWISE(A_static.data(), A_dynamic.data(), static_cast<std::size_t>(N) * N);
@@ -64,6 +66,7 @@ void tile_size_case(const int count, const double bound, const double tolerance,
         TDLS_CHECK_BITWISE(x_static.data(), x_dynamic.data(), static_cast<std::size_t>(N));
     }
     TDLS_CHECK_LE(be_max, tolerance);
+    TDLS_CHECK(solved == count);
 }
 
 } // namespace

@@ -119,7 +119,8 @@ template<typename T>
 /// \brief Normwise backward error of a computed solution,
 /// |A0 x - b|_inf / (|A0|_max |x|_inf + |b|_inf), accumulated in double
 /// regardless of T. The thresholds used by the suites are calibrated for
-/// this exact formula.
+/// this exact formula. A non-finite solution reports an infinite error:
+/// the fmax reductions would otherwise drop a NaN and report zero.
 /// \tparam T scalar type
 /// \param[in] A0 original (unfactored) matrix, contiguous row-major
 /// \param[in] x  computed solution
@@ -132,6 +133,9 @@ inline double backward_error(const T* A0, const T* x, const T* b, const int n) {
     double a_max        = 0.0;
     double x_max        = 0.0;
     double b_max        = 0.0;
+    for (int i = 0; i < n; ++i)
+        if (!std::isfinite(static_cast<double>(x[i])))
+            return std::numeric_limits<double>::infinity();
     for (int i = 0; i < n; ++i) {
         double acc = 0.0;
         for (int j = 0; j < n; ++j) {

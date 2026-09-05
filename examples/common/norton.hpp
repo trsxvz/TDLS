@@ -39,6 +39,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include <tdls/tdls.hpp>
 
@@ -305,8 +306,10 @@ inline double tangent_deviation(const double* eel0, const double p0, const doubl
                                 const double dt, const double* Dt) {
     constexpr double h = 1e-8;
     double dmax        = 0;
-    for (int i = 0; i < stensor_size * stensor_size; ++i)
+    for (int i = 0; i < stensor_size * stensor_size; ++i) {
+        if (!std::isfinite(Dt[i])) return std::numeric_limits<double>::infinity();
         dmax = std::fmax(dmax, std::fabs(Dt[i]));
+    }
 
     double deviation = 0;
     for (int j = 0; j < stensor_size; ++j) {
@@ -327,7 +330,8 @@ inline double tangent_deviation(const double* eel0, const double p0, const doubl
         }
         for (int i = 0; i < stensor_size; ++i) {
             const double fd = (sig_plus[i] - sig_minus[i]) / (2 * h);
-            deviation       = std::fmax(deviation, std::fabs(fd - Dt[i * stensor_size + j]) / dmax);
+            if (!std::isfinite(fd)) return std::numeric_limits<double>::infinity();
+            deviation = std::fmax(deviation, std::fabs(fd - Dt[i * stensor_size + j]) / dmax);
         }
     }
     return deviation;
@@ -379,8 +383,10 @@ inline BatchCheck check_last_step(const int points, const double dt, const bool 
         radial_return(eel0, deto, dt, sig_ref);
         double smax = 0, err = 0;
         for (int k = 0; k < stensor_size; ++k) {
+            const double s = at(sig, i, k, stensor_size);
+            if (!std::isfinite(s)) err = std::numeric_limits<double>::infinity();
             smax = std::fmax(smax, std::fabs(sig_ref[k]));
-            err  = std::fmax(err, std::fabs(at(sig, i, k, stensor_size) - sig_ref[k]));
+            err  = std::fmax(err, std::fabs(s - sig_ref[k]));
         }
         out.sig_error = std::fmax(out.sig_error, err / smax);
         if (p[i] < p_before[i]) out.p_monotonic = false;

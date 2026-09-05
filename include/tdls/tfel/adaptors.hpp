@@ -509,19 +509,43 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_multirhs_pair() {
                   "carries a single stride pair for both)");
 }
 
+/// \brief Detects a complete storage_traits: the structural contract or
+/// a user specialization.
+template<typename T, typename = void>
+struct has_storage_traits : std::false_type {};
+template<typename T>
+struct has_storage_traits<T, std::void_t<typename storage_traits<T>::value_type>> : std::true_type {
+};
+
 /// \brief Pivot argument unwrapping: accepts a raw int pointer/array
-/// (treated as contiguous caller-local storage) or any dense int object.
+/// (treated as contiguous caller-local storage) or any int object with
+/// storage_traits, vector-like and of the system dimension when both
+/// are fixed-size.
 /// \tparam PivotType pivot argument type (without references)
-template<typename PivotType>
+/// \tparam N         system dimension (0 on the runtime path)
+template<typename PivotType, int N>
 struct pivot_access {
     //! \brief true for a raw int pointer or int array
     static constexpr bool is_raw =
         std::is_pointer_v<std::decay_t<PivotType>> &&
         std::is_same_v<std::remove_cv_t<std::remove_pointer_t<std::decay_t<PivotType>>>, int>;
-    //! \brief true for a dense int object
-    static constexpr bool is_dense = detail::is_dense_v<std::remove_cv_t<PivotType>>;
+    //! \brief true for an object with storage_traits
+    static constexpr bool is_dense = has_storage_traits<std::remove_cv_t<PivotType>>::value;
     static_assert(is_raw || is_dense, "tdls adaptors: the pivot must be an int pointer/array or "
                                       "a dense int object");
+
+    //! \brief true when the pivot is vector-like and its extent matches
+    //! the dimension (only checkable when both are fixed-size)
+    static constexpr bool has_matching_extent = [] {
+        if constexpr (is_raw) {
+            return true;
+        } else {
+            using pt = storage_traits<std::remove_cv_t<PivotType>>;
+            return pt::arity == 1 && (N == 0 || pt::has_runtime_extents || pt::extent0 == N);
+        }
+    }();
+    static_assert(has_matching_extent,
+                  "tdls adaptors: pivot extent does not match the system dimension");
 
     //! \brief true when the pivot argument may be written (non-const
     //! object, non-const pointee for raw pointers)
@@ -583,7 +607,7 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
 substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const RhsType& b,
                              SolutionType& x) {
     using mt = typename Ctx::mtraits;
-    using pa = pivot_access<PivotType>;
+    using pa = pivot_access<PivotType, Ctx::N>;
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(pass_width >= 0, "tdls adaptors: pass_width must not be negative");
@@ -634,7 +658,7 @@ template<auto UserConfig, bool oot_diagnostics, typename MatrixType, typename Pi
 factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
     using mt  = typename ctx::mtraits;
-    using pa  = pivot_access<PivotType>;
+    using pa  = pivot_access<PivotType, ctx::N>;
     static_assert(mt::is_mutable, "tdls adaptors: factorize writes into A");
     static_assert(!std::is_const_v<MatrixType>, "tdls adaptors: A must not be const here "
                                                 "(factorize writes it)");
@@ -667,7 +691,7 @@ template<auto UserConfig, int pass_width, bool oot_diagnostics, typename MatrixT
 solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
     using mt  = typename ctx::mtraits;
-    using pa  = pivot_access<PivotType>;
+    using pa  = pivot_access<PivotType, ctx::N>;
     using bt  = storage_traits<std::remove_cv_t<RhsType>>;
     using xt  = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(mt::is_mutable, "tdls adaptors: solve factors A in place");
@@ -717,7 +741,7 @@ template<auto UserConfig, int pass_width, bool oot_diagnostics, typename MatrixT
 solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
     using mt  = typename ctx::mtraits;
-    using pa  = pivot_access<PivotType>;
+    using pa  = pivot_access<PivotType, ctx::N>;
     using yt  = storage_traits<std::remove_cv_t<VectorType>>;
     static_assert(mt::is_mutable, "tdls adaptors: solve_inplace factors A in place");
     static_assert(yt::is_mutable, "tdls adaptors: solve_inplace writes into y");
@@ -984,7 +1008,7 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
     using ctx =
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
     using mt = typename ctx::mtraits;
-    using pa = detail::pivot_access<PivotType>;
+    using pa = detail::pivot_access<PivotType, ctx::N>;
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute writes into x");
@@ -1047,7 +1071,7 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     using ctx =
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
     using mt = typename ctx::mtraits;
-    using pa = detail::pivot_access<PivotType>;
+    using pa = detail::pivot_access<PivotType, ctx::N>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_inplace writes into x");
     static_assert(!std::is_const_v<SolutionType>,
@@ -1113,7 +1137,7 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
     using ctx =
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
     using mt = typename ctx::mtraits;
-    using pa = detail::pivot_access<PivotType>;
+    using pa = detail::pivot_access<PivotType, ctx::N>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::is_mutable, "tdls adaptors: substitute_canonical writes into x");
     static_assert(!std::is_const_v<SolutionType>,

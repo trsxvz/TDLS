@@ -11,13 +11,14 @@
 /// means something if the metric can also report a *large* value on a
 /// wrong solution: a metric that returned ~0 unconditionally would turn
 /// every suite green while asserting nothing. This suite pins both ends
-/// of the instrument: the exact solution sits at the noise floor, and
-/// two deliberately wrong solutions are flagged orders of magnitude
-/// above it.
+/// of the instrument: the exact solution sits at the noise floor, two
+/// deliberately wrong solutions are flagged orders of magnitude above
+/// it, and a non-finite solution is flagged too.
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "generators.hpp"
@@ -69,6 +70,14 @@ TDLS_TEST_CASE("common/backward_error/discriminates-correct-from-wrong-solutions
             tdls_tests::backward_error(A0.data(), x_wrong.data(), batch.rhs(s), N);
         TDLS_CHECK(be_wrong > 1e-3);
         TDLS_CHECK(be_wrong > 1e6 * be_true);
+
+        // Negative control 3: a NaN entry. std::fmax drops a NaN, so the
+        // metric must reject it explicitly rather than report the zero
+        // of an empty residual.
+        std::vector<double> x_nan(x);
+        x_nan[0]            = std::numeric_limits<double>::quiet_NaN();
+        const double be_nan = tdls_tests::backward_error(A0.data(), x_nan.data(), batch.rhs(s), N);
+        TDLS_CHECK(be_nan > 1.0);
     }
     // Floor: the control must actually have run on every generated system
     // (mirrors the anti-vacuity floor of the solver suites).

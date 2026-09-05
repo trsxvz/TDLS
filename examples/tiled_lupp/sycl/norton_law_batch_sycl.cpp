@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
 
         double eel[stensor_size] = {};
         double p_t               = 0;
-        double sig_t[stensor_size], Dt_t[stensor_size * stensor_size];
+        double sig_t[stensor_size], Dt_t[stensor_size * stensor_size] = {};
         double J[N * N], r[N];
         int piv[N];
         double deto[stensor_size];

@@ -29,6 +29,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include <tdls/tdls.hpp>
 
@@ -107,9 +108,11 @@ TDLS_HOST_DEVICE inline void assemble(const int n, const double d, double* A, co
 /// \return the deviation
 TDLS_HOST_DEVICE inline double manufactured_error(const int n, const double* u, const int stride) {
     double e = 0.0;
-    for (int i = 0; i < n; ++i)
-        e = std::fmax(
-            e, std::fabs(u[static_cast<std::size_t>(i) * stride] - manufactured(node(i, n))));
+    for (int i = 0; i < n; ++i) {
+        const double v = u[static_cast<std::size_t>(i) * stride];
+        if (!std::isfinite(v)) return std::numeric_limits<double>::infinity();
+        e = std::fmax(e, std::fabs(v - manufactured(node(i, n))));
+    }
     return e;
 }
 

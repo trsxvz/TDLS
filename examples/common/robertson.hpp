@@ -176,6 +176,7 @@ radau_step(const double (&butcher)[stages][stages], const double theta, const do
             correction = 0.0;
             for (int e = 0; e < N; ++e) {
                 const double d = dz[internal_rhs ? e : e * rhs_stride];
+                if (!std::isfinite(d)) return false;
                 Z[e] += d;
                 correction = std::fmax(correction, std::fabs(d));
             }
