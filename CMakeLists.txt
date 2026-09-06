@@ -7,12 +7,18 @@ cmake_minimum_required(VERSION 3.21)
 
 project(tdls VERSION 0.1.0 LANGUAGES NONE)
 
-# The version declared here and the one in include/tdls/core/version.hpp
-# must never drift apart.
+# The version declared here, the one in include/tdls/core/version.hpp
+# and the PROJECT_NUMBER of docs/Doxyfile must never drift apart.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/include/tdls/core/version.hpp" TDLS_VERSION_HEADER)
 string(REGEX MATCH "TDLS_VERSION_STRING \"([0-9.]+)\"" _ "${TDLS_VERSION_HEADER}")
 if(NOT CMAKE_MATCH_1 STREQUAL PROJECT_VERSION)
     message(FATAL_ERROR "version mismatch: version.hpp says '${CMAKE_MATCH_1}', "
+                        "project() says '${PROJECT_VERSION}'")
+endif()
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile" TDLS_DOXYFILE)
+string(REGEX MATCH "PROJECT_NUMBER *= *([0-9.]+)" _ "${TDLS_DOXYFILE}")
+if(NOT CMAKE_MATCH_1 STREQUAL PROJECT_VERSION)
+    message(FATAL_ERROR "version mismatch: docs/Doxyfile says '${CMAKE_MATCH_1}', "
                         "project() says '${PROJECT_VERSION}'")
 endif()
 

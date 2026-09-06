@@ -2,8 +2,9 @@
 # that differ from the defaults are listed; the reference is built from
 # docs/ with `doxygen Doxyfile` and lands in docs/_build/doxygen.
 PROJECT_NAME           = TDLS
-# PROJECT_NUMBER stays unset until a first release is tagged, so the
-# pages do not display a version.
+# PROJECT_NUMBER must match include/tdls/core/version.hpp; the CMake
+# configure step checks it.
+PROJECT_NUMBER         = 0.1.0
 PROJECT_BRIEF          = "Tiny Device-callable Linear Solvers"
 INPUT                  = ../include
 RECURSIVE              = YES
