@@ -29,44 +29,44 @@
 namespace {
 
 /// \brief Configuration flipping only unroll_inner.
-template<typename T, int TS, tdls::Schedule Schedule>
+template<typename T, int tile_size, tdls::Schedule Schedule>
 constexpr auto no_unroll_config =
-    tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule, .unroll_inner = false};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule, .unroll_inner = false};
 
 /// \brief Configuration restoring the full-panel out-of-tile scan.
-template<typename T, int TS>
+template<typename T, int tile_size>
 constexpr auto max_scan_config =
-    tdls::TiledLUppConfig<T>{.tile_size = TS, .oot_first_acceptable = false};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_first_acceptable = false};
 
 /// \brief Configuration whose threshold no entry can reach: the
 /// out-of-tile search fires on every column.
-template<typename T, int TS>
+template<typename T, int tile_size>
 constexpr auto always_oot_config =
-    tdls::TiledLUppConfig<T>{.tile_size = TS, .oot_threshold = T(1e30)};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_threshold = T(1e30)};
 
 /// \brief Configuration declaring every pivot below 1e-3 singular. The
 /// floor only guards the out-of-tile recovery path, so the acceptance
 /// threshold is raised together with it (the TiledLUpp solvers enforce
 /// singular_floor <= oot_threshold at compile time).
-template<typename T, int TS>
-constexpr auto strict_floor_config =
-    tdls::TiledLUppConfig<T>{.tile_size = TS, .oot_threshold = T(1e-3), .singular_floor = T(1e-3)};
+template<typename T, int tile_size>
+constexpr auto strict_floor_config = tdls::TiledLUppConfig<T>{
+    .tile_size = tile_size, .oot_threshold = T(1e-3), .singular_floor = T(1e-3)};
 
 /// \brief Checks that unroll_inner = false reproduces the default
 /// bitwise: the knob moves pragmas, never values.
-/// \tparam T     scalar type
-/// \tparam N     system dimension
-/// \tparam TS    tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 void unroll_case(const int count, const double bound, const std::uint64_t seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule};
     using Default         = tdls::TiledLUppSolverStatic<T, N, config>;
-    using NoUnroll        = tdls::TiledLUppSolverStatic<T, N, no_unroll_config<T, TS, Schedule>>;
-    const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
+    using NoUnroll   = tdls::TiledLUppSolverStatic<T, N, no_unroll_config<T, tile_size, Schedule>>;
+    const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     std::vector<T> A_def(N * N), A_alt(N * N), x_def(N), x_alt(N);
     int piv_def[N], piv_alt[N];
@@ -91,14 +91,14 @@ void unroll_case(const int count, const double bound, const std::uint64_t seed) 
 
 } // namespace
 
-TDLS_TEST_CASE("tiledlupp/config/unroll_inner-off-is-bitwise/N=12,TS=3,RL,default") {
+TDLS_TEST_CASE("tiledlupp/config/unroll_inner-off-is-bitwise/N=12,tile_size=3,RL,default") {
     unroll_case<double, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 190100);
 }
-TDLS_TEST_CASE("tiledlupp/config/unroll_inner-off-is-bitwise/N=13,TS=6,LL,stress") {
+TDLS_TEST_CASE("tiledlupp/config/unroll_inner-off-is-bitwise/N=13,tile_size=6,LL,stress") {
     unroll_case<double, 13, 6, tdls::Schedule::LeftLooking>(200, 5e-10, 190200);
 }
 
-TDLS_TEST_CASE("tiledlupp/config/oot_first_acceptable-both-anchored/N=25,TS=5,stress") {
+TDLS_TEST_CASE("tiledlupp/config/oot_first_acceptable-both-anchored/N=25,tile_size=5,stress") {
     // The two search strategies may pick different acceptable pivots, so
     // the results differ; both must stay anchored on the backward error.
     constexpr int N = 25;
@@ -134,7 +134,7 @@ TDLS_TEST_CASE("tiledlupp/config/oot_first_acceptable-both-anchored/N=25,TS=5,st
     TDLS_CHECK_LE(be_max_scan, 1e-9);
 }
 
-TDLS_TEST_CASE("tiledlupp/config/oot-counter/silent-in-default-regime/N=12,TS=3") {
+TDLS_TEST_CASE("tiledlupp/config/oot-counter/silent-in-default-regime/N=12,tile_size=3") {
     constexpr int N = 12;
     using Solver =
         tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 3}>;
@@ -155,7 +155,7 @@ TDLS_TEST_CASE("tiledlupp/config/oot-counter/silent-in-default-regime/N=12,TS=3"
     TDLS_CHECK(solved == batch.count);
 }
 
-TDLS_TEST_CASE("tiledlupp/config/oot-counter/fires-in-stress-regime/N=12,TS=3") {
+TDLS_TEST_CASE("tiledlupp/config/oot-counter/fires-in-stress-regime/N=12,tile_size=3") {
     constexpr int N = 12;
     using Solver =
         tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 3}>;
@@ -172,7 +172,8 @@ TDLS_TEST_CASE("tiledlupp/config/oot-counter/fires-in-stress-regime/N=12,TS=3") 
     TDLS_CHECK(total > 0);
 }
 
-TDLS_TEST_CASE("tiledlupp/config/oot-counter/every-column-when-threshold-unreachable/N=12,TS=3") {
+TDLS_TEST_CASE(
+    "tiledlupp/config/oot-counter/every-column-when-threshold-unreachable/N=12,tile_size=3") {
     constexpr int N  = 12;
     using Solver     = tdls::TiledLUppSolverStatic<double, N, always_oot_config<double, 3>>;
     const auto batch = tdls_tests::make_batch<double>(N, 100, 190600, 0.5);
@@ -196,7 +197,7 @@ TDLS_TEST_CASE("tiledlupp/config/oot-counter/every-column-when-threshold-unreach
     TDLS_CHECK_LE(be_max, 1e-9);
 }
 
-TDLS_TEST_CASE("tiledlupp/config/strict-singular_floor-rejects-tiny-pivots/N=12,TS=3") {
+TDLS_TEST_CASE("tiledlupp/config/strict-singular_floor-rejects-tiny-pivots/N=12,tile_size=3") {
     // Stress entries never exceed 5e-10: with singular_floor = 1e-3 every
     // system is declared singular, while the default floor solves them.
     constexpr int N = 12;
@@ -216,7 +217,7 @@ TDLS_TEST_CASE("tiledlupp/config/strict-singular_floor-rejects-tiny-pivots/N=12,
     }
 }
 
-TDLS_TEST_CASE("tiledlupp/config/long-double-thresholds-from-double-literals/N=12,TS=3") {
+TDLS_TEST_CASE("tiledlupp/config/long-double-thresholds-from-double-literals/N=12,tile_size=3") {
     // Double literals are stored exactly and read back bit for bit by a
     // long double solver, which stays anchored on the backward error.
     constexpr int N       = 12;

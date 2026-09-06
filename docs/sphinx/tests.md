@@ -60,9 +60,10 @@ on the solver.
   of the method, written in the program.
 - Runtime dimension: the dimension is a parameter chosen when the
   computation is launched.
-- Constitutive law: the dimension is compile-time too, and the program
-  follows the MFront pattern, a Newton iteration on a fresh jacobian,
-  then the tangent operator from a factorization of the converged one.
+- Compile-time dimension, MFront pattern: the dimension is compile-time
+  again, and the program has the shape of an MFront-generated
+  behaviour. A Newton iteration on a fresh jacobian, then the tangent
+  operator from a factorization of the converged one.
 
 Each problem is declined on every execution scale: sequential, OpenMP,
 parallel STL, SYCL, and CUDA or HIP with the systems in registers or
@@ -95,7 +96,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `entry_points` | the documented entry point equivalences, bitwise |
 | `inplace_paths` | the two in-place substitution algorithms around their switchover dimensions |
 | `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers |
-| `tile_sizes` | every tile size against the anchored one, including unit tiles (TS = 1) and tile sizes exceeding the dimension |
+| `tile_sizes` | every tile size against the anchored one, including unit tiles (tile size 1) and tile sizes exceeding the dimension |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
 | `config_knobs` | each configuration knob changes what it should and nothing else |
 | `constexpr` | compile-time certificates on both solvers |
@@ -113,7 +114,7 @@ For the detail of any suite, the authoritative description is the
 |---|---|---|---|---|---|---|
 | **Compile-time dimension** (stiff chemistry, Radau IIA, N = 9) | `implicit_ode` | `implicit_ode_batch_omp` | `implicit_ode_batch_stdpar` | `implicit_ode_batch_sycl` | `implicit_ode_batch_gpu` | `implicit_ode_batch_gpu_soa` |
 | **Runtime dimension** (Love integral equation, Nystroem, n chosen at launch) | `integral_equation` | `integral_equation_batch_omp` | `integral_equation_batch_stdpar` | `integral_equation_batch_sycl` | `integral_equation_batch_gpu` | `integral_equation_batch_gpu_soa` |
-| **Constitutive law** (Norton viscoplasticity, the MFront pattern, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_stdpar` | `norton_law_batch_sycl` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
+| **Compile-time dimension, MFront pattern** (Norton viscoplasticity, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_stdpar` | `norton_law_batch_sycl` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
 
 The sources live under `examples/tiled_lupp/`, one directory per
 execution scale. The GPU examples are single sources in the common
@@ -157,7 +158,7 @@ Every instance factorizes once and substitutes two right-hand sides:
 a manufactured one, which the solve must return to solver accuracy
 and serves as the self-check, and the physical unit potential.
 
-#### Constitutive law
+#### Compile-time dimension, MFront pattern
 
 Norton viscoplasticity is integrated the way the MFront `Implicit` DSL
 does it: implicit Euler, with the elastic strain increment and the

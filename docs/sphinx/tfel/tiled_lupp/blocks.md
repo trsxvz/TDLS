@@ -116,15 +116,15 @@ argument of the entry point.
 $$
 A X = B, \quad
 B = \left(\begin{array}{cc|cc|c}
-14 & 7 & 8 & 3 & 4 \
-14 & 7 & 3 & 5 & 1 \
-24 & 8 & 6 & 2 & 0 \
+14 & 7 & 8 & 3 & 4 \\
+14 & 7 & 3 & 5 & 1 \\
+24 & 8 & 6 & 2 & 0 \\
 33 & 10 & 5 & 7 & 2
 \end{array}\right), \quad
 X = \left(\begin{array}{cc|cc|c}
-1 & 1 & 2 & 0 & 1 \
-2 & 1 & 0 & 1 & 0 \
-3 & 1 & 1 & 0 & 0 \
+1 & 1 & 2 & 0 & 1 \\
+2 & 1 & 0 & 1 & 0 \\
+3 & 1 & 1 & 0 & 0 \\
 4 & 1 & 0 & 1 & 0
 \end{array}\right)
 $$
@@ -149,8 +149,8 @@ A X = B, \quad A = \left(\begin{array}{ccc|cc}
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
 \end{array}\right), \quad
-B = \begin{pmatrix} 12 & 7 & 6 \ 16 & 8 & 2 \ 27 & 9 & 7 \ 40 & 10 & 2 \ 50 & 11 & 10 \end{pmatrix}, \quad
-X = \begin{pmatrix} 1 & 1 & 1 \ 2 & 1 & 0 \ 3 & 1 & 1 \ 4 & 1 & 0 \ 5 & 1 & 1 \end{pmatrix}
+B = \begin{pmatrix} 12 & 7 & 6 \\ 16 & 8 & 2 \\ 27 & 9 & 7 \\ 40 & 10 & 2 \\ 50 & 11 & 10 \end{pmatrix}, \quad
+X = \begin{pmatrix} 1 & 1 & 1 \\ 2 & 1 & 0 \\ 3 & 1 & 1 \\ 4 & 1 & 0 \\ 5 & 1 & 1 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/block_runtime.cpp

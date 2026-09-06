@@ -16,10 +16,10 @@ A = \left(\begin{array}{ccc|cc}
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
 \end{array}\right), \quad
-b_1 = \begin{pmatrix} 12 \ 16 \ 27 \ 40 \ 50 \end{pmatrix}, \quad
-b_2 = \begin{pmatrix} 7 \ 8 \ 9 \ 10 \ 11 \end{pmatrix}, \quad
-x_1 = \begin{pmatrix} 1 \ 2 \ 3 \ 4 \ 5 \end{pmatrix}, \quad
-x_2 = \begin{pmatrix} 1 \ 1 \ 1 \ 1 \ 1 \end{pmatrix}
+b_1 = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
+b_2 = \begin{pmatrix} 7 \\ 8 \\ 9 \\ 10 \\ 11 \end{pmatrix}, \quad
+x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}, \quad
+x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/runtime_factorize_substitute.cpp
@@ -61,7 +61,7 @@ A x = e_2, \quad A = \left(\begin{array}{ccc|cc}
 0 & 1 & 7 & 1 & 0 \\ \hline
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \ 0 \ 1 \ 0 \ 0 \end{pmatrix}
+\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \\ 0 \\ 1 \\ 0 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/runtime_canonical.cpp

@@ -23,9 +23,9 @@ int main() {
     constexpr auto config = tdls::TiledLUppConfig<double>{.tile_size = 2};
     using Solver          = tdls::TiledLUppSolverDynamic<double, config>;
 
-    // the grid of a runtime dimension: three tiles per dimension for n = 5, the last of extent 1
+    // the grid of a runtime dimension: three tiles per dimension for n = 5, the last of size 1
     const int tiles = Solver::num_tiles(n);
-    const int last  = Solver::tile_extent((tiles - 1) * Solver::TS, n);
+    const int last  = Solver::tile_size_at((tiles - 1) * Solver::tile_size, n);
 
     std::vector<int> piv(n);
     const bool ok = Solver::solve_inplace(n, A.data(), 1, piv.data(), 1, y.data(), 1);

@@ -32,18 +32,19 @@ namespace {
 /// dynamic solvers on transposed storage; checks the bitwise equality
 /// of every output, singularity verdicts and out-of-tile counters
 /// included.
-/// \tparam T     scalar type
-/// \tparam N     system dimension
-/// \tparam TS    tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 void colmajor_case(const int count, const double bound, const std::uint64_t seed) {
-    constexpr auto config_row = tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule};
+    constexpr auto config_row =
+        tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule};
     constexpr auto config_col = tdls::TiledLUppConfig<T>{
-        .tile_size = TS, .schedule = Schedule, .layout = tdls::MatrixLayout::ColMajor};
+        .tile_size = tile_size, .schedule = Schedule, .layout = tdls::MatrixLayout::ColMajor};
     using RowStatic  = tdls::TiledLUppSolverStatic<T, N, config_row>;
     using ColStatic  = tdls::TiledLUppSolverStatic<T, N, config_col>;
     using ColDynamic = tdls::TiledLUppSolverDynamic<T, config_col>;
@@ -90,17 +91,18 @@ void colmajor_case(const int count, const double bound, const std::uint64_t seed
 
 /// \brief Checks the internal residency and the fused entry point under
 /// the column-major layout: caller-local arrays, both layouts, bitwise.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 void colmajor_internal_case(const int count, const double bound, const std::uint64_t seed) {
     constexpr auto config_col =
-        tdls::TiledLUppConfig<T>{.tile_size = TS, .layout = tdls::MatrixLayout::ColMajor};
-    using RowStatic  = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
+        tdls::TiledLUppConfig<T>{.tile_size = tile_size, .layout = tdls::MatrixLayout::ColMajor};
+    using RowStatic =
+        tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
     using ColStatic  = tdls::TiledLUppSolverStatic<T, N, config_col>;
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
 
@@ -139,19 +141,20 @@ void colmajor_internal_case(const int count, const double bound, const std::uint
 /// greater than one: every operand of the system under test lives in
 /// the middle slot of a three-slot arena and must reproduce the
 /// contiguous row-major solve bitwise.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 void colmajor_strided_case(const int count, const double bound, const std::uint64_t seed) {
     constexpr int arena = 3;
     constexpr int slot  = 1;
     constexpr auto config_col =
-        tdls::TiledLUppConfig<T>{.tile_size = TS, .layout = tdls::MatrixLayout::ColMajor};
-    using RowStatic  = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
+        tdls::TiledLUppConfig<T>{.tile_size = tile_size, .layout = tdls::MatrixLayout::ColMajor};
+    using RowStatic =
+        tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
     using ColStatic  = tdls::TiledLUppSolverStatic<T, N, config_col>;
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
 
@@ -198,13 +201,15 @@ void colmajor_strided_case(const int count, const double bound, const std::uint6
 
 } // namespace
 
-/// Emits the RL and LL column-major cases of one (type, N, TS, regime) cell.
-#define TDLS_COLMAJOR_CASES(T, N, TS, REGIME, COUNT, BOUND, SEED)                                  \
-    TDLS_TEST_CASE("tiledlupp/bridge/colmajor/" #T "/N=" #N ",TS=" #TS ",RL," REGIME) {            \
-        colmajor_case<T, N, TS, tdls::Schedule::RightLooking>(COUNT, BOUND, SEED);                 \
+/// Emits the RL and LL column-major cases of one (type, N, tile_size, regime) cell.
+#define TDLS_COLMAJOR_CASES(T, N, TILE_SIZE, REGIME, COUNT, BOUND, SEED)                           \
+    TDLS_TEST_CASE("tiledlupp/bridge/colmajor/" #T "/N=" #N ",tile_size=" #TILE_SIZE               \
+                   ",RL," REGIME) {                                                                \
+        colmajor_case<T, N, TILE_SIZE, tdls::Schedule::RightLooking>(COUNT, BOUND, SEED);          \
     }                                                                                              \
-    TDLS_TEST_CASE("tiledlupp/bridge/colmajor/" #T "/N=" #N ",TS=" #TS ",LL," REGIME) {            \
-        colmajor_case<T, N, TS, tdls::Schedule::LeftLooking>(COUNT, BOUND, SEED + 1);              \
+    TDLS_TEST_CASE("tiledlupp/bridge/colmajor/" #T "/N=" #N ",tile_size=" #TILE_SIZE               \
+                   ",LL," REGIME) {                                                                \
+        colmajor_case<T, N, TILE_SIZE, tdls::Schedule::LeftLooking>(COUNT, BOUND, SEED + 1);       \
     }
 
 // Nominal divisible grid and a trailing-tile grid, both regimes.
@@ -218,13 +223,13 @@ TDLS_COLMAJOR_CASES(double, 1, 1, "default", 200, 0.5, 250600)
 // Float cell.
 TDLS_COLMAJOR_CASES(float, 12, 3, "default", 200, 0.5, 250700)
 
-TDLS_TEST_CASE("tiledlupp/bridge/colmajor/internal/double/N=12,TS=3,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/colmajor/internal/double/N=12,tile_size=3,default") {
     colmajor_internal_case<double, 12, 3>(200, 0.5, 250800);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/colmajor/internal/double/N=13,TS=6,stress") {
+TDLS_TEST_CASE("tiledlupp/bridge/colmajor/internal/double/N=13,tile_size=6,stress") {
     colmajor_internal_case<double, 13, 6>(200, 5e-10, 250900);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/colmajor/strided/double/N=12,TS=3,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/colmajor/strided/double/N=12,tile_size=3,default") {
     colmajor_strided_case<double, 12, 3>(100, 0.5, 251000);
 }
 

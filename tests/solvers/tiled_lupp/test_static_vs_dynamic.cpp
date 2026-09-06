@@ -7,12 +7,12 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 ///
-/// At equal shape (N, TS, schedule, configuration) and on identical
+/// At equal shape (N, tile_size, schedule, configuration) and on identical
 /// inputs, TiledLUppSolverDynamic and TiledLUppSolverStatic execute the same
 /// arithmetic sequence: the factored matrix, the pivot, the solution and
 /// the out-of-tile counter must be bitwise identical. The bridge runs on
 /// the boundary-covering shape grid so that the structural code paths of
-/// factorize and substitute (trailing tiles, TS = N, TS > N, the scalar
+/// factorize and substitute (trailing tiles, tile_size = N, tile_size > N, the scalar
 /// corner) are crossed by the equivalence proof.
 
 #include <algorithm>
@@ -30,16 +30,16 @@ namespace {
 /// on contiguous external storage and checks the bitwise equality of all
 /// outputs, including the singularity verdicts and the out-of-tile
 /// counters.
-/// \tparam T     scalar type
-/// \tparam N     system dimension
-/// \tparam TS    tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 void bridge_case(const int count, const double bound, const std::uint64_t seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
     using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     auto batch            = tdls_tests::make_batch<T>(N, count, seed, bound);
@@ -73,13 +73,15 @@ void bridge_case(const int count, const double bound, const std::uint64_t seed) 
 
 } // namespace
 
-/// Emits the RL and LL bridge cases of one (type, N, TS, regime) cell.
-#define TDLS_BRIDGE_CASES(T, N, TS, REGIME, COUNT, BOUND, SEED)                                    \
-    TDLS_TEST_CASE("tiledlupp/bridge/static-dynamic/" #T "/N=" #N ",TS=" #TS ",RL," REGIME) {      \
-        bridge_case<T, N, TS, tdls::Schedule::RightLooking>(COUNT, BOUND, SEED);                   \
+/// Emits the RL and LL bridge cases of one (type, N, tile_size, regime) cell.
+#define TDLS_BRIDGE_CASES(T, N, TILE_SIZE, REGIME, COUNT, BOUND, SEED)                             \
+    TDLS_TEST_CASE("tiledlupp/bridge/static-dynamic/" #T "/N=" #N ",tile_size=" #TILE_SIZE         \
+                   ",RL," REGIME) {                                                                \
+        bridge_case<T, N, TILE_SIZE, tdls::Schedule::RightLooking>(COUNT, BOUND, SEED);            \
     }                                                                                              \
-    TDLS_TEST_CASE("tiledlupp/bridge/static-dynamic/" #T "/N=" #N ",TS=" #TS ",LL," REGIME) {      \
-        bridge_case<T, N, TS, tdls::Schedule::LeftLooking>(COUNT, BOUND, SEED + 1);                \
+    TDLS_TEST_CASE("tiledlupp/bridge/static-dynamic/" #T "/N=" #N ",tile_size=" #TILE_SIZE         \
+                   ",LL," REGIME) {                                                                \
+        bridge_case<T, N, TILE_SIZE, tdls::Schedule::LeftLooking>(COUNT, BOUND, SEED + 1);         \
     }
 
 // Default regime over the boundary-covering grid, double.

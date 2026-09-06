@@ -12,8 +12,8 @@
 /// overflow fails the compilation. Each assertion that compiles is
 /// therefore a machine-checked certificate that the exercised path is
 /// free of undefined behaviour. The grid crosses the structural
-/// boundaries of the solver: divisible grids, trailing tiles, TS = N,
-/// TS > N (single partial tile), the 1 x 1 corner, both schedules,
+/// boundaries of the solver: divisible grids, trailing tiles, tile_size = N,
+/// tile_size > N (single partial tile), the 1 x 1 corner, both schedules,
 /// internal and external residencies, the out-of-tile recovery, the
 /// column-major layout, the entry-point equivalences and the singular
 /// verdict. It covers both the
@@ -39,14 +39,15 @@ constexpr double lcg(unsigned& state) {
 
 /// \brief Configuration flipping only unroll_inner, so the no-pragma
 /// branches of the two-branch unroll trick get their certificate too.
-/// \tparam T  scalar type
-/// \tparam TS tile size
-template<typename T, int TS>
-constexpr auto no_unroll_config = tdls::TiledLUppConfig<T>{.tile_size = TS, .unroll_inner = false};
+/// \tparam T         scalar type
+/// \tparam tile_size tile size
+template<typename T, int tile_size>
+constexpr auto no_unroll_config =
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .unroll_inner = false};
 
 /// \brief Normwise backward error |A0 x - b| / (|A0| |x| + |b|),
 /// accumulated in double and computable during constant evaluation.
-/// \tparam T scalar type
+/// \tparam T  scalar type
 /// \tparam N system dimension
 /// \param[in] A0 original matrix, contiguous row-major
 /// \param[in] x  computed solution
@@ -76,15 +77,15 @@ constexpr double backward_error(const T* A0, const T* x, const T* b) {
 }
 
 /// \brief Certificate: one solve through the no-pragma loop branches.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool no_unroll_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, no_unroll_config<T, TS>>;
+    using Solver = tdls::TiledLUppSolverStatic<T, N, no_unroll_config<T, tile_size>>;
     T A[N * N]   = {};
     T A0[N * N]  = {};
     T b[N]       = {};
@@ -103,17 +104,17 @@ constexpr bool no_unroll_certificate(const unsigned seed, const double tolerance
 
 /// \brief Certificate: one solve on internal (caller-local) storage,
 /// verdict on the backward error.
-/// \tparam T        scalar type
-/// \tparam N        system dimension
-/// \tparam TS       tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 constexpr bool solve_internal_certificate(const unsigned seed, const double tolerance) {
     using Solver = tdls::TiledLUppSolverStatic<
-        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule}>;
     T A[N * N]  = {};
     T A0[N * N] = {};
     T b[N]      = {};
@@ -132,17 +133,17 @@ constexpr bool solve_internal_certificate(const unsigned seed, const double tole
 
 /// \brief Certificate: one solve with every operand external, mapped on
 /// a stride-2 arena.
-/// \tparam T        scalar type
-/// \tparam N        system dimension
-/// \tparam TS       tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 constexpr bool solve_external_certificate(const unsigned seed, const double tolerance) {
     using Solver = tdls::TiledLUppSolverStatic<
-        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule}>;
     T A[2 * N * N] = {};
     T A0[N * N]    = {};
     T b[2 * N]     = {};
@@ -168,23 +169,23 @@ constexpr bool solve_external_certificate(const unsigned seed, const double tole
 
 /// \brief Configuration whose threshold no entry can reach: the
 /// out-of-tile recovery fires on every full-tile column.
-/// \tparam T  scalar type
-/// \tparam TS tile size
-template<typename T, int TS>
+/// \tparam T         scalar type
+/// \tparam tile_size tile size
+template<typename T, int tile_size>
 constexpr auto always_oot_config =
-    tdls::TiledLUppConfig<T>{.tile_size = TS, .oot_threshold = T(1e30)};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_threshold = T(1e30)};
 
 /// \brief Certificate: the out-of-tile recovery path (candidate replay
 /// included) is exercised on every column.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool oot_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, always_oot_config<T, TS>>;
+    using Solver = tdls::TiledLUppSolverStatic<T, N, always_oot_config<T, tile_size>>;
     T A[N * N]   = {};
     T A0[N * N]  = {};
     T b[N]       = {};
@@ -203,16 +204,16 @@ constexpr bool oot_certificate(const unsigned seed, const double tolerance) {
 
 /// \brief Certificate: solve_inplace reproduces solve bitwise, factored
 /// matrix and pivots included.
-/// \tparam T        scalar type
-/// \tparam N        system dimension
-/// \tparam TS       tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] seed generator seed
 /// \return true when every output matches exactly
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 constexpr bool fused_matches_solve_certificate(const unsigned seed) {
     using Solver = tdls::TiledLUppSolverStatic<
-        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule}>;
     T As[N * N] = {};
     T Af[N * N] = {};
     T b[N]      = {};
@@ -241,21 +242,22 @@ constexpr bool fused_matches_solve_certificate(const unsigned seed) {
 
 /// \brief Certificate: the canonical columns solve A x = e_col from one
 /// factorization: the tangent-operator path.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when every column stayed within the tolerance
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool canonical_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
-    T A[N * N]   = {};
-    T A0[N * N]  = {};
-    T x[N]       = {};
-    T e[N]       = {};
-    int piv[N]   = {};
-    unsigned s   = seed;
+    using Solver =
+        tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
+    T A[N * N]  = {};
+    T A0[N * N] = {};
+    T x[N]      = {};
+    T e[N]      = {};
+    int piv[N]  = {};
+    unsigned s  = seed;
     for (int el = 0; el < N * N; ++el) {
         A[el]  = static_cast<T>(lcg(s));
         A0[el] = A[el];
@@ -273,21 +275,22 @@ constexpr bool canonical_certificate(const unsigned seed, const double tolerance
 /// \brief Certificate: the runtime TiledLUpp solver solves at a dimension
 /// only known through a function parameter (a constant here, so the
 /// whole call constant-evaluates).
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool dynamic_solve_certificate(const unsigned seed, const double tolerance) {
-    using Solver = tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
-    T A[N * N]   = {};
-    T A0[N * N]  = {};
-    T b[N]       = {};
-    T x[N]       = {};
-    int piv[N]   = {};
-    unsigned s   = seed;
+    using Solver =
+        tdls::TiledLUppSolverDynamic<T, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
+    T A[N * N]  = {};
+    T A0[N * N] = {};
+    T b[N]      = {};
+    T x[N]      = {};
+    int piv[N]  = {};
+    unsigned s  = seed;
     for (int e = 0; e < N * N; ++e) {
         A[e]  = static_cast<T>(lcg(s));
         A0[e] = A[e];
@@ -301,14 +304,14 @@ constexpr bool dynamic_solve_certificate(const unsigned seed, const double toler
 /// \brief Certificate: the static and the dynamic TiledLUpp solvers produce
 /// bitwise-identical outputs at equal shape: the bridge invariant,
 /// checked here during constant evaluation.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] seed generator seed
 /// \return true when every output matches exactly
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool bridge_certificate(const unsigned seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
     using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     T As[N * N]           = {};
@@ -337,16 +340,17 @@ constexpr bool bridge_certificate(const unsigned seed) {
 
 /// \brief Certificate: the column-major layout reproduces the row-major
 /// solve bitwise on transposed storage, on both solvers.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] seed generator seed
 /// \return true when every output matches exactly
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool colmajor_certificate(const unsigned seed) {
     constexpr auto config_col =
-        tdls::TiledLUppConfig<T>{.tile_size = TS, .layout = tdls::MatrixLayout::ColMajor};
-    using RowSolver  = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
+        tdls::TiledLUppConfig<T>{.tile_size = tile_size, .layout = tdls::MatrixLayout::ColMajor};
+    using RowSolver =
+        tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
     using ColSolver  = tdls::TiledLUppSolverStatic<T, N, config_col>;
     using ColDynamic = tdls::TiledLUppSolverDynamic<T, config_col>;
     T Ar[N * N]      = {};
@@ -384,72 +388,73 @@ constexpr bool colmajor_certificate(const unsigned seed) {
 /// \brief Certificate: the multi right-hand-side blocks hold their
 /// documented equivalences during constant evaluation, whatever the
 /// pass_width cutting: substitute_multirhs
-/// matches W separate substitutes bitwise, substitute_inplace_multirhs
+/// matches nrhs separate substitutes bitwise, substitute_inplace_multirhs
 /// matches the two-buffer block, and the runtime solver's blocks match
 /// the compile-time solver's.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
-/// \tparam W  number of right-hand-side columns per block
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam nrhs         number of right-hand-side columns per block
 /// \param[in] seed generator seed
 /// \return true when every output matches exactly
-template<typename T, int N, int TS, int W>
+template<typename T, int N, int tile_size, int nrhs>
 constexpr bool multirhs_certificate(const unsigned seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
     using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     T A[N * N];
-    T B[W * N];
-    T X_ref[W * N];
-    T X[W * N];
+    T B[nrhs * N];
+    T X_ref[nrhs * N];
+    T X[nrhs * N];
     int piv[N];
     unsigned s = seed;
     for (int e = 0; e < N * N; ++e)
         A[e] = static_cast<T>(lcg(s));
-    for (int e = 0; e < W * N; ++e)
+    for (int e = 0; e < nrhs * N; ++e)
         B[e] = static_cast<T>(lcg(s));
     if (!Static::template factorize<true, true>(A, 1, piv, 1)) return false;
-    for (int w = 0; w < W; ++w)
+    for (int w = 0; w < nrhs; ++w)
         Static::template substitute<true, true, true>(A, 1, piv, 1, B + w * N, X_ref + w * N, 1);
-    Static::template substitute_multirhs<W, true, true, true>(A, 1, piv, 1, B, X, 1, 0);
-    for (int e = 0; e < W * N; ++e)
+    Static::template substitute_multirhs<nrhs, true, true, true>(A, 1, piv, 1, B, X, 1, 0);
+    for (int e = 0; e < nrhs * N; ++e)
         if (X[e] != X_ref[e]) return false;
-    for (int e = 0; e < W * N; ++e)
+    for (int e = 0; e < nrhs * N; ++e)
         X[e] = B[e];
-    Static::template substitute_inplace_multirhs<W, true, true, true>(A, 1, piv, 1, X, 1, 0);
-    for (int e = 0; e < W * N; ++e)
+    Static::template substitute_inplace_multirhs<nrhs, true, true, true>(A, 1, piv, 1, X, 1, 0);
+    for (int e = 0; e < nrhs * N; ++e)
         if (X[e] != X_ref[e]) return false;
-    Dynamic::substitute_multirhs(N, W, A, 1, piv, 1, B, X, 1, N);
-    for (int e = 0; e < W * N; ++e)
+    Dynamic::substitute_multirhs(N, nrhs, A, 1, piv, 1, B, X, 1, N);
+    for (int e = 0; e < nrhs * N; ++e)
         if (X[e] != X_ref[e]) return false;
-    for (int e = 0; e < W * N; ++e)
+    for (int e = 0; e < nrhs * N; ++e)
         X[e] = B[e];
-    Dynamic::substitute_inplace_multirhs(N, W, A, 1, piv, 1, X, 1, N);
-    for (int e = 0; e < W * N; ++e)
+    Dynamic::substitute_inplace_multirhs(N, nrhs, A, 1, piv, 1, X, 1, N);
+    for (int e = 0; e < nrhs * N; ++e)
         if (X[e] != X_ref[e]) return false;
     // The pass cutting must not change a single bit, on either solver.
-    Static::template substitute_multirhs<W, true, true, true, 2>(A, 1, piv, 1, B, X, 1, 0);
-    for (int e = 0; e < W * N; ++e)
+    Static::template substitute_multirhs<nrhs, true, true, true, 2>(A, 1, piv, 1, B, X, 1, 0);
+    for (int e = 0; e < nrhs * N; ++e)
         if (X[e] != X_ref[e]) return false;
-    Dynamic::template substitute_multirhs<2>(N, W, A, 1, piv, 1, B, X, 1, N);
-    for (int e = 0; e < W * N; ++e)
+    Dynamic::template substitute_multirhs<2>(N, nrhs, A, 1, piv, 1, B, X, 1, N);
+    for (int e = 0; e < nrhs * N; ++e)
         if (X[e] != X_ref[e]) return false;
     return true;
 }
 
 /// \brief Certificate: a structurally singular matrix (all zeros) is
 /// rejected, with no division ever reached.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \return true when the solver reports the singularity
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 constexpr bool singular_rejected_certificate() {
-    using Solver = tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = TS}>;
-    T A[N * N]   = {};
-    T b[N]       = {};
-    T x[N]       = {};
-    int piv[N]   = {};
+    using Solver =
+        tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
+    T A[N * N] = {};
+    T b[N]     = {};
+    T x[N]     = {};
+    int piv[N] = {};
     return !Solver::template solve<true, true, true>(A, 1, piv, 1, b, x, 1);
 }
 
@@ -463,7 +468,7 @@ static_assert(solve_internal_certificate<double, 6, 3, RightLooking>(103, 1e-9))
 // Trailing tiles.
 static_assert(solve_internal_certificate<double, 5, 3, RightLooking>(104, 1e-9));
 static_assert(solve_internal_certificate<double, 5, 3, LeftLooking>(105, 1e-9));
-// TS = N, TS > N (single partial tile) and the scalar corner.
+// tile_size = N, tile_size > N (single partial tile) and the scalar corner.
 static_assert(solve_internal_certificate<double, 4, 4, RightLooking>(106, 1e-9));
 static_assert(solve_internal_certificate<double, 3, 8, RightLooking>(107, 1e-9));
 static_assert(solve_internal_certificate<double, 1, 1, RightLooking>(108, 1e-9));
@@ -480,7 +485,7 @@ static_assert(canonical_certificate<double, 4, 2>(113, 1e-9));
 static_assert(no_unroll_certificate<double, 5, 3>(114, 1e-9));
 // Singular verdict.
 static_assert(singular_rejected_certificate<double, 4, 2>());
-// The runtime TiledLUpp solver: divisible, trailing, TS > n, scalar corner.
+// The runtime TiledLUpp solver: divisible, trailing, tile_size > n, scalar corner.
 static_assert(dynamic_solve_certificate<double, 6, 3>(120, 1e-9));
 static_assert(dynamic_solve_certificate<double, 5, 3>(121, 1e-9));
 static_assert(dynamic_solve_certificate<double, 3, 8>(122, 1e-9));

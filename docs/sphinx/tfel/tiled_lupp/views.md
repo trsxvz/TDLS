@@ -31,7 +31,7 @@ $$
 structure-of-arrays: element k of system s sits at index 3 k + s.
 
 $$
-A^{(s)} = A + s\,I, \quad b^{(s)} = b + s\,x, \quad
+A^{(1)} = A + I, \quad b^{(1)} = b + x, \quad
 A = \left(\begin{array}{ccc|c}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
@@ -59,8 +59,8 @@ A = \left(\begin{array}{ccc|c}
 0 & 1 & 6 & 1 \\ \hline
 2 & 0 & 1 & 7
 \end{array}\right), \quad
-B = \begin{pmatrix} 14 & 7 & 8 \ 14 & 7 & 3 \ 24 & 8 & 6 \ 33 & 10 & 5 \end{pmatrix}, \quad
-X = \begin{pmatrix} 1 & 1 & 2 \ 2 & 1 & 0 \ 3 & 1 & 1 \ 4 & 1 & 0 \end{pmatrix}
+B = \begin{pmatrix} 14 & 7 & 8 \\ 14 & 7 & 3 \\ 24 & 8 & 6 \\ 33 & 10 & 5 \end{pmatrix}, \quad
+X = \begin{pmatrix} 1 & 1 & 2 \\ 2 & 1 & 0 \\ 3 & 1 & 1 \\ 4 & 1 & 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/view_array.cpp

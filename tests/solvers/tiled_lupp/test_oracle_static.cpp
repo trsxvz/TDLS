@@ -9,7 +9,7 @@
 /// TiledLUppSolverStatic::solve is compared against the independent
 /// reference LU (tests/common/reference_lu.hpp) on a grid of shapes
 /// covering the structural boundaries of the factorization: minimal N,
-/// trailing tiles, TS = N, and dimensions up to 128. Both schedules,
+/// trailing tiles, tile_size = N, and dimensions up to 128. Both schedules,
 /// the three scalar types and both input regimes (default +-0.5 and
 /// out-of-tile stress +-5e-10) are covered. The verdict of every case
 /// is the normwise backward error of both solvers, plus the exact
@@ -33,19 +33,19 @@ namespace {
 /// and with the reference, requires identical verdicts, exactly one
 /// singular report on each side, and both backward errors under the
 /// tolerance.
-/// \tparam T     scalar type
-/// \tparam N     system dimension
-/// \tparam TS    tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] count     number of systems
 /// \param[in] bound     half-width of the entry distribution
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 void anchor_case(const int count, const double bound, const double tolerance,
                  const std::uint64_t seed) {
     using Solver = tdls::TiledLUppSolverStatic<
-        T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+        T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule}>;
     auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
     tdls_tests::zero_column(batch, 0, 0);
 
@@ -84,13 +84,15 @@ void anchor_case(const int count, const double bound, const double tolerance,
 
 } // namespace
 
-/// Emits the RL and LL anchor cases of one (type, N, TS, regime) cell.
-#define TDLS_ANCHOR_CASES(T, N, TS, REGIME, COUNT, BOUND, TOL, SEED)                               \
-    TDLS_TEST_CASE("tiledlupp/oracle/static/" #T "/N=" #N ",TS=" #TS ",RL," REGIME) {              \
-        anchor_case<T, N, TS, tdls::Schedule::RightLooking>(COUNT, BOUND, TOL, SEED);              \
+/// Emits the RL and LL anchor cases of one (type, N, tile_size, regime) cell.
+#define TDLS_ANCHOR_CASES(T, N, TILE_SIZE, REGIME, COUNT, BOUND, TOL, SEED)                        \
+    TDLS_TEST_CASE("tiledlupp/oracle/static/" #T "/N=" #N ",tile_size=" #TILE_SIZE                 \
+                   ",RL," REGIME) {                                                                \
+        anchor_case<T, N, TILE_SIZE, tdls::Schedule::RightLooking>(COUNT, BOUND, TOL, SEED);       \
     }                                                                                              \
-    TDLS_TEST_CASE("tiledlupp/oracle/static/" #T "/N=" #N ",TS=" #TS ",LL," REGIME) {              \
-        anchor_case<T, N, TS, tdls::Schedule::LeftLooking>(COUNT, BOUND, TOL, SEED + 1);           \
+    TDLS_TEST_CASE("tiledlupp/oracle/static/" #T "/N=" #N ",tile_size=" #TILE_SIZE                 \
+                   ",LL," REGIME) {                                                                \
+        anchor_case<T, N, TILE_SIZE, tdls::Schedule::LeftLooking>(COUNT, BOUND, TOL, SEED + 1);    \
     }
 
 // Default regime, double: the whole shape grid.

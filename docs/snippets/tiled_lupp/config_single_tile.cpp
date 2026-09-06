@@ -20,7 +20,7 @@ int main() {
     constexpr auto one_tile = tdls::TiledLUppConfig<double>{.tile_size = 4};
     using Solver            = tdls::TiledLUppSolverStatic<double, 4, one_tile>;
 
-    static_assert(Solver::F == 1 && Solver::TAIL == 0);
+    static_assert(Solver::full_tiles == 1 && Solver::last_tile_tail == 0);
 
     int piv[4];
 

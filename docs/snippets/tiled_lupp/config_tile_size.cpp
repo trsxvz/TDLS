@@ -31,8 +31,8 @@ int main() {
     using Tiles4 = tdls::TiledLUppSolverStatic<double, 6, tiles_of_4>;
     using Tiles3 = tdls::TiledLUppSolverStatic<double, 6, tiles_of_3>;
 
-    static_assert(Tiles4::F == 1 && Tiles4::TAIL == 2);
-    static_assert(Tiles3::F == 2 && Tiles3::TAIL == 0);
+    static_assert(Tiles4::full_tiles == 1 && Tiles4::last_tile_tail == 2);
+    static_assert(Tiles3::full_tiles == 2 && Tiles3::last_tile_tail == 0);
 
     int piv[6];
 

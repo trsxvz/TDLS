@@ -16,10 +16,10 @@ A = \left(\begin{array}{cc|cc}
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
 \end{array}\right), \quad
-b_1 = \begin{pmatrix} 14 \ 14 \ 24 \ 33 \end{pmatrix}, \quad
-b_2 = \begin{pmatrix} 7 \ 7 \ 8 \ 10 \end{pmatrix}, \quad
-x_1 = \begin{pmatrix} 1 \ 2 \ 3 \ 4 \end{pmatrix}, \quad
-x_2 = \begin{pmatrix} 1 \ 1 \ 1 \ 1 \end{pmatrix}
+b_1 = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+b_2 = \begin{pmatrix} 7 \\ 7 \\ 8 \\ 10 \end{pmatrix}, \quad
+x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
+x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/static_factorize_substitute.cpp
@@ -102,7 +102,7 @@ A x = e_2, \quad A = \left(\begin{array}{cc|cc}
 1 & 5 & 1 & 0 \\ \hline
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \ 0 \ 1 \ 0 \end{pmatrix}
+\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \\ 0 \\ 1 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/static_canonical.cpp
@@ -227,15 +227,15 @@ the last pass taking the remainder.
 $$
 A X = B, \quad
 B = \left(\begin{array}{cc|cc|c}
-14 & 7 & 8 & 3 & 4 \
-14 & 7 & 3 & 5 & 1 \
-24 & 8 & 6 & 2 & 0 \
+14 & 7 & 8 & 3 & 4 \\
+14 & 7 & 3 & 5 & 1 \\
+24 & 8 & 6 & 2 & 0 \\
 33 & 10 & 5 & 7 & 2
 \end{array}\right), \quad
 X = \left(\begin{array}{cc|cc|c}
-1 & 1 & 2 & 0 & 1 \
-2 & 1 & 0 & 1 & 0 \
-3 & 1 & 1 & 0 & 0 \
+1 & 1 & 2 & 0 & 1 \\
+2 & 1 & 0 & 1 & 0 \\
+3 & 1 & 1 & 0 & 0 \\
 4 & 1 & 0 & 1 & 0
 \end{array}\right)
 $$
@@ -255,12 +255,12 @@ counter reports the column.
 
 $$
 A = \left(\begin{array}{cc|cc}
-\textcolor{red}{10^{-12}} & 1 & 0 & 2 \
-\textcolor{red}{2 \cdot 10^{-12}} & 5 & 1 & 0 \ \hline
-\textcolor{blue}{3} & 1 & 6 & 1 \
+\textcolor{red}{10^{-12}} & 1 & 0 & 2 \\
+\textcolor{red}{2 \cdot 10^{-12}} & 5 & 1 & 0 \\ \hline
+\textcolor{blue}{3} & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
 \end{array}\right), \quad
-b = \begin{pmatrix} 10 + 10^{-12} \ 13 + 2 \cdot 10^{-12} \ 27 \ 33 \end{pmatrix}, \quad
+b = \begin{pmatrix} 10 + 10^{-12} \\ 13 + 2 \cdot 10^{-12} \\ 27 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
@@ -277,9 +277,9 @@ A zero column: no pivot reaches the floor, the call returns false.
 
 $$
 A = \left(\begin{array}{cc|cc}
-4 & 1 & \textcolor{red}{0} & 2 \
-1 & 5 & \textcolor{red}{0} & 0 \ \hline
-0 & 1 & \textcolor{red}{0} & 1 \
+4 & 1 & \textcolor{red}{0} & 2 \\
+1 & 5 & \textcolor{red}{0} & 0 \\ \hline
+0 & 1 & \textcolor{red}{0} & 1 \\
 2 & 0 & \textcolor{red}{0} & 7
 \end{array}\right), \quad b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}
 $$
@@ -327,8 +327,8 @@ A = \left(\begin{array}{cc|cc}
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
 \end{array}\right), \quad
-c = \begin{pmatrix} 15 \ 18 \ 33 \ 49 \end{pmatrix}, \quad
-x^\star = \begin{pmatrix} 1 \ 2 \ 3 \ 4 \end{pmatrix}
+c = \begin{pmatrix} 15 \\ 18 \\ 33 \\ 49 \end{pmatrix}, \quad
+x^\star = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/static_newton.cpp

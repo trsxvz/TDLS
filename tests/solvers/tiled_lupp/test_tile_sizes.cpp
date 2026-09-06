@@ -10,8 +10,8 @@
 /// sizes cannot be compared bitwise to each other. Each tile size is
 /// therefore anchored on the backward error against the reference LU,
 /// and bridged bitwise against the dynamic TiledLUpp solver at equal shape. The
-/// sweeps include divisible grids, trailing tiles, the TS = N corner,
-/// unit tiles (TS = 1, an untiled scalar elimination) and tile sizes
+/// sweeps include divisible grids, trailing tiles, the tile_size = N corner,
+/// unit tiles (tile_size = 1, an untiled scalar elimination) and tile sizes
 /// exceeding the dimension (a single partial tile).
 
 #include <algorithm>
@@ -26,19 +26,19 @@
 
 namespace {
 
-/// \brief Anchors one (N, TS) cell on the backward error and bridges it
+/// \brief Anchors one (N, tile_size) cell on the backward error and bridges it
 /// bitwise against the dynamic TiledLUpp solver.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] count     number of systems
 /// \param[in] bound     half-width of the entry distribution
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 void tile_size_case(const int count, const double bound, const double tolerance,
                     const std::uint64_t seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
     using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
@@ -71,13 +71,13 @@ void tile_size_case(const int count, const double bound, const double tolerance,
 
 } // namespace
 
-/// Emits the tile-size case of one (N, TS) cell.
-#define TDLS_TILE_SIZE_CASE(N, TS, COUNT, SEED)                                                    \
-    TDLS_TEST_CASE("tiledlupp/tile-sizes/double/N=" #N ",TS=" #TS ",default") {                    \
-        tile_size_case<double, N, TS>(COUNT, 0.5, 1e-9, SEED);                                     \
+/// Emits the tile-size case of one (N, tile_size) cell.
+#define TDLS_TILE_SIZE_CASE(N, TILE_SIZE, COUNT, SEED)                                             \
+    TDLS_TEST_CASE("tiledlupp/tile-sizes/double/N=" #N ",tile_size=" #TILE_SIZE ",default") {      \
+        tile_size_case<double, N, TILE_SIZE>(COUNT, 0.5, 1e-9, SEED);                              \
     }
 
-// Divisible grid: every divisor tile size of N = 12, including TS = N.
+// Divisible grid: every divisor tile size of N = 12, including tile_size = N.
 TDLS_TILE_SIZE_CASE(12, 2, 200, 170122)
 TDLS_TILE_SIZE_CASE(12, 3, 200, 170123)
 TDLS_TILE_SIZE_CASE(12, 4, 200, 170124)
@@ -92,7 +92,7 @@ TDLS_TILE_SIZE_CASE(13, 4, 200, 170234)
 TDLS_TILE_SIZE_CASE(13, 5, 200, 170235)
 TDLS_TILE_SIZE_CASE(13, 6, 200, 170236)
 TDLS_TILE_SIZE_CASE(13, 13, 200, 170243)
-// Unit tiles: TS = 1 degenerates into an untiled scalar elimination.
+// Unit tiles: tile_size = 1 degenerates into an untiled scalar elimination.
 TDLS_TILE_SIZE_CASE(12, 1, 200, 170121)
 TDLS_TILE_SIZE_CASE(13, 1, 200, 170231)
 // Tile size exceeding the dimension: a single partial tile (the

@@ -46,13 +46,13 @@ enum class SolvePath {
 /// combination.
 /// \tparam T               scalar type
 /// \tparam N               system dimension
-/// \tparam TS              tile size
-/// \tparam Schedule           elimination schedule
+/// \tparam tile_size       tile size
+/// \tparam Schedule        elimination schedule
 /// \tparam internal_rhs    residency of the right-hand side and solution
 /// \tparam internal_piv    residency of the pivot
 /// \tparam internal_matrix residency of the matrix
-template<typename T, int N, int TS, tdls::Schedule Schedule, bool internal_rhs, bool internal_piv,
-         bool internal_matrix>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule, bool internal_rhs,
+         bool internal_piv, bool internal_matrix>
 struct ResidencyRunner {
     static_assert(N <= 32, "the runner keeps internal storage on the stack");
 
@@ -74,7 +74,7 @@ struct ResidencyRunner {
     [[nodiscard]] static bool run(const T* A0, const T* b0, const SolvePath path, T* A_out,
                                   int* piv_out, T* x_out, int& oot) {
         using Solver = tdls::TiledLUppSolverStatic<
-            T, N, tdls::TiledLUppConfig<T>{.tile_size = TS, .schedule = Schedule}>;
+            T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule}>;
 
         // Matrix storage.
         [[maybe_unused]] T A_local[N * N];

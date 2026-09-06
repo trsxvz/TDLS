@@ -15,10 +15,10 @@ A = \left(\begin{array}{ccc|c}
 0 & 1 & 6 & 1 \\ \hline
 2 & 0 & 1 & 7
 \end{array}\right), \quad
-b_1 = \begin{pmatrix} 14 \ 14 \ 24 \ 33 \end{pmatrix}, \quad
-b_2 = \begin{pmatrix} 7 \ 7 \ 8 \ 10 \end{pmatrix}, \quad
-x_1 = \begin{pmatrix} 1 \ 2 \ 3 \ 4 \end{pmatrix}, \quad
-x_2 = \begin{pmatrix} 1 \ 1 \ 1 \ 1 \end{pmatrix}
+b_1 = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+b_2 = \begin{pmatrix} 7 \\ 7 \\ 8 \\ 10 \end{pmatrix}, \quad
+x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
+x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/fixed_factorize_substitute.cpp
@@ -98,7 +98,7 @@ A x = e_2, \quad A = \left(\begin{array}{ccc|c}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\ \hline
 2 & 0 & 1 & 7
-\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \ 0 \ 1 \ 0 \end{pmatrix}
+\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \\ 0 \\ 1 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/fixed_canonical.cpp
@@ -138,12 +138,12 @@ are tiny; the search below the tile takes row 3, in blue.
 
 $$
 A = \left(\begin{array}{ccc|c}
-\textcolor{red}{10^{-12}} & 1 & 0 & 2 \
-\textcolor{red}{2 \cdot 10^{-12}} & 5 & 1 & 0 \
-\textcolor{red}{3 \cdot 10^{-12}} & 1 & 6 & 1 \ \hline
+\textcolor{red}{10^{-12}} & 1 & 0 & 2 \\
+\textcolor{red}{2 \cdot 10^{-12}} & 5 & 1 & 0 \\
+\textcolor{red}{3 \cdot 10^{-12}} & 1 & 6 & 1 \\ \hline
 \textcolor{blue}{2} & 0 & 1 & 7
 \end{array}\right), \quad
-b = \begin{pmatrix} 10 + 10^{-12} \ 13 + 2 \cdot 10^{-12} \ 24 + 3 \cdot 10^{-12} \ 33 \end{pmatrix}, \quad
+b = \begin{pmatrix} 10 + 10^{-12} \\ 13 + 2 \cdot 10^{-12} \\ 24 + 3 \cdot 10^{-12} \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 

@@ -11,7 +11,7 @@
 /// product of the residency combinations (8), the entry paths (solve,
 /// factorize + substitute, solve_inplace) and both schedules, on the two
 /// most structurally rich shapes: the nominal divisible grid (N = 12,
-/// TS = 3) and a trailing-tile grid (N = 13, TS = 6). Every variant must
+/// tile_size = 3) and a trailing-tile grid (N = 13, tile_size = 6). Every variant must
 /// reproduce the fully external combined baseline bitwise.
 
 #include <cstdint>
@@ -27,10 +27,10 @@ namespace {
 
 /// \brief Runs one (residency, path) variant on one system and compares
 /// it bitwise to the baseline outputs.
-/// \tparam T   scalar type
-/// \tparam N   system dimension
-/// \tparam TS  tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T               scalar type
+/// \tparam N               system dimension
+/// \tparam tile_size       tile size
+/// \tparam Schedule        elimination schedule
 /// \tparam internal_rhs    residency of the right-hand side under test
 /// \tparam internal_piv    residency of the pivot under test
 /// \tparam internal_matrix residency of the matrix under test
@@ -42,12 +42,12 @@ namespace {
 /// \param[in] piv_ref  baseline pivot
 /// \param[in] x_ref    baseline solution
 /// \param[in] oot_ref  baseline out-of-tile counter
-template<typename T, int N, int TS, tdls::Schedule Schedule, bool internal_rhs, bool internal_piv,
-         bool internal_matrix>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule, bool internal_rhs,
+         bool internal_piv, bool internal_matrix>
 void check_variant(const T* A0, const T* b0, const tdls_tests::SolvePath path, const bool ok_ref,
                    const T* A_ref, const int* piv_ref, const T* x_ref, const int oot_ref) {
-    using Runner = tdls_tests::ResidencyRunner<T, N, TS, Schedule, internal_rhs, internal_piv,
-                                               internal_matrix>;
+    using Runner = tdls_tests::ResidencyRunner<T, N, tile_size, Schedule, internal_rhs,
+                                               internal_piv, internal_matrix>;
     T A[N * N], x[N];
     int piv[N], oot = 0;
     const bool ok = Runner::run(A0, b0, path, A, piv, x, oot);
@@ -61,16 +61,16 @@ void check_variant(const T* A0, const T* b0, const tdls_tests::SolvePath path, c
 
 /// \brief Runs the full residency x path cross product of one shape and
 /// schedule against the fully external combined baseline.
-/// \tparam T     scalar type
-/// \tparam N     system dimension
-/// \tparam TS    tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 void cross_case(const int count, const double bound, const std::uint64_t seed) {
-    using Baseline   = tdls_tests::ResidencyRunner<T, N, TS, Schedule, false, false, false>;
+    using Baseline   = tdls_tests::ResidencyRunner<T, N, tile_size, Schedule, false, false, false>;
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
 
     const tdls_tests::SolvePath paths[] = {tdls_tests::SolvePath::combined,
@@ -88,22 +88,22 @@ void cross_case(const int count, const double bound, const std::uint64_t seed) {
         for (const auto path : paths) {
             const T* A0 = batch.matrix(s);
             const T* b0 = batch.rhs(s);
-            check_variant<T, N, TS, Schedule, false, false, false>(A0, b0, path, ok_ref, A_ref,
-                                                                   piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, false, false, true>(A0, b0, path, ok_ref, A_ref,
-                                                                  piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, false, true, false>(A0, b0, path, ok_ref, A_ref,
-                                                                  piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, false, true, true>(A0, b0, path, ok_ref, A_ref,
-                                                                 piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, true, false, false>(A0, b0, path, ok_ref, A_ref,
-                                                                  piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, true, false, true>(A0, b0, path, ok_ref, A_ref,
-                                                                 piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, true, true, false>(A0, b0, path, ok_ref, A_ref,
-                                                                 piv_ref, x_ref, oot_ref);
-            check_variant<T, N, TS, Schedule, true, true, true>(A0, b0, path, ok_ref, A_ref,
-                                                                piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, false, false, false>(
+                A0, b0, path, ok_ref, A_ref, piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, false, false, true>(
+                A0, b0, path, ok_ref, A_ref, piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, false, true, false>(
+                A0, b0, path, ok_ref, A_ref, piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, false, true, true>(A0, b0, path, ok_ref, A_ref,
+                                                                        piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, true, false, false>(
+                A0, b0, path, ok_ref, A_ref, piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, true, false, true>(A0, b0, path, ok_ref, A_ref,
+                                                                        piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, true, true, false>(A0, b0, path, ok_ref, A_ref,
+                                                                        piv_ref, x_ref, oot_ref);
+            check_variant<T, N, tile_size, Schedule, true, true, true>(A0, b0, path, ok_ref, A_ref,
+                                                                       piv_ref, x_ref, oot_ref);
         }
     }
     // Floor: every generated system must have been solved.
@@ -112,22 +112,22 @@ void cross_case(const int count, const double bound, const std::uint64_t seed) {
 
 } // namespace
 
-TDLS_TEST_CASE("tiledlupp/cross-full/double/N=12,TS=3,RL,default") {
+TDLS_TEST_CASE("tiledlupp/cross-full/double/N=12,tile_size=3,RL,default") {
     cross_case<double, 12, 3, tdls::Schedule::RightLooking>(60, 0.5, 220100);
 }
-TDLS_TEST_CASE("tiledlupp/cross-full/double/N=12,TS=3,RL,stress") {
+TDLS_TEST_CASE("tiledlupp/cross-full/double/N=12,tile_size=3,RL,stress") {
     cross_case<double, 12, 3, tdls::Schedule::RightLooking>(60, 5e-10, 220200);
 }
-TDLS_TEST_CASE("tiledlupp/cross-full/double/N=12,TS=3,LL,default") {
+TDLS_TEST_CASE("tiledlupp/cross-full/double/N=12,tile_size=3,LL,default") {
     cross_case<double, 12, 3, tdls::Schedule::LeftLooking>(60, 0.5, 220300);
 }
-TDLS_TEST_CASE("tiledlupp/cross-full/double/N=13,TS=6,RL,default") {
+TDLS_TEST_CASE("tiledlupp/cross-full/double/N=13,tile_size=6,RL,default") {
     cross_case<double, 13, 6, tdls::Schedule::RightLooking>(60, 0.5, 220400);
 }
-TDLS_TEST_CASE("tiledlupp/cross-full/double/N=13,TS=6,LL,default") {
+TDLS_TEST_CASE("tiledlupp/cross-full/double/N=13,tile_size=6,LL,default") {
     cross_case<double, 13, 6, tdls::Schedule::LeftLooking>(60, 0.5, 220500);
 }
-TDLS_TEST_CASE("tiledlupp/cross-full/double/N=13,TS=6,LL,stress") {
+TDLS_TEST_CASE("tiledlupp/cross-full/double/N=13,tile_size=6,LL,stress") {
     cross_case<double, 13, 6, tdls::Schedule::LeftLooking>(60, 5e-10, 220600);
 }
 

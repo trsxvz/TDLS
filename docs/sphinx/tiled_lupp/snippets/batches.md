@@ -87,7 +87,7 @@ One iteration per system of an SoA batch, in a function shown whole.
 Element k of system s sits at:
 
 $$
-\text{index}(s, k) = 3\,k + s
+\text{index}(s, k) = \text{count} \cdot k + s
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/batch_openmp.cpp

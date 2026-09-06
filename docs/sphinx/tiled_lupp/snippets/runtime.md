@@ -18,10 +18,10 @@ A = \left(\begin{array}{cc|cc|c}
 0 & 0 & 1 & 8 & 1 \\ \hline
 1 & 0 & 0 & 1 & 9
 \end{array}\right), \quad
-b_1 = \begin{pmatrix} 12 \ 16 \ 27 \ 40 \ 50 \end{pmatrix}, \quad
-b_2 = \begin{pmatrix} 7 \ 8 \ 9 \ 10 \ 11 \end{pmatrix}, \quad
-x_1 = \begin{pmatrix} 1 \ 2 \ 3 \ 4 \ 5 \end{pmatrix}, \quad
-x_2 = \begin{pmatrix} 1 \ 1 \ 1 \ 1 \ 1 \end{pmatrix}
+b_1 = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
+b_2 = \begin{pmatrix} 7 \\ 8 \\ 9 \\ 10 \\ 11 \end{pmatrix}, \quad
+x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}, \quad
+x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/dynamic_factorize_substitute.cpp
@@ -106,7 +106,7 @@ A x = e_2, \quad A = \left(\begin{array}{cc|cc|c}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\ \hline
 1 & 0 & 0 & 1 & 9
-\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \ 0 \ 1 \ 0 \ 0 \end{pmatrix}
+\end{array}\right), \quad e_2 = \begin{pmatrix} 0 \\ 0 \\ 1 \\ 0 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/dynamic_canonical.cpp
@@ -235,17 +235,17 @@ runtime argument, the pass width is a template argument.
 $$
 A X = B, \quad
 B = \left(\begin{array}{cc|cc|c}
-12 & 7 & 6 & 1 & 10 \
-16 & 8 & 2 & 6 & 2 \
-27 & 9 & 7 & 2 & 0 \
-40 & 10 & 2 & 8 & 0 \
+12 & 7 & 6 & 1 & 10 \\
+16 & 8 & 2 & 6 & 2 \\
+27 & 9 & 7 & 2 & 0 \\
+40 & 10 & 2 & 8 & 0 \\
 50 & 11 & 10 & 1 & 2
 \end{array}\right), \quad
 X = \left(\begin{array}{cc|cc|c}
-1 & 1 & 1 & 0 & 2 \
-2 & 1 & 0 & 1 & 0 \
-3 & 1 & 1 & 0 & 0 \
-4 & 1 & 0 & 1 & 0 \
+1 & 1 & 1 & 0 & 2 \\
+2 & 1 & 0 & 1 & 0 \\
+3 & 1 & 1 & 0 & 0 \\
+4 & 1 & 0 & 1 & 0 \\
 5 & 1 & 1 & 0 & 0
 \end{array}\right)
 $$
@@ -265,13 +265,13 @@ counter reports the column.
 
 $$
 A = \left(\begin{array}{cc|cc|c}
-\textcolor{red}{10^{-12}} & 1 & 0 & 0 & 1 \
-\textcolor{red}{2 \cdot 10^{-12}} & 6 & 1 & 0 & 0 \ \hline
-\textcolor{blue}{3} & 1 & 7 & 1 & 0 \
-0 & 0 & 1 & 8 & 1 \ \hline
+\textcolor{red}{10^{-12}} & 1 & 0 & 0 & 1 \\
+\textcolor{red}{2 \cdot 10^{-12}} & 6 & 1 & 0 & 0 \\ \hline
+\textcolor{blue}{3} & 1 & 7 & 1 & 0 \\
+0 & 0 & 1 & 8 & 1 \\ \hline
 1 & 0 & 0 & 1 & 9
 \end{array}\right), \quad
-b = \begin{pmatrix} 7 + 10^{-12} \ 15 + 2 \cdot 10^{-12} \ 30 \ 40 \ 50 \end{pmatrix}, \quad
+b = \begin{pmatrix} 7 + 10^{-12} \\ 15 + 2 \cdot 10^{-12} \\ 30 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
 
@@ -285,7 +285,7 @@ $$
 ## Tile helpers
 
 The grid of a runtime dimension, read from the solver: the number of
-tiles per dimension and the extent of a tile.
+tiles per dimension and the size of the tile at a position.
 
 $$
 A = \left(\begin{array}{cc|cc|c}
@@ -310,12 +310,12 @@ A tile size above the dimension: the grid is a single partial tile.
 
 $$
 A = \begin{pmatrix}
-3 & 1 & 0 \
-1 & 4 & 1 \
+3 & 1 & 0 \\
+1 & 4 & 1 \\
 0 & 1 & 5
 \end{pmatrix}, \quad
-b = \begin{pmatrix} 5 \ 12 \ 17 \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \ 2 \ 3 \end{pmatrix}
+b = \begin{pmatrix} 5 \\ 12 \\ 17 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/dynamic_tile_larger.cpp

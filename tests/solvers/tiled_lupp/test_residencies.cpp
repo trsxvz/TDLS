@@ -27,20 +27,20 @@ namespace {
 
 /// \brief Compares one residency combination to the fully external
 /// baseline over a reproducible batch, on the combined solve path.
-/// \tparam T   scalar type
-/// \tparam N   system dimension
-/// \tparam TS  tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T               scalar type
+/// \tparam N               system dimension
+/// \tparam tile_size       tile size
+/// \tparam Schedule        elimination schedule
 /// \tparam internal_rhs    residency of the right-hand side under test
 /// \tparam internal_piv    residency of the pivot under test
 /// \tparam internal_matrix residency of the matrix under test
 /// \param[in] batch input systems
-template<typename T, int N, int TS, tdls::Schedule Schedule, bool internal_rhs, bool internal_piv,
-         bool internal_matrix>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule, bool internal_rhs,
+         bool internal_piv, bool internal_matrix>
 void compare_to_baseline(const tdls_tests::SystemBatch<T>& batch) {
-    using Baseline = tdls_tests::ResidencyRunner<T, N, TS, Schedule, false, false, false>;
-    using Tested   = tdls_tests::ResidencyRunner<T, N, TS, Schedule, internal_rhs, internal_piv,
-                                                 internal_matrix>;
+    using Baseline = tdls_tests::ResidencyRunner<T, N, tile_size, Schedule, false, false, false>;
+    using Tested   = tdls_tests::ResidencyRunner<T, N, tile_size, Schedule, internal_rhs,
+                                                 internal_piv, internal_matrix>;
 
     std::vector<T> A_ref(N * N), A_tst(N * N), x_ref(N), x_tst(N);
     int piv_ref[N], piv_tst[N];
@@ -66,46 +66,46 @@ void compare_to_baseline(const tdls_tests::SystemBatch<T>& batch) {
 }
 
 /// \brief Runs the seven non-baseline combinations against the baseline.
-/// \tparam T     scalar type
-/// \tparam N     system dimension
-/// \tparam TS    tile size
-/// \tparam Schedule elimination schedule
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
+/// \tparam Schedule  elimination schedule
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS, tdls::Schedule Schedule>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule>
 void all_combos_case(const int count, const double bound, const std::uint64_t seed) {
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
-    compare_to_baseline<T, N, TS, Schedule, false, false, true>(batch);
-    compare_to_baseline<T, N, TS, Schedule, false, true, false>(batch);
-    compare_to_baseline<T, N, TS, Schedule, false, true, true>(batch);
-    compare_to_baseline<T, N, TS, Schedule, true, false, false>(batch);
-    compare_to_baseline<T, N, TS, Schedule, true, false, true>(batch);
-    compare_to_baseline<T, N, TS, Schedule, true, true, false>(batch);
-    compare_to_baseline<T, N, TS, Schedule, true, true, true>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, false, false, true>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, false, true, false>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, false, true, true>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, true, false, false>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, true, false, true>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, true, true, false>(batch);
+    compare_to_baseline<T, N, tile_size, Schedule, true, true, true>(batch);
 }
 
 } // namespace
 
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=12,TS=3,RL,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=12,tile_size=3,RL,default") {
     all_combos_case<double, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 130100);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=12,TS=3,RL,stress") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=12,tile_size=3,RL,stress") {
     all_combos_case<double, 12, 3, tdls::Schedule::RightLooking>(200, 5e-10, 130200);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=12,TS=3,LL,stress") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=12,tile_size=3,LL,stress") {
     all_combos_case<double, 12, 3, tdls::Schedule::LeftLooking>(200, 5e-10, 130300);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=13,TS=6,RL,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=13,tile_size=6,RL,default") {
     all_combos_case<double, 13, 6, tdls::Schedule::RightLooking>(200, 0.5, 130400);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=13,TS=6,LL,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=13,tile_size=6,LL,default") {
     all_combos_case<double, 13, 6, tdls::Schedule::LeftLooking>(200, 0.5, 130500);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=7,TS=4,RL,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/double/N=7,tile_size=4,RL,default") {
     all_combos_case<double, 7, 4, tdls::Schedule::RightLooking>(200, 0.5, 130600);
 }
-TDLS_TEST_CASE("tiledlupp/bridge/residencies/float/N=12,TS=3,RL,default") {
+TDLS_TEST_CASE("tiledlupp/bridge/residencies/float/N=12,tile_size=3,RL,default") {
     all_combos_case<float, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 130700);
 }
 

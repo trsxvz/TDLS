@@ -23,8 +23,9 @@ int main() {
         tdls::TiledLUppConfig<double>{.tile_size = 4, .schedule = tdls::Schedule::LeftLooking};
     using Solver = tdls::TiledLUppSolverStatic<double, 6, config>;
 
-    // the tile grid: tile size, full tiles per dimension, extent of the trailing tile
-    static_assert(Solver::TS == 4 && Solver::F == 1 && Solver::TAIL == 2);
+    // the tile grid: tile size, full tiles per dimension, tail of the last tile, tile count
+    static_assert(Solver::tile_size == 4 && Solver::full_tiles == 1 &&
+                  Solver::last_tile_tail == 2 && Solver::num_tiles == 2);
 
     // the knobs, read back from the solver type
     static_assert(Solver::schedule == tdls::Schedule::LeftLooking);

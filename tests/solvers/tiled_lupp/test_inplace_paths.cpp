@@ -30,15 +30,15 @@ namespace {
 /// \brief On one reproducible batch: factors each system once, then
 /// checks substitute_inplace against substitute on the same
 /// factorization, and the dynamic in-place path against the static one.
-/// \tparam T  scalar type
-/// \tparam N  system dimension
-/// \tparam TS tile size
+/// \tparam T         scalar type
+/// \tparam N         system dimension
+/// \tparam tile_size tile size
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int TS>
+template<typename T, int N, int tile_size>
 void inplace_case(const int count, const double bound, const std::uint64_t seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = TS};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
     using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
@@ -76,10 +76,10 @@ void inplace_case(const int count, const double bound, const std::uint64_t seed)
 
 } // namespace
 
-/// Emits the in-place bridge case of one (N, TS, regime) cell.
-#define TDLS_INPLACE_CASE(N, TS, REGIME, COUNT, BOUND, SEED)                                       \
-    TDLS_TEST_CASE("tiledlupp/bridge/inplace/double/N=" #N ",TS=" #TS "," REGIME) {                \
-        inplace_case<double, N, TS>(COUNT, BOUND, SEED);                                           \
+/// Emits the in-place bridge case of one (N, tile_size, regime) cell.
+#define TDLS_INPLACE_CASE(N, TILE_SIZE, REGIME, COUNT, BOUND, SEED)                                \
+    TDLS_TEST_CASE("tiledlupp/bridge/inplace/double/N=" #N ",tile_size=" #TILE_SIZE "," REGIME) {  \
+        inplace_case<double, N, TILE_SIZE>(COUNT, BOUND, SEED);                                    \
     }
 
 // The 32-bit mask domain and its upper boundary.
