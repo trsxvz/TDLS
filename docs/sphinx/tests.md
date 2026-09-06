@@ -47,7 +47,7 @@ that the compile-time contracts must reject. Each passes only when the
 compiler emits the exact diagnostic of its contract, so a silently
 dropped contract turns the suite red.
 
-## Example programs
+## Examples as tests
 
 The example programs double as living documentation and as tests:
 each one is a self-checking program executed by ctest under the
