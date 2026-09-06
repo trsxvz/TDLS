@@ -8,3 +8,5 @@ authors:
     email: tristan.chenaille@cea.fr
 repository-code: "https://github.com/trsxvz/TDLS"
 license: BSD-3-Clause
+version: 0.1.0
+date-released: "2026-09-07"
