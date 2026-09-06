@@ -7,14 +7,15 @@
 {%- set _logo_url = logo_url|default(pathto('_static/' + (logo or ""), 1)) %}
 {%- set _root_doc = root_doc|default(master_doc) %}
 <a href="{{ pathto(_root_doc) }}"{% if not theme_logo_only %} class="icon icon-home"{% endif %}>
-  {% if not theme_logo_only %}{{ project }}{% endif %}
+  {% if not theme_logo_only %}{{ project }} documentation{% endif %}
   {%- if logo or logo_url %}
   <img src="{{ _logo_url }}" class="logo" alt="{{ _('Logo') }}"/>
   {%- endif %}
 </a>
 <div class="switch-menus">
   <div class="version-switch">
-    <select id="tdls-version-switch" aria-label="Version"
+    <label for="tdls-version-switch">Version:</label>
+    <select id="tdls-version-switch"
             data-content-root="{{ pathto('', 1) }}" data-page="{{ pagename }}.html">
       {%- for v in docs_versions %}
       <option value="{{ v }}"{% if v == docs_version %} selected{% endif %}>{{ v }}</option>
