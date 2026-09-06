@@ -61,6 +61,10 @@ option(TDLS_BUILD_SYCL_EXAMPLES "Build the SYCL examples" OFF)
 # compiler and its flags (see examples/tiled_lupp/stdpar) and are
 # opt-in on the same terms.
 option(TDLS_BUILD_STDPAR_DEVICE_EXAMPLES "Build the parallel STL examples for a GPU" OFF)
+# The TFEL snippets of the documentation call the adaptors on real
+# tfel::math objects; TFEL is found by find_package(TFELMath) and
+# becomes required. The library itself stays TFEL-free.
+option(TDLS_BUILD_TFEL_SNIPPETS "Build the TFEL snippets of the documentation" OFF)
 
 if(TDLS_BUILD_TESTS OR TDLS_BUILD_EXAMPLES)
     enable_language(CXX)
@@ -81,6 +85,7 @@ if(TDLS_BUILD_TESTS)
 endif()
 if(TDLS_BUILD_EXAMPLES)
     add_subdirectory(examples)
+    add_subdirectory(docs/snippets)
 endif()
 
 # Installation and packaging. Header-only, so this installs the headers,

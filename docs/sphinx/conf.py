@@ -14,7 +14,7 @@ release = re.search(r'TDLS_VERSION_STRING "([0-9.]+)"', _version_header.read_tex
 version = release
 
 extensions = ["myst_parser"]
-myst_enable_extensions = ["colon_fence"]
+myst_enable_extensions = ["colon_fence", "dollarmath"]
 
 html_theme = "sphinx_rtd_theme"
 html_title = "TDLS"

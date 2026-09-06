@@ -82,6 +82,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target check   # build and run everything
 ctest --test-dir build -L solvers    # rerun the library test suites
 ctest --test-dir build -L examples   # rerun the self-checking examples
+ctest --test-dir build -L snippets   # rerun the documentation snippets
 ```
 
 Tests and examples stay out of the default `all` target, as in Eigen
@@ -101,7 +102,7 @@ the GPU switches always default to OFF):
 | Option | Effect |
 |--------|--------|
 | `TDLS_BUILD_TESTS` | build the test suites |
-| `TDLS_BUILD_EXAMPLES` | build the examples |
+| `TDLS_BUILD_EXAMPLES` | build the examples and the documentation snippets |
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
 | `TDLS_TESTS_OPTIMIZATION` | optimization flag of the test suites in the Release configuration (`-O1` by default) |
 | `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
@@ -114,6 +115,7 @@ the GPU switches always default to OFF):
 | `TDLS_SYCL_FLAGS` | SYCL flags of that compiler (`-fsycl` by default; add `-fsycl-targets=...` for AOT) |
 | `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` | build the parallel STL examples for a GPU (an offloading compiler becomes required) |
 | `TDLS_STDPAR_DEVICE_FLAGS` | offload flags of that compiler (`--acpp-stdpar`, `-stdpar=gpu`, `--hipstdpar` ...) |
+| `TDLS_BUILD_TFEL_SNIPPETS` | build the TFEL snippets of the documentation (TFEL becomes required, found by `find_package(TFELMath)`) |
 
 ## Documentation
 

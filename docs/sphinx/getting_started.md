@@ -49,6 +49,12 @@ Finer-grained headers exist for the individual pieces
 (`tdls/solvers/tiled_lupp/solver_static.hpp`,
 `tdls/solvers/tiled_lupp/solver_dynamic.hpp`, `tdls/tfel/adaptors.hpp`).
 
+The headers compile as plain C++ under every programming model. Under
+CUDA and HIP the entry points decorate themselves: nothing has to be
+defined. The version is exposed by `TDLS_VERSION_MAJOR`,
+`TDLS_VERSION_MINOR`, `TDLS_VERSION_PATCH`, `TDLS_VERSION_STRING` and
+the comparable `TDLS_VERSION`.
+
 ## Building the tests and examples
 
 Both are ordinary CMake targets, enabled by default when TDLS is the
@@ -61,6 +67,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target check   # build and run everything
 ctest --test-dir build -L solvers    # rerun the library test suites
 ctest --test-dir build -L examples   # rerun the self-checking examples
+ctest --test-dir build -L snippets   # rerun the documentation snippets
 ```
 
 Tests and examples stay out of the default `all` target, as in Eigen
@@ -87,19 +94,60 @@ device is present. The parallel STL examples run on a GPU with
 compiler flags, stated in `TDLS_STDPAR_DEVICE_FLAGS` (`--acpp-stdpar`
 with AdaptiveCpp, `-stdpar=gpu` with nvc++, `--hipstdpar` with the
 ROCm clang).
+The TFEL snippets of the documentation are opt-in through
+`TDLS_BUILD_TFEL_SNIPPETS`; TFEL is then found by
+`find_package(TFELMath)`.
 
-## Portability model
+## A first solve
 
-The headers decorate every entry point with a small set of macros
-(`TDLS_HOST_DEVICE`, `TDLS_FORCEINLINE`, `TDLS_RESTRICT`,
-`TDLS_UNROLL_FORCE`) that resolve to the right annotation for the
-compiler at hand: `__host__ __device__` under CUDA, the equivalent
-attributes under HIP (no HIP header needs to be included first), plain
-host code elsewhere. Single-source models (SYCL, stdpar, OpenMP
-target, Kokkos through its backend compiler) need no decoration at
-all. Every macro is `#ifndef`-guarded, so any of them can be
-overridden from the command line without editing the headers.
+TiledLUpp is the most general factorization available today, so it
+makes the first call. The configuration is the default one.
 
-Every entry point is also `constexpr` and `noexcept`: a solve on
-caller-local arrays can run during constant evaluation. The test suite
-uses this as a certificate against undefined behaviour.
+```cpp
+#include <tdls/tdls.hpp>
+
+// dimension 9, default configuration
+using Solver = tdls::TiledLUppSolverStatic<double, 9>;
+
+double M[9 * 9] = /* the matrix, row-major */;
+double y[9]     = /* the right-hand side */;
+int piv[9];
+
+// every operand is a caller-local array: the residency booleans are
+// true and the strides, the 1s, are ignored at compile time
+const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
+// M holds the factors and y the solution; false means a singular matrix
+```
+
+The {doc}`TiledLUpp <tiled_lupp/index>` page explains the
+configuration and the entry points.
+
+## Calling convention
+
+One call solves one system. Every operand is a raw pointer pre-offset
+by the caller plus one runtime element stride: the solvers never see a
+thread index or a batch layout. The same (pointer, stride) pair covers
+the three batch layouts. The table gives it for system b of a batch of
+B systems. g is the base pointer of the batch buffer. M is the element
+count of one object: N * N for a matrix, N for a right-hand side or a
+pivot.
+
+| layout           | pointer of system b   | element stride |
+|------------------|-----------------------|----------------|
+| AoS              | `g + b*M`             | `1`            |
+| SoA              | `g + b`               | `B`            |
+| AoSoA of width W | `g + (b/W)*M*W + b%W` | `W`            |
+
+An AoSoA batch is padded to a multiple of W systems, so that every
+block is full and the stride stays uniform. The SoA and AoSoA layouts
+both give memory coalescence on GPU.
+
+The scalar type `T` is `float`, `double` or `long double`.
+
+The factorizing entry points return `false` on a singular matrix. The
+return value is `[[nodiscard]]`. The substitutions return nothing: they
+cannot fail on a factorization that succeeded.
+
+Offsets are computed in 32-bit arithmetic. The flat element index of
+an object (N*N for a matrix) must stay below 2^31, and every element
+offset, index times stride, below 2^32.
