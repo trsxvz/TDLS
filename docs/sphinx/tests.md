@@ -79,7 +79,7 @@ physics. The build options are in {doc}`getting_started`.
 | `adaptors` | structural detection on mocks mirroring the TFEL shapes, accepted and rejected: the contract behind {doc}`tfel/index` |
 | `reject_adaptors_*` | the compile-time contracts of the adaptors: dense matrix argument, const-ness, config scalar match, row-major addressing, extent coherence, pivots included |
 
-## TiledLUpp
+## TiledLUpp tests
 
 ### Suites
 

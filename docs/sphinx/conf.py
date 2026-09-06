@@ -17,6 +17,8 @@ extensions = ["myst_parser"]
 myst_enable_extensions = ["colon_fence", "dollarmath"]
 
 html_theme = "sphinx_rtd_theme"
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 html_title = "TDLS"
 html_show_copyright = True
 html_show_sphinx = True

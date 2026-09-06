@@ -21,14 +21,16 @@ As of today, TDLS implements one solver family:
 
 ## Documentation map
 
-- {doc}`getting_started`: requirements, installation, a first solve,
-  and the calling convention shared by every solver.
+- {doc}`getting_started`: requirements, installation, building the
+  tests and examples, a first solve, and the calling convention shared
+  by every solver.
 - {doc}`TiledLUpp <tiled_lupp/index>`: how the solvers work, their
   configuration, and their snippets: one entry point per snippet, on a
   small system.
 - {doc}`TFEL interoperability <tfel/index>`: how the `tfel::math`
   objects are accepted, with snippets per solver family.
-- {doc}`tests`: the test suites and the example programs, complete
+- {doc}`tests`: the method, the generic suites, then the suites and
+  the example programs of each solver family. The examples are complete
   programs solving a physical problem on every execution scale.
 - {doc}`api_reference`: the Doxygen reference of the headers.
 - {doc}`ai_usage`: the use of AI assistants in the project.

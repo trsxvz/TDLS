@@ -1,8 +1,8 @@
 # Runtime dimension
 
 `TiledLUppSolverDynamic` on a 5 x 5 system in tiles of 2: two full
-tiles and a trailing tile of 1. The dimension `n`, the matrix `A`,
-the right-hand sides and the expected solutions are declared above the
+tiles and a trailing tile of 1. The dimension, the matrix, the
+right-hand sides and the expected solutions are declared above the
 shown code, the arrays as `std::vector<double>`.
 
 ## Factorize, then substitute

@@ -6,8 +6,8 @@ be dropped silently.
 
 ## Sub-matrix view
 
-The rows of a sub-matrix view are not one row length apart: the
-single-stride addressing cannot express it.
+The rows of a sub-matrix view, in red, are not one row length apart:
+the single-stride addressing cannot express it.
 
 $$
 J = \begin{pmatrix}
@@ -33,8 +33,8 @@ tdls adaptors: row-strided matrix views (sub-matrix views) cannot be expressed b
 
 ## Derivative view
 
-A derivative block mapped inside a larger jacobian: the same row stride
-problem.
+A derivative block, in red, mapped inside a larger jacobian: the same
+row stride problem.
 
 $$
 J = \left(\begin{array}{c|c}

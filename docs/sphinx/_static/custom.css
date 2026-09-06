@@ -1,0 +1,5 @@
+/* Widen the content column of sphinx_rtd_theme: the pages are made of
+   100-column code and wide tables, which the default 800px cut. */
+.wy-nav-content {
+    max-width: 1000px;
+}

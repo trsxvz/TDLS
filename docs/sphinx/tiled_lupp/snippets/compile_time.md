@@ -1,13 +1,13 @@
 # Compile-time dimension
 
-`TiledLUppSolverStatic` on a 4 x 4 system in tiles of 2. The matrix
-`A`, the right-hand sides and the expected solutions are declared above
-the shown code.
+`TiledLUppSolverStatic` on a 4 x 4 system in tiles of 2. The matrix,
+the right-hand sides and the expected solutions are declared above the
+shown code.
 
 ## Factorize, then substitute
 
-One factorization, two right-hand sides. `A` holds the factors
-afterwards and `piv` the row permutation.
+One factorization, two right-hand sides. The matrix holds the factors
+afterwards and the pivot array the row permutation.
 
 $$
 A = \left(\begin{array}{cc|cc}
@@ -273,7 +273,8 @@ $$
 
 ## Singular verdict
 
-A zero column: no pivot reaches the floor, the call returns false.
+Column 2, in red, is zero: no pivot reaches the floor and the call
+returns `false`.
 
 $$
 A = \left(\begin{array}{cc|cc}
