@@ -13,17 +13,19 @@
   {%- endif %}
 </a>
 <div class="switch-menus">
-  <div class="version-switch">
-    <label for="tdls-version-switch">Version:</label>
-    <select id="tdls-version-switch"
-            data-content-root="{{ pathto('', 1) }}" data-page="{{ pagename }}.html">
+  <details class="version-switch" id="tdls-version-switch"
+           data-content-root="{{ pathto('', 1) }}" data-page="{{ pagename }}.html">
+    <summary>Version:
+      {%- if docs_version == "main" %} main development branch{% else %} release {{ docs_version[1:] }}{% endif %}
+    </summary>
+    <ul>
       {%- for v in docs_versions %}
-      <option value="{{ v }}"{% if v == docs_version %} selected{% endif %}>
+      <li><a href="#" data-version="{{ v }}"{% if v == docs_version %} class="current"{% endif %}>
         {%- if v == "main" %}main development branch{% else %}release {{ v[1:] }}{% endif -%}
-      </option>
+      </a></li>
       {%- endfor %}
-    </select>
-  </div>
+    </ul>
+  </details>
 </div>
 {%- include "searchbox.html" %}
 {%- endblock %}

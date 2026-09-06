@@ -3,3 +3,33 @@
 .wy-nav-content {
     max-width: 1000px;
 }
+
+/* Version menu under the project name: a disclosure list, which always
+   unfolds downwards, styled like the rest of the sidebar header. */
+.wy-side-nav-search > div.switch-menus > details.version-switch {
+    color: rgba(255, 255, 255, 0.6);
+}
+.wy-side-nav-search > div.switch-menus > details.version-switch > summary {
+    cursor: pointer;
+    padding: 0.2em;
+}
+.wy-side-nav-search > div.switch-menus > details.version-switch > summary:hover {
+    color: #fcfcfc;
+}
+.wy-side-nav-search > div.switch-menus > details.version-switch > ul {
+    list-style: none;
+    margin: 0.2em 0 0;
+    padding: 0;
+}
+.wy-side-nav-search > div.switch-menus > details.version-switch a {
+    display: block;
+    padding: 0.2em 0.5em;
+    color: rgba(255, 255, 255, 0.8);
+}
+.wy-side-nav-search > div.switch-menus > details.version-switch a:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fcfcfc;
+}
+.wy-side-nav-search > div.switch-menus > details.version-switch a.current {
+    font-weight: bold;
+}
