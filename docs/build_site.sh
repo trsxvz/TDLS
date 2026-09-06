@@ -41,4 +41,7 @@ cat > "$out/index.html" <<'HTML'
 <body><a href="main/">TDLS documentation</a></body>
 </html>
 HTML
+# the API reference used to live at the root: keep that address alive
+mkdir -p "$out/api"
+sed 's#url=main/#url=../main/api/#; s#href="main/"#href="../main/api/"#' "$out/index.html" > "$out/api/index.html"
 echo "site built for: $versions"
