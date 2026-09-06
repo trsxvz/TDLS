@@ -18,7 +18,9 @@
     <select id="tdls-version-switch"
             data-content-root="{{ pathto('', 1) }}" data-page="{{ pagename }}.html">
       {%- for v in docs_versions %}
-      <option value="{{ v }}"{% if v == docs_version %} selected{% endif %}>{{ v }}</option>
+      <option value="{{ v }}"{% if v == docs_version %} selected{% endif %}>
+        {%- if v == "main" %}main development branch{% else %}release {{ v[1:] }}{% endif -%}
+      </option>
       {%- endfor %}
     </select>
   </div>
