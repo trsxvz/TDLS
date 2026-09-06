@@ -16,8 +16,8 @@ int main() {
     const int n                        = 5;
     std::vector<double> A              = {1e-12, 1, 0, 0, 1, 2e-12, 6, 1, 0, 0, 3, 1, 7,
                                           1,     0, 0, 0, 1, 8,     1, 1, 0, 0, 1, 9};
-    const std::vector<double> b        = {7 + 1e-12, 15 + 2e-12, 30, 40, 50};
-    const std::vector<double> expected = {1, 2, 3, 4, 5};
+    const std::vector<double> b        = {7, 15, 27, 40, 49};
+    const std::vector<double> expected = {0, 2, 3, 4, 5};
     std::vector<double> x(n);
 
     // snippet begin

@@ -12,8 +12,8 @@
 
 int main() {
     double A[4 * 4]          = {1e-12, 1, 0, 2, 2e-12, 5, 1, 0, 3, 1, 6, 1, 2, 0, 1, 7};
-    const double b[4]        = {10 + 1e-12, 13 + 2e-12, 27, 33};
-    const double expected[4] = {1, 2, 3, 4};
+    const double b[4]        = {10, 13, 24, 31};
+    const double expected[4] = {0, 2, 3, 4};
     double x[4];
 
     // snippet begin

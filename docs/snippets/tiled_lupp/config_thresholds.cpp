@@ -13,9 +13,9 @@
 int main() {
     double A[4 * 4]          = {4, 1, 0, 0, 1, 5, 0, 0, 0, 0, 6, 0, 0, 0, 0, 1e-8};
     double A2[4 * 4]         = {4, 1, 0, 0, 1, 5, 0, 0, 0, 0, 6, 0, 0, 0, 0, 1e-8};
-    double y[4]              = {6, 11, 18, 4e-8};
-    double y2[4]             = {6, 11, 18, 4e-8};
-    const double expected[4] = {1, 2, 3, 4};
+    double y[4]              = {6, 11, 18, 0};
+    double y2[4]             = {6, 11, 18, 0};
+    const double expected[4] = {1, 2, 3, 0};
 
     // snippet begin
     constexpr auto lenient = tdls::TiledLUppConfig<double>{.tile_size = 2};

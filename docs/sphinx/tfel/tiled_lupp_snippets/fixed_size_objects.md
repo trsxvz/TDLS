@@ -143,8 +143,8 @@ A = \left(\begin{array}{ccc|c}
 \textcolor{red}{3 \cdot 10^{-12}} & 1 & 6 & 1 \\ \hline
 \textcolor{blue}{2} & 0 & 1 & 7
 \end{array}\right), \quad
-b = \begin{pmatrix} 10 + 10^{-12} \\ 13 + 2 \cdot 10^{-12} \\ 24 + 3 \cdot 10^{-12} \\ 33 \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+b = \begin{pmatrix} 10 \\ 13 \\ 24 \\ 31 \end{pmatrix}, \quad
+x = \begin{pmatrix} 0 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tfel/fixed_counting.cpp

@@ -16,6 +16,8 @@ version = release
 extensions = ["myst_parser"]
 myst_enable_extensions = ["colon_fence", "dollarmath"]
 
+highlight_language = "none"
+
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]

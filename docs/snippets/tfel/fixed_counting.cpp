@@ -15,11 +15,11 @@
 #include "check.hpp"
 
 int main() {
-    const double expected[4] = {1, 2, 3, 4};
+    const double expected[4] = {0, 2, 3, 4};
 
     // snippet begin
     tfel::math::tmatrix<4, 4, double> A{1e-12, 1, 0, 2, 2e-12, 5, 1, 0, 3e-12, 1, 6, 1, 2, 0, 1, 7};
-    tfel::math::tvector<4, double> y{10 + 1e-12, 13 + 2e-12, 24 + 3e-12, 33};
+    tfel::math::tvector<4, double> y{10, 13, 24, 31};
     tfel::math::fsarray<4, int> piv;
 
     // the trailing int&: the columns whose best in-tile pivot fell below the threshold

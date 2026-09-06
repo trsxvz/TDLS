@@ -95,7 +95,7 @@ the expected solution. Below the shown code, it checks its result.
 :maxdepth: 1
 
 snippets/configuration
-snippets/compile_time
-snippets/runtime
-snippets/batches
+snippets/compile_time_dimension
+snippets/runtime_dimension
+snippets/batches_and_layouts
 ```

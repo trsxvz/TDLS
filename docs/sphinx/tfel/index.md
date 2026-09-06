@@ -75,9 +75,9 @@ trailing tile of 1.
 ```{toctree}
 :maxdepth: 1
 
-tiled_lupp/fixed_size
-tiled_lupp/runtime_sized
-tiled_lupp/views
-tiled_lupp/blocks
-tiled_lupp/rejected
+tiled_lupp_snippets/fixed_size_objects
+tiled_lupp_snippets/runtime_sized_objects
+tiled_lupp_snippets/views
+tiled_lupp_snippets/blocks_of_right_hand_sides
+tiled_lupp_snippets/rejected_shapes
 ```

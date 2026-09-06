@@ -271,8 +271,8 @@ A = \left(\begin{array}{cc|cc|c}
 0 & 0 & 1 & 8 & 1 \\ \hline
 1 & 0 & 0 & 1 & 9
 \end{array}\right), \quad
-b = \begin{pmatrix} 7 + 10^{-12} \\ 15 + 2 \cdot 10^{-12} \\ 30 \\ 40 \\ 50 \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
+b = \begin{pmatrix} 7 \\ 15 \\ 27 \\ 40 \\ 49 \end{pmatrix}, \quad
+x = \begin{pmatrix} 0 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/dynamic_oot_counter.cpp

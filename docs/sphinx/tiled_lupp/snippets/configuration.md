@@ -162,8 +162,8 @@ A = \left(\begin{array}{cc|cc}
 0 & 0 & 6 & 0 \\
 0 & 0 & 0 & \textcolor{red}{10^{-8}}
 \end{array}\right), \quad
-b = \begin{pmatrix} 6 \\ 11 \\ 18 \\ 4 \cdot 10^{-8} \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+b = \begin{pmatrix} 6 \\ 11 \\ 18 \\ 0 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/config_thresholds.cpp
@@ -185,8 +185,8 @@ A = \left(\begin{array}{cc|cc}
 \textcolor{red}{10^{-6}} & 1 & 6 & 1 \\
 \textcolor{blue}{3} & 0 & 1 & 7
 \end{array}\right), \quad
-b = \begin{pmatrix} 10 + 10^{-12} \\ 13 + 2 \cdot 10^{-12} \\ 24 + 10^{-6} \\ 34 \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+b = \begin{pmatrix} 10 \\ 13 \\ 24 \\ 31 \end{pmatrix}, \quad
+x = \begin{pmatrix} 0 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/tiled_lupp/config_first_acceptable.cpp

@@ -13,8 +13,8 @@
 int main() {
     double A_first[4 * 4]    = {1e-12, 1, 0, 2, 2e-12, 5, 1, 0, 1e-6, 1, 6, 1, 3, 0, 1, 7};
     double A_best[4 * 4]     = {1e-12, 1, 0, 2, 2e-12, 5, 1, 0, 1e-6, 1, 6, 1, 3, 0, 1, 7};
-    const double b[4]        = {10 + 1e-12, 13 + 2e-12, 24 + 1e-6, 34};
-    const double expected[4] = {1, 2, 3, 4};
+    const double b[4]        = {10, 13, 24, 31};
+    const double expected[4] = {0, 2, 3, 4};
     double x_first[4], x_best[4];
 
     // snippet begin

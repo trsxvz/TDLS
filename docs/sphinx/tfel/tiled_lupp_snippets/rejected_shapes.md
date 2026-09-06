@@ -27,7 +27,7 @@ $$
 
 Diagnostic:
 
-```
+```text
 tdls adaptors: row-strided matrix views (sub-matrix views) cannot be expressed by the single-stride addressing of the TiledLUpp solvers
 ```
 
@@ -52,7 +52,7 @@ $$
 
 Diagnostic:
 
-```
+```text
 tdls adaptors: row-strided matrix views (sub-matrix views) cannot be expressed by the single-stride addressing of the TiledLUpp solvers
 ```
 
@@ -78,7 +78,7 @@ $$
 
 Diagnostic:
 
-```
+```text
 tdls adaptors: A must be a dense object exposing data() and an indexing_policy type (a gather view holding one pointer per element is not one)
 ```
 
@@ -101,7 +101,7 @@ $$
 
 Diagnostic:
 
-```
+```text
 tdls adaptors: dense objects are addressed row-major, the TFEL convention; a column-major configuration cannot be used through the adaptors
 ```
 
@@ -118,7 +118,7 @@ The factorizing entry points write their matrix argument.
 
 Diagnostic:
 
-```
+```text
 tdls adaptors: A must not be const here (factorize writes it)
 ```
 
@@ -140,6 +140,6 @@ $$
 
 Diagnostic:
 
-```
+```text
 tdls adaptors: vector extent does not match the system dimension
 ```
