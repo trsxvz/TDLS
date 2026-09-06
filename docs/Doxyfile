@@ -4,7 +4,7 @@
 PROJECT_NAME           = TDLS
 # PROJECT_NUMBER must match include/tdls/core/version.hpp; the CMake
 # configure step checks it.
-PROJECT_NUMBER         = 0.1.0
+PROJECT_NUMBER         = 0.2.0
 PROJECT_BRIEF          = "Tiny Device-callable Linear Solvers"
 INPUT                  = ../include
 RECURSIVE              = YES

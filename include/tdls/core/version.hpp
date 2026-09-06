@@ -17,7 +17,7 @@
 
 /// \def TDLS_VERSION_MINOR
 /// \brief Minor version component.
-#define TDLS_VERSION_MINOR 1
+#define TDLS_VERSION_MINOR 2
 
 /// \def TDLS_VERSION_PATCH
 /// \brief Patch version component.
@@ -25,7 +25,7 @@
 
 /// \def TDLS_VERSION_STRING
 /// \brief Version as a "major.minor.patch" string literal.
-#define TDLS_VERSION_STRING "0.1.0"
+#define TDLS_VERSION_STRING "0.2.0"
 
 /// \def TDLS_VERSION
 /// \brief Single comparable value: major * 10000 + minor * 100 + patch.

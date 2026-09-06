@@ -5,7 +5,7 @@
 # find_package(tdls) work too, and orchestrates the tests.
 cmake_minimum_required(VERSION 3.21)
 
-project(tdls VERSION 0.1.0 LANGUAGES NONE)
+project(tdls VERSION 0.2.0 LANGUAGES NONE)
 
 # The version declared here, the one in include/tdls/core/version.hpp
 # and the PROJECT_NUMBER of docs/Doxyfile must never drift apart.
