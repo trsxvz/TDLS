@@ -11,10 +11,6 @@ TDLS is designed to be embedded in
 [TFEL/MFront](https://github.com/thelfer/tfel). Its solvers accept the
 `tfel::math` objects directly, without including TFEL.
 
-This documentation describes TDLS {{ release }}. The changes of each
-version are listed in the
-[changelog](https://github.com/trsxvz/TDLS/blob/main/CHANGELOG.md).
-
 ## Solvers
 
 As of today, TDLS implements one solver family:

@@ -1,6 +1,10 @@
 # Sphinx configuration of the TDLS documentation site. The pages are
 # written in Markdown (MyST); the Doxygen API reference is built
 # separately (docs/Doxyfile) and attached under api/ at deployment.
+# The site is deployed once per version (main and every release tag),
+# each in its own directory; the docs workflow names the version being
+# built and the list of all versions through two environment variables.
+import os
 import re
 from pathlib import Path
 
@@ -14,14 +18,20 @@ release = re.search(r'TDLS_VERSION_STRING "([0-9.]+)"', _version_header.read_tex
 version = release
 
 extensions = ["myst_parser"]
-myst_enable_extensions = ["colon_fence", "dollarmath", "substitution"]
-myst_substitutions = {"release": release}
+myst_enable_extensions = ["colon_fence", "dollarmath"]
 
 highlight_language = "none"
 
 html_theme = "sphinx_rtd_theme"
+templates_path = ["_templates"]
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_js_files = ["version_switch.js"]
+_docs_version = os.environ.get("TDLS_DOCS_VERSION", "main")
+html_context = {
+    "docs_version": _docs_version,
+    "docs_versions": os.environ.get("TDLS_DOCS_VERSIONS", _docs_version).split(),
+}
 html_title = "TDLS"
 html_show_copyright = True
 html_show_sphinx = True

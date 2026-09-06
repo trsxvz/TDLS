@@ -1,10 +1,11 @@
 # Builds the documentation site (Sphinx pages + Doxygen API reference)
-# and deploys it to GitHub Pages on every push to main.
+# for main and every release tag, and deploys it to GitHub Pages.
 name: docs
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install graphviz and doxygen
         run: |
           sudo apt-get update && sudo apt-get install -y graphviz
@@ -30,15 +33,8 @@ jobs:
           python-version: "3.12"
       - name: Install sphinx
         run: pip install -r docs/requirements.txt
-      - name: Build the API reference
-        working-directory: docs
-        run: |
-          mkdir -p _build
-          ../doxygen-1.12.0/bin/doxygen Doxyfile
-      - name: Build the site
-        run: sphinx-build -W -b html docs/sphinx _site
-      - name: Attach the API reference
-        run: cp -r docs/_build/doxygen/html _site/api
+      - name: Build the site, one directory per version
+        run: DOXYGEN="$PWD/doxygen-1.12.0/bin/doxygen" docs/build_site.sh _site
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site

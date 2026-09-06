@@ -1,0 +1,26 @@
+{#- The theme reserves this spot for a version switch, but only fills it
+    on Read the Docs. Here the versions come from the build (html_context)
+    and _static/version_switch.js does the navigation. -#}
+{%- extends "!layout.html" %}
+
+{%- block sidebartitle %}
+{%- set _logo_url = logo_url|default(pathto('_static/' + (logo or ""), 1)) %}
+{%- set _root_doc = root_doc|default(master_doc) %}
+<a href="{{ pathto(_root_doc) }}"{% if not theme_logo_only %} class="icon icon-home"{% endif %}>
+  {% if not theme_logo_only %}{{ project }}{% endif %}
+  {%- if logo or logo_url %}
+  <img src="{{ _logo_url }}" class="logo" alt="{{ _('Logo') }}"/>
+  {%- endif %}
+</a>
+<div class="switch-menus">
+  <div class="version-switch">
+    <select id="tdls-version-switch" aria-label="Version"
+            data-content-root="{{ pathto('', 1) }}" data-page="{{ pagename }}.html">
+      {%- for v in docs_versions %}
+      <option value="{{ v }}"{% if v == docs_version %} selected{% endif %}>{{ v }}</option>
+      {%- endfor %}
+    </select>
+  </div>
+</div>
+{%- include "searchbox.html" %}
+{%- endblock %}
