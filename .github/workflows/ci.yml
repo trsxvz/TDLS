@@ -110,6 +110,65 @@ jobs:
       - name: Run the test suites and the examples
         run: ctest --test-dir build -C Release --output-on-failure
 
+  spack:
+    # Installs the library with the tdls recipe of Spack and runs the
+    # test suites and the examples through it, as `spack install
+    # --test=root` does for users. The recipe is only in the develop
+    # branch of spack-packages, not in its releases. `spack develop`
+    # builds the checked out sources instead of the main branch fetched
+    # by the recipe. The runner provides CMake and oneTBB, as in the
+    # other jobs.
+    name: Spack 1.2.2 install and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install oneTBB
+        run: sudo apt-get update && sudo apt-get install -y libtbb-dev
+      - name: Set up Spack
+        uses: spack/setup-spack@v3
+        with:
+          spack_ref: v1.2.2
+          packages_ref: develop
+          buildcache: false
+          spack_path: spack
+      - name: Install tdls and run its tests
+        id: install
+        run: |
+          spack external find cmake
+          spack env create -d ${{ runner.temp }}/tdls-env
+          spack -e ${{ runner.temp }}/tdls-env add tdls@main
+          spack -e ${{ runner.temp }}/tdls-env develop --no-clone --path ${{ github.workspace }} tdls@main
+          spack -e ${{ runner.temp }}/tdls-env install --test=root
+      - name: Show the output of the tests
+        # Spack only reports that the check target failed: the output of
+        # the build of the tests and of ctest stays in the stage directory.
+        if: failure() && steps.install.outcome == 'failure'
+        run: |
+          stage=$(spack -e ${{ runner.temp }}/tdls-env location --stage-dir tdls)
+          tail -n 200 "$stage/install-time-test-log.txt"
+      - name: Build a project against the installed package
+        # The tests run in the build tree: this checks that a project
+        # finds the installed tdls with find_package.
+        run: |
+          consumer=${{ runner.temp }}/consumer
+          mkdir -p $consumer
+          cat > $consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.21)
+          project(consumer LANGUAGES CXX)
+          find_package(tdls REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE tdls::tdls)
+          EOF
+          cat > $consumer/main.cpp <<'EOF'
+          #include <cstdio>
+          #include <tdls/tdls.hpp>
+          int main() { std::puts(TDLS_VERSION_STRING); }
+          EOF
+          cmake -S $consumer -B $consumer/build \
+            -DCMAKE_PREFIX_PATH=$(spack -e ${{ runner.temp }}/tdls-env location -i tdls)
+          cmake --build $consumer/build
+          $consumer/build/consumer
+
   gpu-cuda:
     # Cross-compilation of the GPU examples with the oldest CUDA
     # release the headers support. The container pins nvcc and its
