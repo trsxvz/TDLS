@@ -1,8 +1,10 @@
 # TDLS - Tiny Device-callable Linear Solvers
 
 [![ci](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml/badge.svg)](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml)
-[![docs](https://github.com/trsxvz/TDLS/actions/workflows/docs.yml/badge.svg)](https://trsxvz.github.io/TDLS/)
 [![doxygen](https://github.com/trsxvz/TDLS/actions/workflows/doxygen.yml/badge.svg)](https://trsxvz.github.io/TDLS/main/api/index.html)
+[![docs](https://github.com/trsxvz/TDLS/actions/workflows/docs.yml/badge.svg)](https://trsxvz.github.io/TDLS/)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)](https://en.cppreference.com/cpp/20)
+[![spack](https://img.shields.io/spack/v/tdls)](https://packages.spack.io/package.html?name=tdls)
 
 TDLS is a header-only C++20 library of direct solvers for small
 general linear systems. It is written to be callable from device code:
