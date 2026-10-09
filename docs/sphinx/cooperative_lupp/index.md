@@ -121,13 +121,19 @@ the parallel algorithms on CPU. A barrier between CPU threads costs
 more than a step of the solve: one thread per system stays the fast
 choice on CPU.
 
-A few targets offer no warp instruction callable without a handle of
-the kernel: nvc++ OpenMP or OpenACC offloading without `-cuda`, the
-generic mode of AdaptiveCpp and GCC offloading. SYCL on SPIR-V devices,
-Intel GPUs among them, has the instructions, but no way to stop a
-kernel that finds its group incomplete: the check could not keep its
-promise there. On these targets, a group of several threads needs an
-explicit barrier, and the compiler says so.
+On a few targets, a group of several threads needs an explicit
+barrier, and the compiler says so:
+
+- nvc++ OpenMP or OpenACC offloading without `-cuda`, the OpenACC
+  backend of nvc++ for the parallel algorithms, the generic mode of
+  AdaptiveCpp and GCC offloading: they offer no warp instruction
+  callable without a handle of the kernel;
+- NVIDIA GPUs before Volta (sm_70): they lack the instruction that
+  matches the lanes;
+- SPIR-V devices, Intel GPUs among them, through SYCL or OpenMP
+  offloading: they have the instructions, but no standard way to stop
+  a kernel that finds its group incomplete, so the check could not
+  keep its promise there.
 
 ### An explicit barrier
 

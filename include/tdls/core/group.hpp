@@ -56,8 +56,9 @@
 /// A few passes offer no warp primitive callable without a handle
 /// passed by the kernel: nvc++ OpenMP or OpenACC offloading without
 /// -cuda, its OpenACC backend of the parallel algorithms, the generic
-/// mode of AdaptiveCpp and GCC offloading. SYCL on SPIR-V devices has
-/// the primitives, but no way to stop a kernel that finds its group
+/// mode of AdaptiveCpp, GCC offloading and NVIDIA GPUs before Volta.
+/// SPIR-V devices, through SYCL or OpenMP offloading, have the
+/// primitives, but no standard way to stop a kernel that finds its group
 /// incomplete, so the check could not keep its promise there. In all
 /// these passes the deduced barrier accepts only a group of one thread
 /// known at compile time, and the compiler asks for an explicit barrier
@@ -101,7 +102,10 @@
    the AMDGCN and NVPTX macros are tested first. The NVIDIA builtins
    serve the device passes outside the CUDA language only, and the AMD
    ones the device passes of HIP and of the other models: AdaptiveCpp
-   defines __NVPTX__ in the host pass of its CUDA mode too. The generic
+   defines __NVPTX__ in the host pass of its CUDA mode too, and the host
+   pass of HIP defines __AMDGCN__, plus __SPIRV__ for amdgcnspirv. The
+   pass before Volta takes no NVIDIA branch: it lacks __match_any_sync.
+   Every other SPIR-V device pass, SYCL or OpenMP, follows. The generic
    mode of AdaptiveCpp compiles host and device code in one pass,
    recognized by the macro its compiler defines, once no device pass has
    matched.
@@ -125,6 +129,10 @@
     (defined(__HIP_DEVICE_COMPILE__) || !defined(__HIP__))
 /// AMD through the clang builtins.
 #define TDLS_DETAIL_GROUP_AMDGCN
+#elif (defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700) ||                                           \
+    (defined(__SYCL_CUDA_ARCH__) && __SYCL_CUDA_ARCH__ < 700)
+/// No deduced barrier in this pass; the reason, appended to the diagnostic.
+#define TDLS_DETAIL_GROUP_NONE "NVIDIA GPUs before Volta (sm_70) have none."
 #elif defined(__CUDA_ARCH__) && (defined(__CUDACC__) || defined(__CUDA__))
 /// NVIDIA through the CUDA API.
 #define TDLS_DETAIL_GROUP_CUDA
@@ -134,11 +142,12 @@
 #elif !defined(__clang__) && (defined(__nvptx__) || defined(__AMDGCN__) || defined(__amdgcn__))
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE "GCC offloading has none."
-#elif defined(__SYCL_DEVICE_ONLY__)
+#elif defined(__SYCL_DEVICE_ONLY__) || ((defined(__SPIR__) || defined(__SPIRV__)) &&               \
+                                        (defined(__HIP_DEVICE_COMPILE__) || !defined(__HIP__)))
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE                                                                     \
-    "On SPIR-V devices, SYCL cannot stop a kernel whose group is incomplete; pass a sub-group "    \
-    "or work-group barrier."
+    "On SPIR-V devices, SYCL and OpenMP offloading cannot stop a kernel whose group is "           \
+    "incomplete; pass a sub-group, work-group or team barrier."
 #elif defined(__ACPP_ENABLE_LLVM_SSCP_TARGET__) || defined(__HIPSYCL_ENABLE_LLVM_SSCP_TARGET__)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE                                                                     \
@@ -231,9 +240,16 @@ inline constexpr bool nothrow_sync<Sync, true> = true;
 /// \brief Whether the compilation pass offers the deduced barrier to a
 /// group of several threads. Otherwise TDLS_DETAIL_GROUP_NONE holds the
 /// reason, appended to the diagnostic.
+///
+/// A template, so that the check of resolve_sync waits for a group of
+/// several threads: GCC before 13 and nvcc evaluate a static_assert that
+/// depends on no template parameter, even in a discarded branch.
+/// \tparam T scalar type of the workspace
 #if defined(TDLS_DETAIL_GROUP_NONE)
+template<typename T>
 inline constexpr bool group_barrier_available = false;
 #else
+template<typename T>
 inline constexpr bool group_barrier_available = true;
 /// No reason: the pass offers the deduced barrier.
 #define TDLS_DETAIL_GROUP_NONE ""
@@ -525,7 +541,7 @@ resolve_sync(Sync& sync, [[maybe_unused]] T* slots, [[maybe_unused]] const int t
     } else if constexpr (static_threads == 1) {
         return NoSync{};
     } else {
-        static_assert(group_barrier_available,
+        static_assert(group_barrier_available<T>,
                       "TDLS: this compilation target offers no deduced barrier for a group of "
                       "several threads; pass a barrier (sync argument), or tdls::NoSync with one "
                       "thread per system. " TDLS_DETAIL_GROUP_NONE);
