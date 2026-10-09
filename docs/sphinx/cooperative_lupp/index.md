@@ -60,11 +60,13 @@ factors are consumed by the substitutions of the family, under the
 same configuration. Below `singular_floor`, a pivot declares the
 matrix singular and the entry point returns `false`.
 
-The arithmetic is the one of the MAGMA kernel: same operations, same
-order, same pivot choice. The header of the solver lists the changes:
-the mapping of rows to threads, the device-callable entry points, the
-pivot output, the singularity criterion, and a data race of the back
-substitution, removed.
+The operations are those of the MAGMA kernel, in the same order. So
+is the pivot choice with `relative_pivot_threshold = 1`; a smaller
+threshold departs from it on purpose, keeping the row in place more
+often, so the pivots and the results then differ. The header of the
+solver lists the other changes: the mapping of rows to threads, the
+device-callable entry points, the pivot output, the singularity
+criterion, and a data race of the back substitution, removed.
 
 The portions derived from MAGMA remain subject to its license, BSD
 3-Clause. The license is reproduced at the top of each solver header

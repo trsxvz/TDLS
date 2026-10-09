@@ -12,7 +12,8 @@ the API may change between minor versions.
 - CooperativeLUpp: LU factorization with partial pivoting shared by a
   group of threads, one system per group. The arithmetic is the one of
   the small-system kernel of MAGMA 2.10.0, whose license is reproduced
-  in the headers. Each thread holds `rows_per_thread` rows, so that
+  in the headers, the pivot choice included when
+  `relative_pivot_threshold` is 1. Each thread holds `rows_per_thread` rows, so that
   several systems share a warp, and every value gives
   bitwise-identical results. Two solvers: one with a compile-time
   dimension, which keeps the rows in registers, and one with a runtime

@@ -62,18 +62,19 @@
 /// registers. The threads cooperate through a small workspace (shared
 /// memory on GPU) and a barrier, deduced or provided by the caller. The
 /// numerical algorithm is the right-looking LU with partial pivoting of
-/// MAGMA's register-blocked small-system kernel, unchanged: same
-/// operations, same order, same pivot choice. By default pivoting is
-/// logical: rows never move, each thread tracks the position of its
-/// rows in the pivoted order (MAGMA's rowid) and the pivot array
-/// records it. Config.row_interchange selects physical row interchanges
-/// instead, the scheme of LAPACK: the rows move between the threads, so
-/// that the row at position k always lives in slot
-/// k / threads_per_system of thread k % threads_per_system. Both
-/// schemes choose the same pivots and run the same operations in the
-/// same order. On a matrix they do not declare singular, their
-/// solutions are bitwise identical, up to the multiply-adds a compiler
-/// may fuse differently in each (see
+/// MAGMA's register-blocked small-system kernel: same operations, same
+/// order and, with Config.relative_pivot_threshold = 1, same pivot
+/// choice; a smaller threshold keeps the row in place more often, and
+/// the pivots then differ. By default pivoting is logical: rows never
+/// move, each thread tracks the position of its rows in the pivoted
+/// order (MAGMA's rowid) and the pivot array records it.
+/// Config.row_interchange selects physical row interchanges instead,
+/// the scheme of LAPACK: the rows move between the threads, so that the
+/// row at position k always lives in slot k / threads_per_system of
+/// thread k % threads_per_system. Both schemes choose the same pivots
+/// and run the same operations in the same order. On a matrix they do
+/// not declare singular, their solutions are bitwise identical, up to
+/// the multiply-adds a compiler may fuse differently in each (see
 /// CooperativeLUppConfig::row_interchange). The mapping of rows to
 /// threads changes nothing in the arithmetic either, so every value of
 /// rows_per_thread produces bitwise-identical results on identical
@@ -183,8 +184,9 @@
 /// barrier. Every other operand keeps the qualifier, since each thread
 /// only accesses its own rows of it.
 ///
-/// **Departures from the MAGMA kernel.** The arithmetic is MAGMA's; the
-/// following changes are structural.
+/// **Departures from the MAGMA kernel.** The arithmetic is MAGMA's, but
+/// for the relative threshold of the pivot choice; the other changes are
+/// structural.
 ///   - rows_per_thread rows per thread instead of one, phantom rows
 ///     skipped at compile time, so that several systems share a warp.
 ///   - Device-callable entry points with a deduced or caller-provided
@@ -204,8 +206,10 @@
 ///     row moved while the pivot is in place. Under them a zero pivot row
 ///     is not scaled to zero: the factorization of a singular matrix is
 ///     unspecified, and a pivot reciprocal of 1 keeps it finite.
-///   - A relative threshold of the pivot choice as an option. Its default
-///     1 keeps the choice of MAGMA and LAPACK.
+///   - A relative threshold of the pivot choice, threshold pivoting: 1
+///     keeps the choice of MAGMA and LAPACK, a smaller value keeps the
+///     row in place more often, and the pivots and the results then
+///     differ.
 ///   - A pivot below Config.singular_floor is singular, instead of an
 ///     exactly zero one. The default floor only adds the subnormal pivots,
 ///     the criterion of every TDLS solver.
