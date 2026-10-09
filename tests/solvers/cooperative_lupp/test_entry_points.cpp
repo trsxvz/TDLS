@@ -135,9 +135,9 @@ void entry_points_case(const int count, const std::uint64_t seed) {
 template<bool dynamic>
 void return_guarantees_case(const int count, const std::uint64_t seed) {
     constexpr int N = 13;
-    constexpr auto config =
+    static constexpr auto config =
         tdls::CooperativeLUppConfig<double>{.rows_per_thread = 5, .unroll_loops = false};
-    constexpr auto single =
+    static constexpr auto single =
         tdls::CooperativeLUppConfig<double>{.rows_per_thread = N, .unroll_loops = false};
     using Static          = tdls::CooperativeLUppSolverStatic<double, N, config>;
     using Dynamic         = tdls::CooperativeLUppSolverDynamic<double, config>;
@@ -200,8 +200,8 @@ void return_guarantees_case(const int count, const std::uint64_t seed) {
 template<bool dynamic>
 void workspace_contract_case() {
     constexpr int N              = 5;
-    constexpr auto config        = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
-    constexpr auto single        = tdls::CooperativeLUppConfig<double>{.rows_per_thread = N};
+    static constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
+    static constexpr auto single = tdls::CooperativeLUppConfig<double>{.rows_per_thread = N};
     using Static                 = tdls::CooperativeLUppSolverStatic<double, N, config>;
     using Dynamic                = tdls::CooperativeLUppSolverDynamic<double, config>;
     using Sequential             = tdls::CooperativeLUppSolverStatic<double, N, single>;

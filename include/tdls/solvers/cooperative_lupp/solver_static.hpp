@@ -206,6 +206,19 @@
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif
 
+
+
+// nvc++ reports through no_device_stack, under the managed memory of
+// -stdpar=gpu, every lambda that captures local objects by reference:
+// such a lambda handed to a parallel algorithm would read the host stack.
+// The lambdas of this header are called on the spot, on the stack of the
+// thread that runs the solver: the report is a false positive. The
+// suppression is scoped to this header and to that warning only.
+#if defined(__NVCOMPILER)
+#pragma diag_push
+#pragma diag_suppress no_device_stack
+#endif
+
 namespace tdls {
 
 
@@ -561,7 +574,7 @@ struct CooperativeLUppSolverStatic {
     elimination_step(const int i, T (&rA)[rows_per_thread][N],
                      [[maybe_unused]] T (&rB)[rows_per_thread], int (&rowid)[rows_per_thread],
                      T* sB, T* sx, T* dsx, int& linfo,
-                     Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                     Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         // izamax: the magnitudes of column i, at the positions of their rows.
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
@@ -646,7 +659,7 @@ struct CooperativeLUppSolverStatic {
     template<bool fuse_rhs, typename Sync>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
     eliminate(T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread], int (&rowid)[rows_per_thread],
-              T* work, Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+              T* work, Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         T* const sB  = work;
         T* const sx  = work + N;
         T* const dsx = work + 2 * N;
@@ -687,7 +700,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     forward_step(const int i, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                  const int (&rowid)[rows_per_thread], T* sB,
-                 Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                 Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
             if constexpr (slot_has_rows(K)) {
@@ -718,7 +731,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     forward_substitution(const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                          const int (&rowid)[rows_per_thread], T* work,
-                         Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                         Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         T* const sB = work;
         if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
@@ -751,9 +764,8 @@ struct CooperativeLUppSolverStatic {
     template<typename Sync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     backward_step(const int i, const int tx, const T (&rA)[rows_per_thread][N],
-                  T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread],
-                  T* sB, T* sx,
-                  Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                  T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread], T* sB, T* sx,
+                  Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
             if constexpr (slot_has_rows(K)) {
@@ -794,7 +806,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     backward_substitution(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                           const int (&rowid)[rows_per_thread], T* work,
-                          Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                          Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         T* const sB = work;
         T* const sx = work + N;
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -839,7 +851,7 @@ struct CooperativeLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
     factorize(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, T* work,
-              Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+              Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         require_barrier<Sync>();
         T rA[rows_per_thread][N];
         T rB[rows_per_thread];
@@ -877,7 +889,7 @@ struct CooperativeLUppSolverStatic {
     substitute(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride, T* work,
-               Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+               Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         require_barrier<Sync>();
         T rA[rows_per_thread][N];
         T rB[rows_per_thread];
@@ -915,7 +927,7 @@ struct CooperativeLUppSolverStatic {
     substitute_canonical(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride, T* work,
-                         Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                         Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         require_barrier<Sync>();
         T rA[rows_per_thread][N];
         T rB[rows_per_thread];
@@ -959,7 +971,7 @@ struct CooperativeLUppSolverStatic {
     substitute_inplace(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride, T* work,
-                       Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                       Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         require_barrier<Sync>();
         T rA[rows_per_thread][N];
         T rB[rows_per_thread];
@@ -1004,8 +1016,7 @@ struct CooperativeLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
     solve(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
-          T* work,
-          Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+          T* work, Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         require_barrier<Sync>();
         T rA[rows_per_thread][N];
         T rB[rows_per_thread];
@@ -1056,9 +1067,8 @@ struct CooperativeLUppSolverStatic {
              typename Sync = tdls::NoSync>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
     solve_inplace(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
-                  const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                  T* work,
-                  Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                  const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride, T* work,
+                  Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         require_barrier<Sync>();
         T rA[rows_per_thread][N];
         T rB[rows_per_thread];
@@ -1092,6 +1102,10 @@ struct CooperativeLUppSolverStatic {
 
 
 } // namespace tdls
+
+#if defined(__NVCOMPILER)
+#pragma diag_pop
+#endif
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop

@@ -349,9 +349,8 @@ struct CooperativeLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     elimination_step(const int n, const int i, const int tx, const int threads, T* TDLS_RESTRICT A,
                      const int A_stride, [[maybe_unused]] T (&rB)[rows_per_thread],
-                     int (&rowid)[rows_per_thread], T* sB, T* sx,
-                     T* dsx, int& linfo,
-                     Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                     int (&rowid)[rows_per_thread], T* sB, T* sx, T* dsx, int& linfo,
+                     Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         // izamax: the magnitudes of column i, at the positions of their rows.
         for (int K = 0; K < rows_per_thread; ++K) {
             const int r = tx + K * threads;
@@ -425,7 +424,7 @@ struct CooperativeLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
     eliminate(const int n, const int tx, const int threads, T* TDLS_RESTRICT A, const int A_stride,
               T (&rB)[rows_per_thread], int (&rowid)[rows_per_thread], T* work,
-              Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+              Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         T* const sB  = work;
         T* const sx  = work + n;
         T* const dsx = work + 2 * n;
@@ -463,7 +462,7 @@ struct CooperativeLUppSolverDynamic {
     forward_substitution(const int n, const int tx, const int threads, const T* TDLS_RESTRICT A,
                          const int A_stride, T (&rB)[rows_per_thread],
                          const int (&rowid)[rows_per_thread], T* work,
-                         Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                         Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         T* const sB = work;
         for (int i = 0; i < n; i++) {
             for (int K = 0; K < rows_per_thread; ++K) {
@@ -506,7 +505,7 @@ struct CooperativeLUppSolverDynamic {
     backward_substitution(const int n, const int tx, const int threads, const T* TDLS_RESTRICT A,
                           const int A_stride, T (&rB)[rows_per_thread],
                           const int (&rowid)[rows_per_thread], T* work,
-                          Sync& sync) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                          Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         T* const sB = work;
         T* const sx = work + n;
         for (int K = 0; K < rows_per_thread; ++K) {
@@ -557,7 +556,7 @@ struct CooperativeLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
     factorize(const int n, const int tx, T* TDLS_RESTRICT A, const int A_stride,
               int* TDLS_RESTRICT piv, const int piv_stride, T* work,
-              Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+              Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
         T rB[rows_per_thread];
         int rowid[rows_per_thread];
@@ -589,7 +588,7 @@ struct CooperativeLUppSolverDynamic {
     substitute(const int n, const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride, T* work,
-               Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+               Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
         T rB[rows_per_thread];
         int rowid[rows_per_thread];
@@ -622,7 +621,7 @@ struct CooperativeLUppSolverDynamic {
     substitute_canonical(const int n, const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride, T* work,
-                         Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                         Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
         T rB[rows_per_thread];
         int rowid[rows_per_thread];
@@ -659,7 +658,7 @@ struct CooperativeLUppSolverDynamic {
     substitute_inplace(const int n, const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride, T* work,
-                       Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                       Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
         T rB[rows_per_thread];
         int rowid[rows_per_thread];
@@ -697,8 +696,7 @@ struct CooperativeLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
     solve(const int n, const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
-          T* work,
-          Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+          T* work, Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
         T rB[rows_per_thread];
         int rowid[rows_per_thread];
@@ -741,7 +739,7 @@ struct CooperativeLUppSolverDynamic {
     solve_inplace(const int n, const int tx, T* TDLS_RESTRICT A, const int A_stride,
                   int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
                   const int rhs_stride, T* work,
-                  Sync&& sync = Sync{}) noexcept(std::is_nothrow_invocable_v<Sync&>) {
+                  Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
         T rB[rows_per_thread];
         int rowid[rows_per_thread];

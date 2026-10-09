@@ -36,8 +36,9 @@ int main() {
     snippets::run_group<Unrolled::threads_per_system>([&](const int tx, auto&& sync) {
         ok[tx] = Unrolled::solve_inplace<false, false, false>(tx, A_unrolled, 1, piv, 1, y_unrolled,
                                                               1, work, sync);
-        ok[tx] &= Rolled::solve_inplace<false, false, false>(tx, A_rolled, 1, piv, 1, y_rolled, 1,
-                                                             work, sync);
+        ok[tx] = Rolled::solve_inplace<false, false, false>(tx, A_rolled, 1, piv, 1, y_rolled, 1,
+                                                            work, sync) &&
+                 ok[tx];
     });
     // snippet end
 

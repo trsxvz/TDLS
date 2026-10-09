@@ -43,10 +43,12 @@ int main() {
         ok[tx] = One::solve_inplace<false, false, false>(tx, A1, 1, piv, 1, y1, 1, work, sync);
     });
     snippets::run_group<Two::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] &= Two::solve_inplace<false, false, false>(tx, A2, 1, piv, 1, y2, 1, work, sync);
+        ok[tx] =
+            Two::solve_inplace<false, false, false>(tx, A2, 1, piv, 1, y2, 1, work, sync) && ok[tx];
     });
     snippets::run_group<Three::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] &= Three::solve_inplace<false, false, false>(tx, A3, 1, piv, 1, y3, 1, work, sync);
+        ok[tx] = Three::solve_inplace<false, false, false>(tx, A3, 1, piv, 1, y3, 1, work, sync) &&
+                 ok[tx];
     });
 
     // the mapping changes nothing in the arithmetic: the three solutions are bitwise identical

@@ -37,8 +37,9 @@ int main() {
     snippets::run_group<Static::threads_per_system>([&](const int tx, auto&& sync) {
         ok[tx] = Dynamic::solve_inplace(n, tx, A_dynamic.data(), 1, piv_dynamic.data(), 1,
                                         y_dynamic.data(), 1, work, sync);
-        ok[tx] &= Static::solve_inplace<false, false, false>(tx, A_static, 1, piv_static, 1,
-                                                             y_static, 1, work, sync);
+        ok[tx] = Static::solve_inplace<false, false, false>(tx, A_static, 1, piv_static, 1,
+                                                            y_static, 1, work, sync) &&
+                 ok[tx];
     });
     // snippet end
 

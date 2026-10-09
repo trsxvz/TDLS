@@ -130,14 +130,25 @@ TDLS_HOST_DEVICE inline double manufactured_error(const int n, const double* u, 
     return e;
 }
 
+/// \brief Configuration of the solvers of the CooperativeLUpp examples.
+///
+/// Built by a function rather than by a designated initializer in the
+/// alias below: MSVC does not evaluate designated initializers that
+/// depend on the parameters of an alias template.
+/// \param[in] rows_per_thread rows held by each thread of the group
+/// \return the configuration
+constexpr tdls::CooperativeLUppConfig<double> group_config(const int rows_per_thread) {
+    tdls::CooperativeLUppConfig<double> config;
+    config.rows_per_thread = rows_per_thread;
+    return config;
+}
+
 /// \brief LU solver of the Nystroem systems for a group of threads, the
 /// solver of the CooperativeLUpp examples: the dimension is a runtime
 /// value, the rows per thread a compile-time one.
 /// \tparam rows_per_thread rows held by each thread of the group
 template<int rows_per_thread>
-using GroupSolver =
-    tdls::CooperativeLUppSolverDynamic<double, tdls::CooperativeLUppConfig<double>{
-                                                   .rows_per_thread = rows_per_thread}>;
+using GroupSolver = tdls::CooperativeLUppSolverDynamic<double, group_config(rows_per_thread)>;
 
 /// \brief One capacitor instance with a CooperativeLUpp solver, called by
 /// every thread of the group that solves it.

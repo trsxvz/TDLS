@@ -204,15 +204,62 @@ radau_step(const double (&butcher)[stages][stages], const double theta, const do
     return false;
 }
 
+/// \brief Configuration of the solvers of the CooperativeLUpp examples.
+///
+/// Built by a function rather than by designated initializers in the
+/// alias below: MSVC does not evaluate designated initializers that
+/// depend on the parameters of an alias template.
+/// \param[in] rows_per_thread rows held by each thread of the group
+/// \param[in] unroll          unroll policy: true on GPU, false on CPU
+/// \return the configuration
+constexpr tdls::CooperativeLUppConfig<double> group_config(const int rows_per_thread,
+                                                           const bool unroll) {
+    tdls::CooperativeLUppConfig<double> config;
+    config.rows_per_thread = rows_per_thread;
+    config.unroll_loops    = unroll;
+    return config;
+}
+
 /// \brief LU solver of the Newton systems for a group of threads, the
 /// solver of the CooperativeLUpp examples.
 /// \tparam rows_per_thread rows held by each thread of the group
 /// \tparam unroll          unroll policy: true on GPU, false on CPU
 template<int rows_per_thread, bool unroll>
-using GroupSolver = tdls::CooperativeLUppSolverStatic<double, N,
-                                                      tdls::CooperativeLUppConfig<double>{
-                                                          .rows_per_thread = rows_per_thread,
-                                                          .unroll_loops    = unroll}>;
+using GroupSolver =
+    tdls::CooperativeLUppSolverStatic<double, N, group_config(rows_per_thread, unroll)>;
+
+/// \brief Makes a vector of the group visible to every thread: copies
+/// its N entries into x, read from v when v is external, through the
+/// workspace when v is the slice of the thread. A barrier closes it, so
+/// that v and the workspace can be overwritten right after.
+/// \tparam internal_rhs residency of v: the slice of the thread or the
+///         whole vector
+/// \tparam Solver       a GroupSolver
+/// \tparam Sync         callable type of the barrier
+/// \param[in]     tx     rank of the thread in its group
+/// \param[in]     sync   barrier of the group
+/// \param[in]     v      the vector: the entries of the thread, or the
+///                whole vector
+/// \param[in]     stride element stride of v (external mode)
+/// \param[in,out] work   workspace of the group, at least N elements
+/// \param[out]    x      the N entries of the vector
+template<bool internal_rhs, typename Solver, typename Sync>
+TDLS_HOST_DEVICE inline void share(const int tx, Sync& sync, const double* v, const int stride,
+                                   double* work, double* x) {
+    constexpr int rows    = Solver::rows_per_thread;
+    constexpr int threads = Solver::threads_per_system;
+    if constexpr (internal_rhs) {
+        for (int K = 0; K < rows && tx + K * threads < N; ++K)
+            work[tx + K * threads] = v[K];
+        sync();
+        for (int i = 0; i < N; ++i)
+            x[i] = work[i];
+    } else {
+        for (int i = 0; i < N; ++i)
+            x[i] = v[i * stride];
+    }
+    sync();
+}
 
 /// \brief One Radau IIA step with a frozen Jacobian and a CooperativeLUpp
 /// solver, called by every thread of the group that solves the cell.
@@ -276,24 +323,6 @@ radau_step_group(const int tx, Sync& sync, Any& any, const double (&butcher)[sta
     auto r_at = [=](const int K) -> double& {
         return r[internal_rhs ? K : (tx + K * threads) * rhs_stride];
     };
-    auto dz_at = [=](const int K) -> double& {
-        return dz[internal_rhs ? K : (tx + K * threads) * rhs_stride];
-    };
-    // The whole correction, visible to every thread: from dz when it is
-    // external, through the workspace otherwise.
-    auto share = [&](double* d) {
-        if constexpr (internal_rhs) {
-            for (int K = 0; K < rows && tx + K * threads < N; ++K)
-                work[tx + K * threads] = dz_at(K);
-            sync();
-            for (int e = 0; e < N; ++e)
-                d[e] = work[e];
-        } else {
-            for (int e = 0; e < N; ++e)
-                d[e] = dz[e * rhs_stride];
-        }
-        sync();
-    };
 
     double Z[N];
     for (int i = 0; i < stages; ++i)
@@ -334,7 +363,7 @@ radau_step_group(const int tx, Sync& sync, Any& any, const double (&butcher)[sta
             Solver::template substitute<internal_rhs, internal_piv, internal_matrix>(
                 tx, M, M_stride, piv, piv_stride, r, dz, rhs_stride, work, sync);
             double d[N];
-            share(d);
+            share<internal_rhs, Solver>(tx, sync, dz, rhs_stride, work, d);
             if (!iterating) continue;
             correction = 0.0;
             for (int e = 0; e < N; ++e) {

@@ -34,8 +34,9 @@ int main() {
     snippets::run_group<Single::threads_per_system>([&](const int tx, auto&& sync) {
         ok[tx] = Single::solve_inplace<false, false, false>(tx, A_single, 1, piv, 1, y_single, 1,
                                                             work_single, sync);
-        ok[tx] &= Extended::solve_inplace<false, false, false>(tx, A_extended, 1, piv, 1,
-                                                               y_extended, 1, work_extended, sync);
+        ok[tx] = Extended::solve_inplace<false, false, false>(tx, A_extended, 1, piv, 1, y_extended,
+                                                              1, work_extended, sync) &&
+                 ok[tx];
     });
     // snippet end
 

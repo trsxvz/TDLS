@@ -14,10 +14,11 @@
 /// and by the modelling hypothesis. This is the shape of the problem
 /// MFront-generated behaviours pose to TDLS.
 ///
-/// Why groups of lanes: with two rows per lane, a point takes a group of
-/// four lanes, and 32 lanes solve eight points. Each lane holds two rows
-/// of the jacobian instead of seven, so the registers of a lane hold a
-/// slice of the system, not the whole of it. The barrier of a group is
+/// Why groups of lanes: with four rows per lane, a point takes a group of
+/// two lanes, and 32 lanes solve sixteen points. Each lane holds four
+/// rows of the jacobian instead of seven, the last slot of the second
+/// lane being a phantom row, so the registers of a lane hold a slice of
+/// the system, not the whole of it. The barrier of a group is
 /// a warp barrier on its lanes only, so the groups of a warp iterate
 /// their Newton loops independently.
 ///
@@ -112,8 +113,8 @@ int main(int argc, char** argv) {
         std::printf("no device available, skipping\n");
         return gpu_skip_code;
     }
-    // Two rows per lane: a point takes a group of four lanes.
-    using Solver = GroupSolver<2, true>;
+    // Four rows per lane: a point takes a group of two lanes.
+    using Solver = GroupSolver<4, true>;
 
     // Large batch: the Newton systems never leave the registers, device
     // memory holds 50 doubles per point of state and outputs.

@@ -10,7 +10,7 @@
 /// licensing conditions.
 ///
 /// Companion of norton_law_batch_gpu.cu: same law, same batch, same
-/// groups of four lanes, opposite placement of the solver operands.
+/// groups of two lanes, opposite placement of the solver operands.
 /// Here the jacobian, the pivot and the right-hand side of every point
 /// are slices of device memory batches, structure-of-arrays: element k
 /// of point t sits at base[k * points + t]. The solver is called with
@@ -113,8 +113,8 @@ int main(int argc, char** argv) {
         std::printf("no device available, skipping\n");
         return gpu_skip_code;
     }
-    // Two rows per lane: a point takes a group of four lanes.
-    using Solver = GroupSolver<2, true>;
+    // Four rows per lane: a point takes a group of two lanes.
+    using Solver = GroupSolver<4, true>;
 
     // The Newton systems are materialized in device memory (about 500
     // bytes per point), so the batch size is bounded by the device

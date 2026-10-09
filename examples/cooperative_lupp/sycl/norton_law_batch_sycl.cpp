@@ -15,9 +15,9 @@
 ///
 /// Why SYCL: the kernel is a single-source nd_range parallel_for and
 /// the solver headers compile as plain C++ inside it: no decoration is
-/// needed in this model. With two rows per work-item, a point takes a
-/// group of four work-items, and a work-group of 32 work-items solves
-/// eight points. Each work-item holds its rows of the jacobian, their
+/// needed in this model. With four rows per work-item, a point takes a
+/// group of two work-items, and a work-group of 32 work-items solves
+/// sixteen points. Each work-item holds its rows of the jacobian, their
 /// pivot entries and their residual entries in private memory: the
 /// internal residencies. The workspaces live in the local memory of the
 /// work-group, and device USM holds the per-point state and outputs,
@@ -27,7 +27,7 @@
 ///
 /// Why a work-group barrier: it is the barrier every SYCL device
 /// provides, whatever the size of its sub-groups. Its scope is wider
-/// than the group of a point, so the eight points of a work-group make
+/// than the group of a point, so the sixteen points of a work-group make
 /// the same calls: the Newton loop and the time loop run while one of
 /// them still iterates, a logical or over the work-group.
 ///
@@ -49,9 +49,9 @@
 
 int main(int argc, char** argv) {
     using namespace norton;
-    // Two rows per work-item: a point takes a group of four work-items,
-    // and a work-group of 32 work-items solves eight points.
-    using Solver          = GroupSolver<2, true>;
+    // Four rows per work-item: a point takes a group of two work-items,
+    // and a work-group of 32 work-items solves sixteen points.
+    using Solver          = GroupSolver<4, true>;
     constexpr int threads = Solver::threads_per_system;
     constexpr int groups  = 32 / threads;
     constexpr int local   = groups * threads;

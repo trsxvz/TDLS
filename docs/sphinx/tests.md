@@ -280,7 +280,7 @@ manufactured solution before the second one overwrites it.
 #### Compile-time dimension, MFront pattern
 
 The Norton integration runs on `CooperativeLUppSolverStatic`. On GPU
-and SYCL, two rows per thread give groups of four threads, the last
-of which holds a phantom slot. `solve_inplace` serves the Newton
+and SYCL, four rows per thread give groups of two threads, the
+second of which holds a phantom slot. `solve_inplace` serves the Newton
 corrections. `factorize` then `substitute_canonical`, once per
 column, give the consistent tangent operator, as MFront does.
