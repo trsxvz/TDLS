@@ -17,6 +17,13 @@ through its residency booleans. Pivoting is logical: a pivot array
 maps logical rows to physical rows, and rows are physically swapped
 only inside the diagonal tile.
 
+Any dimension works with any tile size. When the dimension is not a
+multiple of `tile_size`, the last tile of each row and column is
+partial: its missing slots need no padding of the matrix, and no
+operation runs on them. The compile-time solver bounds its loops by
+the extent of each tile at compile time, the runtime solver at run
+time.
+
 The pivot is searched inside the diagonal tile first. When the best
 in-tile candidate falls below `oot_pivot_threshold`, the search extends to
 the rows under the tile: out-of-tile pivoting. Each candidate is

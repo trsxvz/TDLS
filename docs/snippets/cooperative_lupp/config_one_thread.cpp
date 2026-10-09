@@ -26,8 +26,8 @@ int main() {
     double work[Solver::workspace_size];
     int piv[4];
 
-    // rank 0 and no barrier: the default tdls::NoSync applies; the slices of the
-    // only thread are the whole objects, so every operand can be a local array
+    // rank 0 and no barrier argument: the deduced barrier does nothing for one thread; the
+    // slices of the only thread are the whole objects, so every operand can be a local array
     const bool ok = Solver::solve_inplace<true, true, true>(0, A, 1, piv, 1, y, 1, work);
     // snippet end
 

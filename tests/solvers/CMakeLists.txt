@@ -77,6 +77,33 @@ function(tdls_add_reject_cases)
     endforeach()
 endfunction()
 
+# Run-time contract tests: each program must stop with its message
+# (expect_stop.cmake runs it, since a program stopped by a signal fails a
+# plain ctest entry whatever its output).
+#
+# tdls_add_stop_cases(FAMILY <family> DIRECTORY <directory>
+#                     CASES <case>... MESSAGES <message>...)
+# Builds <directory>/<case>.cpp into tdls_test_<family>_<case> and
+# registers it as the ctest entry solvers.<family>.<case>.
+function(tdls_add_stop_cases)
+    cmake_parse_arguments(PARSE_ARGV 0 ARG "" "FAMILY;DIRECTORY" "CASES;MESSAGES")
+    foreach(case message IN ZIP_LISTS ARG_CASES ARG_MESSAGES)
+        set(target tdls_test_${ARG_FAMILY}_${case})
+        add_executable(${target} EXCLUDE_FROM_ALL ${ARG_DIRECTORY}/${case}.cpp)
+        add_dependencies(buildtests ${target})
+        target_link_libraries(${target} PRIVATE tdls::tdls)
+        target_compile_features(${target} PRIVATE cxx_std_20)
+        if(NOT MSVC)
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        add_test(NAME solvers.${ARG_FAMILY}.${case}
+                 COMMAND ${CMAKE_COMMAND} -DPROGRAM=$<TARGET_FILE:${target}>
+                         "-DMESSAGE=${message}" -P
+                         ${CMAKE_CURRENT_SOURCE_DIR}/expect_stop.cmake)
+        set_tests_properties(solvers.${ARG_FAMILY}.${case} PROPERTIES LABELS "solvers")
+    endforeach()
+endfunction()
+
 tdls_add_solver_suites(
     FAMILY tiledlupp
     DIRECTORY tiled_lupp
@@ -157,3 +184,13 @@ tdls_add_reject_cases(
         "CooperativeLUppSolverStatic: relative_pivot_threshold must be in"
         "CooperativeLUppSolverDynamic: relative_pivot_threshold must be in"
         "a group of several threads cannot run with tdls::NoSync")
+
+tdls_add_stop_cases(
+    FAMILY cooperativelupp
+    DIRECTORY cooperative_lupp
+    CASES
+        stop_nosync_runtime
+        stop_dirty_workspace
+    MESSAGES
+        "the runtime solver runs with tdls::NoSync"
+        "was not zero before its first use")

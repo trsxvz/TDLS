@@ -457,17 +457,6 @@ struct CooperativeLUppSolverStatic {
         });
     }
 
-    /// \brief Compile-time contract of the barrier: a group of several
-    /// threads cannot run without one, so tdls::NoSync is refused.
-    /// \tparam Sync callable type of the barrier
-    template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void require_barrier() noexcept {
-        static_assert(threads_per_system == 1 ||
-                          !std::is_same_v<std::remove_cvref_t<Sync>, tdls::NoSync>,
-                      "CooperativeLUppSolverStatic: a group of several threads cannot run with "
-                      "tdls::NoSync (sync argument)");
-    }
-
     /* =====================================================================
        Operand movement.
        Each thread reads and writes only the entries of its own rows, so
@@ -1387,7 +1376,6 @@ struct CooperativeLUppSolverStatic {
     factorize(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, T* work,
               Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        require_barrier<Sync>();
         auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
         T* const exchange = work + detail::barrier_elements;
         T rA[rows_per_thread][N];
@@ -1428,7 +1416,6 @@ struct CooperativeLUppSolverStatic {
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride, T* work,
                Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        require_barrier<Sync>();
         auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
         T* const exchange = work + detail::barrier_elements;
         T rA[rows_per_thread][N];
@@ -1469,7 +1456,6 @@ struct CooperativeLUppSolverStatic {
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride, T* work,
                          Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        require_barrier<Sync>();
         auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
         T* const exchange = work + detail::barrier_elements;
         T rA[rows_per_thread][N];
@@ -1516,7 +1502,6 @@ struct CooperativeLUppSolverStatic {
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride, T* work,
                        Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        require_barrier<Sync>();
         auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
         T* const exchange = work + detail::barrier_elements;
         T rA[rows_per_thread][N];
@@ -1564,7 +1549,6 @@ struct CooperativeLUppSolverStatic {
     solve(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           T* work, Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        require_barrier<Sync>();
         auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
         T* const exchange = work + detail::barrier_elements;
         T rA[rows_per_thread][N];
@@ -1619,7 +1603,6 @@ struct CooperativeLUppSolverStatic {
     solve_inplace(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride, T* work,
                   Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        require_barrier<Sync>();
         auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
         T* const exchange = work + detail::barrier_elements;
         T rA[rows_per_thread][N];

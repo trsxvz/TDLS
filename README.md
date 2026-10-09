@@ -23,6 +23,8 @@ pivoting:
   valid group. Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
 
+Here are two snippets, one per family, with every knob spelled out.
+
 ```cpp
 #include <limits>
 

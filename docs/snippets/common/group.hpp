@@ -16,7 +16,7 @@
 /// on the lanes of a warp. The threads are std::thread instances and the
 /// barrier a condition-variable barrier, which the standard library of
 /// every supported compiler provides. A group of one thread runs on the
-/// calling thread with the default tdls::NoSync barrier.
+/// calling thread with tdls::NoSync.
 
 
 

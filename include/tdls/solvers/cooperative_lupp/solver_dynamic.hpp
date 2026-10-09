@@ -79,9 +79,10 @@
 ///     reachable by every thread of the group.
 ///   - The size of the group depends on n, so the deduced barrier checks
 ///     it at run time, and a pass that offers no deduced barrier refuses
-///     tdls::AutoSync at compile time. tdls::NoSync is not checked: the
-///     caller must keep n <= Config.rows_per_thread (one thread per
-///     system), or the results are wrong.
+///     tdls::AutoSync at compile time. tdls::NoSync is checked at run
+///     time: n above Config.rows_per_thread, a group of several threads,
+///     stops the program with a message, wherever the pass can stop it
+///     (see core/group.hpp).
 ///
 /// For equal shapes (n = N, same configuration), results are bitwise
 /// identical to the compile-time solver: factored rows, pivot entries and

@@ -10,10 +10,13 @@ dimension, one with a runtime dimension.
 
 The rows of a system are shared by the threads of a group. Each thread
 holds `rows_per_thread` rows. With T threads in the group, thread `tx`
-holds rows `tx`, `tx + T`, `tx + 2T` and so on. When the dimension is
-not a multiple of `rows_per_thread`, the last slots hold phantom rows,
-skipped at compile time. A `rows_per_thread` reaching the dimension
-gives one thread per system: the solver then runs sequentially.
+holds rows `tx`, `tx + T`, `tx + 2T` and so on. Any dimension works
+with any `rows_per_thread`. When the dimension is not a multiple of
+it, the last slots hold phantom rows: they need no padding of the
+matrix, and no operation runs on them. The compile-time solver skips
+them at compile time, the runtime solver at run time. A
+`rows_per_thread` reaching the dimension gives one thread per system:
+the solver then runs sequentially.
 
 The elimination is right-looking, one column per step. At each step,
 the threads publish the magnitudes of the column in a workspace. Every
@@ -150,7 +153,8 @@ message that says why:
 
 On these targets, the runtime solver needs an explicit choice even for
 one thread per system: its group size depends on n, unknown to the
-compiler. `tdls::NoSync` states that choice.
+compiler. `tdls::NoSync` states that choice, and the solver checks it
+on entry (see what TDLS checks, below).
 
 **The group is not one the deduced barrier knows.** The deduced
 barrier knows the lanes of one warp or wavefront on GPU, and threads
@@ -200,15 +204,18 @@ compile time when possible:
   program with a message before any exchange;
 - on CPU, with the deduced barrier: a workspace whose first two
   elements hold no barrier state stops the program with a message, and
-  a group that waits for more than a second prints one.
+  a group that waits for more than a second prints one;
+- `tdls::NoSync` with the runtime solver on a dimension above
+  `rows_per_thread`, a group of several threads, stops the program with
+  a message. The targets that cannot stop a kernel let it run: SPIR-V
+  devices, the generic mode of AdaptiveCpp, nvc++ offloading without
+  `-cuda` and GCC offloading.
 
-Four misuses stay silent, since nothing tells them from a correct
+Three misuses stay silent, since nothing tells them from a correct
 use, and may give wrong results or a deadlock:
 
 - an explicit barrier that does not synchronize the group, since the
   solver uses it as is;
-- `tdls::NoSync` with the runtime solver and n above
-  `rows_per_thread`;
 - two groups that share one workspace, except on GPU when their lanes
   share a warp;
 - on CPU, a workspace whose first two elements were left with values

@@ -45,7 +45,9 @@ of undefined behaviour: each one is a certificate for the path it
 exercises. The `reject_*` tests compile, on purpose, translation units
 that the compile-time contracts must reject. Each passes only when the
 compiler emits the exact diagnostic of its contract, so a silently
-dropped contract turns the suite red.
+dropped contract turns the suite red. The `stop_*` tests do the same
+for the contracts checked at run time: each program must stop with
+the message of its contract.
 
 ## Examples as tests
 
@@ -210,6 +212,7 @@ keeps the instrumented builds short.
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the pivot choice under a relative threshold |
 | `constexpr` | compile-time certificates on both solvers, one thread per system, under both row interchanges |
 | `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a relative pivot threshold in (0, 1], no `tdls::NoSync` for a group of several threads |
+| `stop_*` | the run-time contracts of the barrier: `tdls::NoSync` with the runtime solver on a dimension above `rows_per_thread`, and a workspace that was not zero before a group of CPU threads used it |
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in

@@ -34,8 +34,11 @@ the API may change between minor versions.
   of CUDA, HIP, Kokkos, RAJA, OpenMP and OpenACC offloading, and of the
   parallel algorithms of nvc++, get it alike. A caller may still pass
   its own barrier, used as is, and `make_sync` returns the deduced one
-  for the exchanges of the caller. The new header `tdls/core/group.hpp`
-  holds the barriers, `tdls::NoSync` included.
+  for the exchanges of the caller. `tdls::NoSync` is checked against
+  the size of the group: at compile time by the compile-time solver, on
+  entry by the runtime solver, whose group size depends on n. The new
+  header `tdls/core/group.hpp` holds the barriers, `tdls::NoSync`
+  included.
 - Entry points of the new family: factorize, substitute, its in-place
   and canonical forms, solve and solve_inplace, with the stride
   convention of TiledLUpp and, for the compile-time solver, its

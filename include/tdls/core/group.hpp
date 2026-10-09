@@ -19,7 +19,8 @@
 ///     the target the code is compiled for, as described below, so most
 ///     calls pass nothing;
 ///   - tdls::NoSync: no barrier at all, valid only for a group of one
-///     thread, a contract the compile-time solver checks;
+///     thread, a contract the compile-time solver checks at compile time
+///     and the runtime solver at run time;
 ///   - any other callable taking no argument: the barrier of the caller,
 ///     used as is, without any check and at no extra cost.
 ///
@@ -90,10 +91,14 @@
 ///     private workspace stop the program with a message;
 ///   - on CPU, with the deduced barrier: a workspace whose barrier
 ///     elements hold no barrier state stops the program with a message,
-///     and a group that waits for more than a second prints one.
-/// Four misuses stay silent, since nothing tells them from a correct
-/// use: an explicit barrier that does not synchronize the group,
-/// tdls::NoSync with the runtime solver and n above rows_per_thread, two
+///     and a group that waits for more than a second prints one;
+///   - tdls::NoSync with the runtime solver on a dimension above
+///     rows_per_thread stops the program with a message, wherever the
+///     pass can stop it: everywhere but on SPIR-V devices, in the generic
+///     mode of AdaptiveCpp, in nvc++ offloading without -cuda and in GCC
+///     offloading.
+/// Three misuses stay silent, since nothing tells them from a correct
+/// use: an explicit barrier that does not synchronize the group, two
 /// groups sharing one workspace (except on GPU when their lanes share a
 /// warp), and on CPU barrier elements left with values that look like a
 /// barrier state.
@@ -130,19 +135,20 @@
 
 
 /* =========================================================================
-   Target of the compilation pass.
+   Side of the compilation pass: the instructions it offers to run the
+   deduced barrier and to stop a kernel or the program.
    The order matters. clang defines __CUDA_ARCH__ in the OpenMP device
    pass for AMDGCN up to clang 18, and DPC++ does not define it for NVPTX:
    the AMDGCN and NVPTX macros are tested first. The NVIDIA builtins
    serve the device passes outside the CUDA language only, and the AMD
    ones the device passes of HIP and of the other models: AdaptiveCpp
    defines __NVPTX__ in the host pass of its CUDA mode too, and the host
-   pass of HIP defines __AMDGCN__, plus __SPIRV__ for amdgcnspirv. The
-   pass before Volta takes no NVIDIA branch: it lacks __match_any_sync.
-   Every other SPIR-V device pass, SYCL or OpenMP, follows. The generic
-   mode of AdaptiveCpp compiles host and device code in one pass,
-   recognized by the macro its compiler defines, once no device pass has
-   matched.
+   pass of HIP defines __AMDGCN__, plus __SPIRV__ for amdgcnspirv. Every
+   other SPIR-V device pass, SYCL or OpenMP, follows. The generic mode of
+   AdaptiveCpp compiles host and device code in one pass, recognized by
+   the macro its compiler defines, once no device pass has matched. A
+   pass without a side has no deduced barrier, and TDLS_DETAIL_GROUP_NONE
+   gives the reason.
    ========================================================================= */
 
 #if defined(__NVCOMPILER)
@@ -163,10 +169,6 @@
     (defined(__HIP_DEVICE_COMPILE__) || !defined(__HIP__))
 /// AMD through the clang builtins.
 #define TDLS_DETAIL_GROUP_AMDGCN
-#elif (defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700) ||                                           \
-    (defined(__SYCL_CUDA_ARCH__) && __SYCL_CUDA_ARCH__ < 700)
-/// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE "NVIDIA GPUs before Volta (sm_70) have none."
 #elif defined(__CUDA_ARCH__) && (defined(__CUDACC__) || defined(__CUDA__))
 /// NVIDIA through the CUDA API.
 #define TDLS_DETAIL_GROUP_CUDA
@@ -186,19 +188,34 @@
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE                                                                     \
     "The generic mode of AdaptiveCpp has none; its cuda and hip modes do."
-#elif !defined(__cpp_lib_atomic_ref)
-/// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE                                                                     \
-    "On CPU, it needs std::atomic_ref, missing from this standard library (libc++ before 19)."
 #else
 /// The host.
 #define TDLS_DETAIL_GROUP_HOST
 #endif
 
+// Two sides lack the deduced barrier, yet still stop a kernel or the
+// program: NVIDIA before Volta has no match instruction, and a standard
+// library without std::atomic_ref no CPU barrier on the workspace.
+#if (defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX)) &&                       \
+    ((defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 700) ||                                            \
+     (defined(__SYCL_CUDA_ARCH__) && __SYCL_CUDA_ARCH__ < 700))
+/// No deduced barrier in this pass; the reason, appended to the diagnostic.
+#define TDLS_DETAIL_GROUP_NONE "NVIDIA GPUs before Volta (sm_70) have none."
+#elif defined(TDLS_DETAIL_GROUP_HOST) && !defined(__cpp_lib_atomic_ref)
+/// No deduced barrier in this pass; the reason, appended to the diagnostic.
+#define TDLS_DETAIL_GROUP_NONE                                                                     \
+    "On CPU, it needs std::atomic_ref, missing from this standard library (libc++ before 19)."
+#endif
+
+#if !defined(TDLS_DETAIL_GROUP_NONE)
+/// The pass offers the deduced barrier.
+#define TDLS_DETAIL_GROUP_BARRIER
+#endif
+
 /// Statement list expanded as is.
 #define TDLS_DETAIL_GROUP_EXPAND(...) __VA_ARGS__
 
-// The arguments of the two selection macros are parenthesized statement
+// The arguments of the selection macros are parenthesized statement
 // lists, as for NV_IF_TARGET. TDLS_DETAIL_GROUP_LANES qualifies the lane
 // functions: device functions of the CUDA and HIP languages, host-device
 // functions of nvc++, which select their body with NV_IF_TARGET, and
@@ -207,31 +224,39 @@
 /// Keeps a statement list on the device side only.
 #define TDLS_DETAIL_GROUP_ON_DEVICE(code) NV_IF_TARGET(NV_IS_DEVICE, code)
 /// Picks the statement list of the side of the pass.
-#define TDLS_DETAIL_GROUP_DISPATCH(device, host) NV_IF_TARGET(NV_IS_DEVICE, device, host)
+#define TDLS_DETAIL_GROUP_SIDE(device, host) NV_IF_TARGET(NV_IS_DEVICE, device, host)
 /// Qualifiers of the lane functions.
 #define TDLS_DETAIL_GROUP_LANES TDLS_HOST_DEVICE TDLS_FORCEINLINE
 #elif defined(TDLS_DETAIL_GROUP_CUDA)
 /// Keeps a statement list on the device side only.
-#define TDLS_DETAIL_GROUP_ON_DEVICE(code)        TDLS_DETAIL_GROUP_EXPAND code
+#define TDLS_DETAIL_GROUP_ON_DEVICE(code)    TDLS_DETAIL_GROUP_EXPAND code
 /// Picks the statement list of the side of the pass.
-#define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_EXPAND device
+#define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
-#define TDLS_DETAIL_GROUP_LANES                  __device__ TDLS_FORCEINLINE
+#define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCEINLINE
 #elif defined(TDLS_DETAIL_GROUP_AMDGCN) && defined(__HIP__)
 /// Picks the statement list of the side of the pass.
-#define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_EXPAND device
+#define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
-#define TDLS_DETAIL_GROUP_LANES                  __device__ TDLS_FORCEINLINE
+#define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCEINLINE
 #elif defined(TDLS_DETAIL_GROUP_NVPTX) || defined(TDLS_DETAIL_GROUP_AMDGCN)
 /// Picks the statement list of the side of the pass.
-#define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_EXPAND device
+#define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
-#define TDLS_DETAIL_GROUP_LANES                  inline
+#define TDLS_DETAIL_GROUP_LANES              inline
 #elif defined(TDLS_DETAIL_GROUP_HOST)
 /// Picks the statement list of the side of the pass.
-#define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_EXPAND host
+#define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND host
 #else
-/// No side to pick: the resolution of the barrier refuses the pass.
+/// No side: the pass can neither run the deduced barrier nor stop.
+#define TDLS_DETAIL_GROUP_SIDE(device, host)
+#endif
+
+#if defined(TDLS_DETAIL_GROUP_BARRIER)
+/// Picks the statement list of the deduced barrier on the side of the pass.
+#define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_SIDE(device, host)
+#else
+/// No deduced barrier: the resolution of the barrier refuses the pass.
 #define TDLS_DETAIL_GROUP_DISPATCH(device, host)
 #endif
 
@@ -251,8 +276,9 @@ struct AutoSync {};
 
 /// \brief Barrier that does nothing, valid only when one thread solves a
 /// system. The compile-time solver refuses it for a group of several
-/// threads; the runtime solver cannot, so n must not exceed
-/// rows_per_thread there.
+/// threads at compile time. The runtime solver, whose group size depends
+/// on n, stops the program when n exceeds rows_per_thread, wherever the
+/// pass can stop it (see core/group.hpp).
 struct NoSync {
     /// \brief Does nothing.
     TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void operator()() const noexcept {
@@ -265,6 +291,11 @@ namespace detail {
 /// \tparam Sync type of the barrier argument
 template<typename Sync>
 inline constexpr bool is_auto_sync = std::is_same_v<std::remove_cvref_t<Sync>, AutoSync>;
+
+/// \brief Whether the barrier argument is the absence of barrier.
+/// \tparam Sync type of the barrier argument
+template<typename Sync>
+inline constexpr bool is_no_sync = std::is_same_v<std::remove_cvref_t<Sync>, NoSync>;
 
 /// \brief Whether a call of the barrier is noexcept, the condition of the
 /// noexcept specification of every entry point. Spelled as a
@@ -289,14 +320,14 @@ inline constexpr bool nothrow_sync<Sync, true> = true;
 /// several threads: GCC before 13 and nvcc evaluate a static_assert that
 /// depends on no template parameter, even in a discarded branch.
 /// \tparam T scalar type of the workspace
-#if defined(TDLS_DETAIL_GROUP_NONE)
-template<typename T>
-inline constexpr bool group_barrier_available = false;
-#else
+#if defined(TDLS_DETAIL_GROUP_BARRIER)
 template<typename T>
 inline constexpr bool group_barrier_available = true;
 /// No reason: the pass offers the deduced barrier.
 #define TDLS_DETAIL_GROUP_NONE ""
+#else
+template<typename T>
+inline constexpr bool group_barrier_available = false;
 #endif
 
 /// \brief Elements at the start of the workspace that hold the deduced
@@ -308,30 +339,74 @@ inline constexpr int barrier_elements = 2;
 /// \brief Largest group the warp of the pass can hold, checked at compile
 /// time when the size of the group is (0: no compile-time bound). The one
 /// pass of nvc++ serves the GPU as well, so the bound of its warp holds.
-#if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX) ||                         \
-    defined(TDLS_DETAIL_GROUP_NVCXX)
+#if defined(TDLS_DETAIL_GROUP_BARRIER) &&                                                          \
+    (defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX) ||                        \
+     defined(TDLS_DETAIL_GROUP_NVCXX))
 inline constexpr int group_lanes = 32;
-#elif defined(TDLS_DETAIL_GROUP_AMDGCN)
+#elif defined(TDLS_DETAIL_GROUP_BARRIER) && defined(TDLS_DETAIL_GROUP_AMDGCN)
 inline constexpr int group_lanes = 64;
 #else
 inline constexpr int group_lanes = 0;
 #endif
 
-/// Message of an incomplete group, printed by its first lane. It takes no
-/// argument: a formatted print would reserve a stack frame in local
-/// memory for every kernel, even when it never runs. A workspace in the
-/// private memory of each thread fails as well: its address is the same
-/// in every lane, so the lanes would match without sharing anything.
+/// \brief Failures that stop a kernel, each with its message.
+enum class LanesFailure {
+    incomplete, ///< a group incomplete in its warp, or a private workspace
+    no_sync     ///< tdls::NoSync with a group of several threads
+};
+
+// The messages, printed by the first lane of the group. They take no
+// argument: a formatted print would reserve a stack frame in local
+// memory for every kernel, even when it never runs. A workspace in the
+// private memory of each thread fails as an incomplete group: its address
+// is the same in every lane, so the lanes would match without sharing
+// anything.
+/// Message of an incomplete group.
 #define TDLS_DETAIL_GROUP_INCOMPLETE                                                               \
     "TDLS: a group of threads is incomplete in its warp, or its workspace is private to each "     \
     "thread. The threads of a group must call the solver together, as lanes of one warp or "       \
     "wavefront, with a workspace in shared or global memory.\n"
+/// Message of tdls::NoSync with a group of several threads.
+#define TDLS_DETAIL_GROUP_NO_SYNC                                                                  \
+    "TDLS: the runtime solver runs with tdls::NoSync, valid for one thread per system, on a "      \
+    "dimension above rows_per_thread. Pass a barrier, or a rows_per_thread reaching the "          \
+    "dimension.\n"
 
 /* =========================================================================
    NVIDIA, CUDA API: nvcc, clang CUDA, nvc++ on the device side.
    ========================================================================= */
 
 #if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVCXX)
+
+/// \brief Stops the kernel: the first lane of the mask prints the message
+/// of the failure, then every lane traps.
+/// \param[in] mask    lanes concerned by the failure
+/// \param[in] failure what went wrong
+TDLS_DETAIL_GROUP_LANES void lanes_fail([[maybe_unused]] const unsigned long long mask,
+                                        [[maybe_unused]] const LanesFailure failure) noexcept {
+    // clang-format off: a statement list as the argument of a macro
+    TDLS_DETAIL_GROUP_ON_DEVICE((
+        unsigned lane;
+        asm volatile("mov.u32 %0, %%laneid;" : "=r"(lane));
+        if (lane == static_cast<unsigned>(__ffsll(static_cast<long long>(mask)) - 1)) {
+            if (failure == LanesFailure::incomplete)
+                printf(TDLS_DETAIL_GROUP_INCOMPLETE);
+            else
+                printf(TDLS_DETAIL_GROUP_NO_SYNC);
+        }
+        __trap();))
+    // clang-format on
+}
+
+/// \brief Lanes running together in the warp of the caller.
+/// \return the lane mask of the active lanes
+TDLS_DETAIL_GROUP_LANES unsigned long long lanes_active() noexcept {
+    unsigned long long lanes = 0;
+    TDLS_DETAIL_GROUP_ON_DEVICE((lanes = __activemask();))
+    return lanes;
+}
+
+#if defined(TDLS_DETAIL_GROUP_BARRIER)
 
 /// \brief Lanes of the calling group: the active lanes sharing its key.
 /// Stops the program when the group does not find all its threads, or
@@ -345,14 +420,8 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
     TDLS_DETAIL_GROUP_ON_DEVICE((
         const unsigned mask =
             __match_any_sync(__activemask(), reinterpret_cast<unsigned long long>(key));
-        const int found = __popc(mask);
-        if (found != threads || __isLocal(key)) {
-            unsigned lane;
-            asm volatile("mov.u32 %0, %%laneid;" : "=r"(lane));
-            if (lane == static_cast<unsigned>(__ffs(mask) - 1))
-                printf(TDLS_DETAIL_GROUP_INCOMPLETE);
-            __trap();
-        }
+        if (__popc(mask) != threads || __isLocal(key))
+            lanes_fail(mask, LanesFailure::incomplete);
         lanes = mask;))
     // clang-format on
     return lanes;
@@ -364,6 +433,8 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
     TDLS_DETAIL_GROUP_ON_DEVICE((__syncwarp(static_cast<unsigned>(lanes));))
 }
 
+#endif
+
 /* =========================================================================
    NVIDIA, clang builtins: OpenMP offloading and SYCL device passes. The
    active mask is read with the PTX instruction itself, as clang's CUDA
@@ -372,6 +443,33 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 
 #elif defined(TDLS_DETAIL_GROUP_NVPTX)
 
+/// \brief Stops the kernel: the first lane of the mask prints the message
+/// of the failure, except under SYCL, then every lane traps.
+/// \param[in] mask    lanes concerned by the failure
+/// \param[in] failure what went wrong
+TDLS_DETAIL_GROUP_LANES void lanes_fail([[maybe_unused]] const unsigned long long mask,
+                                        [[maybe_unused]] const LanesFailure failure) noexcept {
+#if !defined(__SYCL_DEVICE_ONLY__)
+    if (__nvvm_read_ptx_sreg_laneid() == __builtin_ctzll(mask)) {
+        if (failure == LanesFailure::incomplete)
+            printf(TDLS_DETAIL_GROUP_INCOMPLETE);
+        else
+            printf(TDLS_DETAIL_GROUP_NO_SYNC);
+    }
+#endif
+    __builtin_trap();
+}
+
+/// \brief Lanes running together in the warp of the caller.
+/// \return the lane mask of the active lanes
+TDLS_DETAIL_GROUP_LANES unsigned long long lanes_active() noexcept {
+    unsigned active;
+    asm volatile("activemask.b32 %0;" : "=r"(active));
+    return active;
+}
+
+#if defined(TDLS_DETAIL_GROUP_BARRIER)
+
 /// \brief Lanes of the calling group: the active lanes sharing its key.
 /// Stops the program when the group does not find all its threads, or
 /// when its key lies in the private memory of each thread.
@@ -379,18 +477,11 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 /// \param[in] threads number of threads of the group
 /// \return the lane mask of the group
 TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int threads) noexcept {
-    unsigned active;
-    asm volatile("activemask.b32 %0;" : "=r"(active));
     const unsigned mask = __nvvm_match_any_sync_i64(
-        active, static_cast<long long>(reinterpret_cast<unsigned long long>(key)));
-    const int found = __builtin_popcount(mask);
-    if (found != threads || __nvvm_isspacep_local(key)) {
-#if !defined(__SYCL_DEVICE_ONLY__)
-        if (__nvvm_read_ptx_sreg_laneid() == __builtin_ctz(mask))
-            printf(TDLS_DETAIL_GROUP_INCOMPLETE);
-#endif
-        __builtin_trap();
-    }
+        static_cast<unsigned>(lanes_active()),
+        static_cast<long long>(reinterpret_cast<unsigned long long>(key)));
+    if (__builtin_popcount(mask) != threads || __nvvm_isspacep_local(key))
+        lanes_fail(mask, LanesFailure::incomplete);
     return mask;
 }
 
@@ -399,6 +490,8 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
 TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept {
     __nvvm_bar_warp_sync(static_cast<unsigned>(lanes));
 }
+
+#endif
 
 /* =========================================================================
    AMD, clang builtins: HIP, OpenMP offloading and SYCL device passes.
@@ -420,6 +513,30 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 #define TDLS_DETAIL_GROUP_BALLOT(predicate)                                                        \
     __builtin_amdgcn_uicmp(static_cast<unsigned>(predicate), 0u, 33 /* ICMP_NE */)
 #endif
+
+/// \brief Stops the kernel: the first lane of the mask prints the message
+/// of the failure, except under SYCL, then every lane traps.
+/// \param[in] mask    lanes concerned by the failure
+/// \param[in] failure what went wrong
+TDLS_DETAIL_GROUP_LANES void lanes_fail([[maybe_unused]] const unsigned long long mask,
+                                        [[maybe_unused]] const LanesFailure failure) noexcept {
+#if !defined(__SYCL_DEVICE_ONLY__)
+    const unsigned lane = __builtin_amdgcn_mbcnt_hi(~0u, __builtin_amdgcn_mbcnt_lo(~0u, 0u));
+    if (lane == static_cast<unsigned>(__builtin_ctzll(mask))) {
+        if (failure == LanesFailure::incomplete)
+            printf(TDLS_DETAIL_GROUP_INCOMPLETE);
+        else
+            printf(TDLS_DETAIL_GROUP_NO_SYNC);
+    }
+#endif
+    __builtin_trap();
+}
+
+/// \brief Lanes running together in the wavefront of the caller.
+/// \return the lane mask of the active lanes
+TDLS_DETAIL_GROUP_LANES unsigned long long lanes_active() noexcept {
+    return __builtin_amdgcn_read_exec();
+}
 
 /// \brief Lanes of the calling group: the active lanes sharing its key.
 /// Stops the program when the group does not find all its threads, or
@@ -444,17 +561,10 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
     // The builtin takes a generic pointer, which OpenMP offloading does not
     // make the default. Only a C cast changes the address space, as in the
     // OpenMP device runtime.
-    const int found = __builtin_popcountll(mask);
     const bool isprivate =
         __builtin_amdgcn_is_private((const __attribute__((address_space(0))) void*)key);
-    if (found != threads || isprivate) {
-#if !defined(__SYCL_DEVICE_ONLY__)
-        const unsigned lane = __builtin_amdgcn_mbcnt_hi(~0u, __builtin_amdgcn_mbcnt_lo(~0u, 0u));
-        if (lane == static_cast<unsigned>(__builtin_ctzll(mask)))
-            printf(TDLS_DETAIL_GROUP_INCOMPLETE);
-#endif
-        __builtin_trap();
-    }
+    if (__builtin_popcountll(mask) != threads || isprivate)
+        lanes_fail(mask, LanesFailure::incomplete);
     return mask;
 }
 
@@ -476,6 +586,15 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(unsigned long long) noexcept {
    ========================================================================= */
 
 #if defined(TDLS_DETAIL_GROUP_HOST) || defined(TDLS_DETAIL_GROUP_NVCXX)
+
+/// \brief Stops the program: the runtime solver runs a group of several
+/// threads with tdls::NoSync.
+inline void host_refuse_no_sync() noexcept {
+    std::fputs(TDLS_DETAIL_GROUP_NO_SYNC, stderr);
+    std::abort();
+}
+
+#if defined(TDLS_DETAIL_GROUP_BARRIER)
 
 /// \brief Checks the two barrier elements of the workspace on entry: a
 /// counter in [0, threads) and a flag of 0 or 1, the state the barrier
@@ -537,8 +656,19 @@ void host_sync(T* slots, const int threads) noexcept {
 
 #endif
 
+#endif
+
 #undef TDLS_DETAIL_GROUP_INCOMPLETE
+#undef TDLS_DETAIL_GROUP_NO_SYNC
 #undef TDLS_DETAIL_GROUP_BALLOT
+
+/// \brief Stops the program: the runtime solver runs a group of several
+/// threads with tdls::NoSync. A pass that can stop neither a kernel nor
+/// the program, one without a side, lets it run.
+TDLS_HOST_DEVICE TDLS_FORCEINLINE void refuse_no_sync() noexcept {
+    TDLS_DETAIL_GROUP_SIDE((lanes_fail(lanes_active(), LanesFailure::no_sync);),
+                           (host_refuse_no_sync();))
+}
 
 /// \brief The barrier deduced from the compilation target, for a group of
 /// several threads. A group of one thread, possible with the runtime
@@ -578,8 +708,10 @@ class DeducedSync {
 /// \brief Resolves the barrier argument of an entry point: the caller's
 /// barrier as is, or the deduced barrier.
 ///
-/// With a group size known at compile time, a group of one thread
-/// resolves to tdls::NoSync and costs nothing. Otherwise the pass must
+/// tdls::NoSync is checked against the size of the group: at compile time
+/// when the size is known there, at run time otherwise. With a group size
+/// known at compile time, a group of one thread resolves the deduced
+/// barrier to tdls::NoSync and costs nothing. Otherwise the pass must
 /// offer the deduced barrier, and a GPU warp must be able to hold the
 /// group.
 /// \tparam static_threads size of the group when known at compile time,
@@ -593,7 +725,14 @@ class DeducedSync {
 template<int static_threads, typename Sync, typename T>
 TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr decltype(auto)
 resolve_sync(Sync& sync, [[maybe_unused]] T* slots, [[maybe_unused]] const int threads) noexcept {
-    if constexpr (!is_auto_sync<Sync>) {
+    if constexpr (is_no_sync<Sync>) {
+        static_assert(static_threads <= 1, "TDLS: a group of several threads cannot run with "
+                                           "tdls::NoSync (sync argument)");
+        if constexpr (static_threads == 0) {
+            if (threads > 1) refuse_no_sync();
+        }
+        return (sync);
+    } else if constexpr (!is_auto_sync<Sync>) {
         return (sync);
     } else if constexpr (static_threads == 1) {
         return NoSync{};
@@ -617,9 +756,11 @@ resolve_sync(Sync& sync, [[maybe_unused]] T* slots, [[maybe_unused]] const int t
 
 
 #undef TDLS_DETAIL_GROUP_DISPATCH
+#undef TDLS_DETAIL_GROUP_SIDE
 #undef TDLS_DETAIL_GROUP_LANES
 #undef TDLS_DETAIL_GROUP_ON_DEVICE
 #undef TDLS_DETAIL_GROUP_EXPAND
+#undef TDLS_DETAIL_GROUP_BARRIER
 #undef TDLS_DETAIL_GROUP_CUDA
 #undef TDLS_DETAIL_GROUP_NVPTX
 #undef TDLS_DETAIL_GROUP_AMDGCN
