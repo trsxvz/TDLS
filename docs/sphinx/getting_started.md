@@ -4,9 +4,9 @@
 
 Only a C++20 compiler is mandatory: the library itself has no
 dependency. The oldest releases known to compile the headers are GCC
-10, Clang 12, Visual Studio 2019 16.11, CUDA 12.0 and ROCm 6.2. The
-barrier that CooperativeLUpp deduces for a group of GPU threads needs
-sm_70 on NVIDIA and ROCm 7.0 on AMD.
+10, Clang 12, Visual Studio 2019 16.11, CUDA 12.0 and ROCm 5.3. On
+NVIDIA GPUs, the barrier that CooperativeLUpp deduces for a group of
+threads needs sm_70 or newer.
 Running every example additionally needs an OpenMP runtime, oneTBB or
 nvc++ for the parallel STL on the CPU cores, a CUDA or HIP toolchain, a
 SYCL compiler and a parallel STL offload compiler.

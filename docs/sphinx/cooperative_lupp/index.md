@@ -91,10 +91,9 @@ from the target the code is compiled for.
 On GPU, this covers every model whose kernels the compiler builds as
 GPU code:
 
-- CUDA, and HIP from ROCm 7.0 (6.2 with
-  `HIP_ENABLE_WARP_SYNC_BUILTINS`);
+- CUDA and HIP;
 - Kokkos and RAJA;
-- OpenMP offloading with clang (clang 19 or newer on AMD);
+- OpenMP offloading with clang;
 - nvc++ with `-stdpar=gpu`, or with `-cuda` for OpenMP and OpenACC
   offloading;
 - SYCL on NVIDIA and AMD devices, AdaptiveCpp in its cuda and hip

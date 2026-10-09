@@ -49,27 +49,26 @@
 ///     the side with NV_IF_TARGET);
 ///   - NVIDIA through the clang builtins: the other clang device passes
 ///     for NVPTX, OpenMP offloading and SYCL;
-///   - AMD through the HIP API: ROCm 7.0 or newer, where the warp
-///     synchronous functions are enabled by default, or ROCm 6.2 with
-///     HIP_ENABLE_WARP_SYNC_BUILTINS;
-///   - AMD through the clang builtins: the other clang device passes for
-///     AMDGCN, OpenMP offloading and SYCL (clang 19 or newer);
+///   - AMD through the clang builtins: the device passes of HIP, of
+///     OpenMP offloading and of SYCL, the builtins HIP itself uses, from
+///     ROCm 5.3 on;
 ///   - the host, for every other pass.
-/// A few passes offer no warp primitive callable without a handle passed
-/// by the kernel: nvc++ OpenMP or OpenACC offloading without -cuda, its
-/// OpenACC backend of the parallel algorithms, the generic mode of
-/// AdaptiveCpp, GCC offloading, and HIP before its warp synchronous
-/// functions. SYCL on SPIR-V devices has the primitives, but no way to
-/// stop a kernel that finds its group incomplete, so the check could not
-/// keep its promise there. In all these passes the deduced barrier
-/// accepts only a group of one thread known at compile time, and the
-/// compiler asks for an explicit barrier otherwise.
+/// A few passes offer no warp primitive callable without a handle
+/// passed by the kernel: nvc++ OpenMP or OpenACC offloading without
+/// -cuda, its OpenACC backend of the parallel algorithms, the generic
+/// mode of AdaptiveCpp and GCC offloading. SYCL on SPIR-V devices has
+/// the primitives, but no way to stop a kernel that finds its group
+/// incomplete, so the check could not keep its promise there. In all
+/// these passes the deduced barrier accepts only a group of one thread
+/// known at compile time, and the compiler asks for an explicit barrier
+/// otherwise.
 ///
 /// The GPU checks follow the warp synchronous primitives of each vendor:
 /// __match_any_sync on the active lanes, __syncwarp on the lanes of the
-/// group. AMD executes the lanes of a wavefront in lockstep, so its
-/// barrier is a wavefront fence around a scheduling barrier, the
-/// __syncwarp of HIP itself. On NVIDIA, sm_70 or newer is required.
+/// group, and on AMD the loop of ballots behind the __match_any of HIP.
+/// AMD executes the lanes of a wavefront in lockstep, so its barrier is a
+/// wavefront fence around a scheduling barrier, the __syncwarp of HIP
+/// itself. On NVIDIA, sm_70 or newer is required.
 
 
 
@@ -87,7 +86,7 @@
 #include <nv/target>
 #endif
 
-// The warp functions of HIP come with its runtime header, which a HIP
+// The device printf of HIP comes with its runtime header, which a HIP
 // translation unit may include after this one.
 #if defined(__HIP__)
 #include <hip/hip_runtime.h>
@@ -99,8 +98,9 @@
    Target of the compilation pass.
    The order matters. clang defines __CUDA_ARCH__ in the OpenMP device
    pass for AMDGCN up to clang 18, and DPC++ does not define it for NVPTX:
-   the AMDGCN and NVPTX macros are tested first. The builtins serve the
-   device passes outside the CUDA and HIP languages only: AdaptiveCpp
+   the AMDGCN and NVPTX macros are tested first. The NVIDIA builtins
+   serve the device passes outside the CUDA language only, and the AMD
+   ones the device passes of HIP and of the other models: AdaptiveCpp
    defines __NVPTX__ in the host pass of its CUDA mode too. The generic
    mode of AdaptiveCpp compiles host and device code in one pass,
    recognized by the macro its compiler defines, once no device pass has
@@ -121,18 +121,8 @@
 /// The host.
 #define TDLS_DETAIL_GROUP_HOST
 #endif
-#elif defined(__AMDGCN__) && defined(__clang__) && defined(__HIP_DEVICE_COMPILE__)
-#if (HIP_VERSION_MAJOR >= 7 && !defined(HIP_DISABLE_WARP_SYNC_BUILTINS)) ||                        \
-    defined(HIP_ENABLE_WARP_SYNC_BUILTINS)
-/// AMD through the HIP API.
-#define TDLS_DETAIL_GROUP_HIP
-#else
-/// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE                                                                     \
-    "HIP offers its warp synchronous functions from ROCm 7.0, or from ROCm 6.2 with "              \
-    "HIP_ENABLE_WARP_SYNC_BUILTINS."
-#endif
-#elif defined(__AMDGCN__) && defined(__clang__) && !defined(__HIP__)
+#elif defined(__AMDGCN__) && defined(__clang__) &&                                                 \
+    (defined(__HIP_DEVICE_COMPILE__) || !defined(__HIP__))
 /// AMD through the clang builtins.
 #define TDLS_DETAIL_GROUP_AMDGCN
 #elif defined(__CUDA_ARCH__) && (defined(__CUDACC__) || defined(__CUDA__))
@@ -163,7 +153,7 @@
 
 // The arguments of the two selection macros are parenthesized statement
 // lists, as for NV_IF_TARGET. TDLS_DETAIL_GROUP_LANES qualifies the lane
-// functions: device functions of the CUDA and HIP dialects, host-device
+// functions: device functions of the CUDA and HIP languages, host-device
 // functions of nvc++, which select their body with NV_IF_TARGET, and
 // plain functions of the device passes of the other models.
 #if defined(TDLS_DETAIL_GROUP_NVCXX)
@@ -173,9 +163,14 @@
 #define TDLS_DETAIL_GROUP_DISPATCH(device, host) NV_IF_TARGET(NV_IS_DEVICE, device, host)
 /// Qualifiers of the lane functions.
 #define TDLS_DETAIL_GROUP_LANES TDLS_HOST_DEVICE TDLS_FORCEINLINE
-#elif defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_HIP)
+#elif defined(TDLS_DETAIL_GROUP_CUDA)
 /// Keeps a statement list on the device side only.
 #define TDLS_DETAIL_GROUP_ON_DEVICE(code)        TDLS_DETAIL_GROUP_EXPAND code
+/// Picks the statement list of the side of the pass.
+#define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_EXPAND device
+/// Qualifiers of the lane functions.
+#define TDLS_DETAIL_GROUP_LANES                  __device__ TDLS_FORCEINLINE
+#elif defined(TDLS_DETAIL_GROUP_AMDGCN) && defined(__HIP__)
 /// Picks the statement list of the side of the pass.
 #define TDLS_DETAIL_GROUP_DISPATCH(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
@@ -254,7 +249,7 @@ inline constexpr int barrier_elements = 2;
 /// time when the size of the group is (0: no compile-time bound).
 #if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX)
 inline constexpr int group_lanes = 32;
-#elif defined(TDLS_DETAIL_GROUP_HIP) || defined(TDLS_DETAIL_GROUP_AMDGCN)
+#elif defined(TDLS_DETAIL_GROUP_AMDGCN)
 inline constexpr int group_lanes = 64;
 #else
 inline constexpr int group_lanes = 0;
@@ -304,40 +299,6 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 }
 
 /* =========================================================================
-   AMD, HIP API (ROCm 7.0 or newer). The lanes of a wavefront run in
-   lockstep: the barrier only orders the memory operations. It is the
-   body of the __syncwarp() of HIP, spelled with the builtins it uses, so
-   that it holds whatever the HIP release.
-   ========================================================================= */
-
-#elif defined(TDLS_DETAIL_GROUP_HIP)
-
-/// \brief Lanes of the calling group: the active lanes sharing its key.
-/// Stops the program when the group does not find all its threads.
-/// \param[in] key     address identifying the group
-/// \param[in] threads number of threads of the group
-/// \return the lane mask of the group
-TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int threads) noexcept {
-    const unsigned long long mask =
-        __match_any_sync(__activemask(), reinterpret_cast<unsigned long long>(key));
-    const int found = __popcll(mask);
-    if (found != threads) {
-        if (__lane_id() == static_cast<unsigned>(__builtin_ctzll(mask)))
-            printf(TDLS_DETAIL_GROUP_INCOMPLETE);
-        __builtin_trap();
-    }
-    return mask;
-}
-
-/// \brief Barrier of the lanes of a group: a wavefront fence around a
-/// scheduling barrier.
-TDLS_DETAIL_GROUP_LANES void lanes_sync(unsigned long long) noexcept {
-    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "wavefront");
-    __builtin_amdgcn_wave_barrier();
-    __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "wavefront");
-}
-
-/* =========================================================================
    NVIDIA, clang builtins: OpenMP offloading and SYCL device passes. The
    active mask is read with the PTX instruction itself, as clang's CUDA
    headers do before __nvvm_activemask (LLVM 19).
@@ -373,12 +334,25 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 }
 
 /* =========================================================================
-   AMD, clang builtins: OpenMP offloading and SYCL device passes. The
-   match is the loop of HIP's __match_any: the first lane still searching
-   broadcasts its key, and the lanes holding it leave with their mask.
+   AMD, clang builtins: HIP, OpenMP offloading and SYCL device passes.
+   The match is the loop of the __match_any of HIP: the first lane still
+   searching broadcasts its key, and the lanes holding it leave with
+   their mask. The lanes of a wavefront run in lockstep: the barrier only
+   orders the memory operations, as the __syncwarp of HIP. These are the
+   builtins HIP itself uses, available from ROCm 5.3 on, so that the
+   barrier does not depend on the HIP release. The ballot is the builtin
+   of recent clang, or the one HIP used before it.
    ========================================================================= */
 
 #elif defined(TDLS_DETAIL_GROUP_AMDGCN)
+
+/// Ballot of the active lanes, 64 bits whatever the wavefront size.
+#if __clang_major__ >= 19
+#define TDLS_DETAIL_GROUP_BALLOT(predicate) __builtin_amdgcn_ballot_w64(predicate)
+#else
+#define TDLS_DETAIL_GROUP_BALLOT(predicate)                                                        \
+    __builtin_amdgcn_uicmp(static_cast<unsigned>(predicate), 0u, 33 /* ICMP_NE */)
+#endif
 
 /// \brief Lanes of the calling group: the active lanes sharing its key.
 /// Stops the program when the group does not find all its threads.
@@ -389,12 +363,12 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
     const unsigned long long own = reinterpret_cast<unsigned long long>(key);
     unsigned long long mask      = 0;
     bool done                    = false;
-    while (__builtin_amdgcn_ballot_w64(!done) != 0) {
+    while (TDLS_DETAIL_GROUP_BALLOT(!done) != 0) {
         if (!done) {
             const unsigned low  = __builtin_amdgcn_readfirstlane(static_cast<unsigned>(own));
             const unsigned high = __builtin_amdgcn_readfirstlane(static_cast<unsigned>(own >> 32));
             if (((static_cast<unsigned long long>(high) << 32) | low) == own) {
-                mask = __builtin_amdgcn_ballot_w64(true);
+                mask = TDLS_DETAIL_GROUP_BALLOT(true);
                 done = true;
             }
         }
@@ -491,6 +465,7 @@ void host_sync(T* slots, const int threads) noexcept {
 #endif
 
 #undef TDLS_DETAIL_GROUP_INCOMPLETE
+#undef TDLS_DETAIL_GROUP_BALLOT
 
 /// \brief The barrier deduced from the compilation target, for a group of
 /// several threads. A group of one thread, possible with the runtime
@@ -573,7 +548,6 @@ resolve_sync(Sync& sync, [[maybe_unused]] T* slots, [[maybe_unused]] const int t
 #undef TDLS_DETAIL_GROUP_ON_DEVICE
 #undef TDLS_DETAIL_GROUP_EXPAND
 #undef TDLS_DETAIL_GROUP_CUDA
-#undef TDLS_DETAIL_GROUP_HIP
 #undef TDLS_DETAIL_GROUP_NVPTX
 #undef TDLS_DETAIL_GROUP_AMDGCN
 #undef TDLS_DETAIL_GROUP_NVCXX
