@@ -21,13 +21,13 @@ int main() {
     // snippet begin
     // float: the acceptable-pivot threshold defaults to 1e-4
     using Single = tdls::TiledLUppSolverStatic<float, 4>;
-    static_assert(Single::oot_threshold == 1e-4f);
+    static_assert(Single::oot_pivot_threshold == 1e-4f);
 
     // long double: the thresholds are written as double literals and stored exactly
     constexpr auto extended =
-        tdls::TiledLUppConfig<long double>{.oot_threshold = 1e-12, .singular_floor = 1e-300};
+        tdls::TiledLUppConfig<long double>{.oot_pivot_threshold = 1e-12, .singular_floor = 1e-300};
     using Extended = tdls::TiledLUppSolverStatic<long double, 4, extended>;
-    static_assert(Extended::oot_threshold == static_cast<long double>(1e-12));
+    static_assert(Extended::oot_pivot_threshold == static_cast<long double>(1e-12));
 
     int piv[4];
 

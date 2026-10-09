@@ -113,7 +113,7 @@ tdls_add_reject_cases(
         reject_adaptors_multirhs_extent_mismatch
         reject_adaptors_pivot_extent_mismatch
     DIAGNOSTICS
-        "singular_floor must not exceed oot_threshold"
+        "singular_floor must not exceed oot_pivot_threshold"
         "singular_floor must be positive"
         "A must be a dense object"
         "A must not be const here"

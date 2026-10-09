@@ -163,19 +163,19 @@ struct TiledLUppSolverDynamic {
         Config.schedule; ///< elimination schedule (RightLooking or LeftLooking)
 
     /// \brief Acceptable-pivot threshold of the out-of-tile search, read
-    /// once from the configuration (see TiledLUppConfig::oot_threshold).
-    static constexpr T oot_threshold = Config.oot_threshold;
+    /// once from the configuration (see TiledLUppConfig::oot_pivot_threshold).
+    static constexpr T oot_pivot_threshold = Config.oot_pivot_threshold;
     /// \brief Singularity floor of the out-of-tile recovery, read once
     /// from the configuration (see TiledLUppConfig::singular_floor).
     static constexpr T singular_floor = Config.singular_floor;
 
     static_assert(
-        Config.oot_threshold.is_finite() && Config.singular_floor.is_finite(),
-        "TiledLUppSolverDynamic: oot_threshold and singular_floor must be finite (and fit a "
+        Config.oot_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
+        "TiledLUppSolverDynamic: oot_pivot_threshold and singular_floor must be finite (and fit a "
         "63-bit mantissa)");
     static_assert(singular_floor > T(0), "TiledLUppSolverDynamic: singular_floor must be positive");
-    static_assert(singular_floor <= oot_threshold,
-                  "TiledLUppSolverDynamic: singular_floor must not exceed oot_threshold (the "
+    static_assert(singular_floor <= oot_pivot_threshold,
+                  "TiledLUppSolverDynamic: singular_floor must not exceed oot_pivot_threshold (the "
                   "floor applies to the out-of-tile recovery path)");
     static_assert(tile_size >= 1, "TiledLUppSolverDynamic: tile size must be >= 1");
 
@@ -475,7 +475,7 @@ struct TiledLUppSolverDynamic {
 
         int piv_row; // winning global (logical) row
 
-        if (best >= oot_threshold) {
+        if (best >= oot_pivot_threshold) {
             piv_row = k0 + best_r;
         } else if (ke < tile_size) {
             // Trailing tile: no rows below to recover from. Diagnostic
@@ -531,7 +531,7 @@ struct TiledLUppSolverDynamic {
                 // reaches the threshold already beats the sub-threshold
                 // in-tile pivot, so stop scanning.
                 if constexpr (Config.oot_first_acceptable)
-                    if (v >= oot_threshold) break;
+                    if (v >= oot_pivot_threshold) break;
             }
 
             if (gbest < singular_floor) return false;
@@ -958,7 +958,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    piv        permutation storage (always caller-provided)
     /// \param[in]     piv_stride element stride of piv
     /// \param[out]    oot_count  number of columns whose best in-tile
-    ///                pivot fell below oot_threshold
+    ///                pivot fell below oot_pivot_threshold
     /// \param[in,out] y          fused right-hand side (fuse_rhs only)
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
@@ -1555,7 +1555,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    x          solution
     /// \param[in]     rhs_stride element stride of b and x
     /// \param[out]    oot_count  number of columns whose best in-tile
-    ///                pivot fell below oot_threshold
+    ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix.
     template<bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
@@ -1607,7 +1607,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of b and x
     /// \param[in]     xcol_stride element stride between columns of b and x
     /// \param[out]    oot_count   number of columns whose best in-tile
-    ///                pivot fell below oot_threshold
+    ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix.
     template<int pass_width = 0, bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
@@ -1669,7 +1669,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] y          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of y
     /// \param[out]    oot_count  number of columns whose best in-tile
-    ///                pivot fell below oot_threshold
+    ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix (y left partially updated).
     template<bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
@@ -1727,7 +1727,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of y
     /// \param[in]     xcol_stride element stride between columns of y
     /// \param[out]    oot_count   number of columns whose best in-tile
-    ///                pivot fell below oot_threshold
+    ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix (y left untouched).
     template<int pass_width = 0, bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool

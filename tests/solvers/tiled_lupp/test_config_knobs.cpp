@@ -42,15 +42,15 @@ constexpr auto max_scan_config =
 /// out-of-tile search fires on every column.
 template<typename T, int tile_size>
 constexpr auto always_oot_config =
-    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_threshold = T(1e30)};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_pivot_threshold = T(1e30)};
 
 /// \brief Configuration declaring every pivot below 1e-3 singular. The
 /// floor only guards the out-of-tile recovery path, so the acceptance
 /// threshold is raised together with it (the TiledLUpp solvers enforce
-/// singular_floor <= oot_threshold at compile time).
+/// singular_floor <= oot_pivot_threshold at compile time).
 template<typename T, int tile_size>
 constexpr auto strict_floor_config = tdls::TiledLUppConfig<T>{
-    .tile_size = tile_size, .oot_threshold = T(1e-3), .singular_floor = T(1e-3)};
+    .tile_size = tile_size, .oot_pivot_threshold = T(1e-3), .singular_floor = T(1e-3)};
 
 /// \brief Checks that unroll_loops = false reproduces the default
 /// bitwise: the knob moves pragmas, never values.
@@ -222,9 +222,9 @@ TDLS_TEST_CASE("tiledlupp/config/long-double-thresholds-from-double-literals/N=1
     // long double solver, which stays anchored on the backward error.
     constexpr int N       = 12;
     constexpr auto config = tdls::TiledLUppConfig<long double>{
-        .tile_size = 3, .oot_threshold = 1e-12, .singular_floor = 1e-300};
+        .tile_size = 3, .oot_pivot_threshold = 1e-12, .singular_floor = 1e-300};
     using Solver = tdls::TiledLUppSolverStatic<long double, N, config>;
-    static_assert(Solver::oot_threshold == static_cast<long double>(1e-12));
+    static_assert(Solver::oot_pivot_threshold == static_cast<long double>(1e-12));
     static_assert(Solver::singular_floor == static_cast<long double>(1e-300));
     const auto batch = tdls_tests::make_batch<long double>(N, 100, 190800, 0.5);
     std::vector<long double> A(N * N), x(N);

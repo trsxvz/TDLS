@@ -173,7 +173,7 @@ constexpr bool solve_external_certificate(const unsigned seed, const double tole
 /// \tparam tile_size tile size
 template<typename T, int tile_size>
 constexpr auto always_oot_config =
-    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_threshold = T(1e30)};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .oot_pivot_threshold = T(1e30)};
 
 /// \brief Certificate: the out-of-tile recovery path (candidate replay
 /// included) is exercised on every column.

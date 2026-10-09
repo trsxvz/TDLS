@@ -52,7 +52,7 @@ namespace tdls {
 ///
 /// Built implicitly from a value of the scalar type and converted back
 /// implicitly, so a designated initializer such as
-/// `.oot_threshold = 1e-10` needs no wrapper. Only finite values whose
+/// `.oot_pivot_threshold = 1e-10` needs no wrapper. Only finite values whose
 /// odd mantissa fits 63 bits are representable: every float and double,
 /// and the long double values built from double literals. A NaN, an
 /// infinity or a wider long double mantissa is stored as a sentinel

@@ -120,7 +120,7 @@ TDLS_ANCHOR_CASES(double, 33, 5, "stress", 400, 5e-10, 1e-9, 603350)
 TDLS_ANCHOR_CASES(double, 100, 3, "stress", 60, 5e-10, 1e-8, 610030)
 
 // Float tolerance calibration: the float acceptable-pivot threshold
-// (oot_threshold = 1e-4) deliberately keeps in-tile pivots as small as
+// (oot_pivot_threshold = 1e-4) deliberately keeps in-tile pivots as small as
 // 1e-4, so the worst-case element growth is |A|max / 1e-4 and the
 // backward error can legitimately reach n * eps_float * growth, around
 // 1e-2 on this grid. The reference solver (full partial pivoting) stays

@@ -18,7 +18,7 @@
 namespace {
 
 constexpr auto config =
-    tdls::TiledLUppConfig<double>{.oot_threshold = 1e-10, .singular_floor = 1e-4};
+    tdls::TiledLUppConfig<double>{.oot_pivot_threshold = 1e-10, .singular_floor = 1e-4};
 
 } // namespace
 

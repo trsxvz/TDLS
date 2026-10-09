@@ -544,7 +544,7 @@ TDLS_TEST_CASE("tiledlupp/adaptors/substitution-entry-points-reproduce-raw") {
 }
 
 TDLS_TEST_CASE("tiledlupp/adaptors/oot-counter-reproduces-raw") {
-    // Entries below oot_threshold on every column, so the counters
+    // Entries below oot_pivot_threshold on every column, so the counters
     // carry real weight; the first column always fires.
     tdls_tests::UniformGenerator gen(210900, 5e-11);
     MockMatrix A;

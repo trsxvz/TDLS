@@ -816,13 +816,13 @@ template<typename MatrixType, typename PivotType>
 }
 
 /// \brief Counting overload of factorize: also reports the number of
-/// columns whose best in-tile pivot fell below oot_threshold.
+/// columns whose best in-tile pivot fell below oot_pivot_threshold.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[out]    oot_count number of columns whose best in-tile
-///                pivot fell below oot_threshold
+///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
@@ -834,7 +834,7 @@ factorize(MatrixType& A, PivotType& piv, int& oot_count) {
 /// \param[in,out] A         matrix-like object (factored in place)
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[out]    oot_count number of columns whose best in-tile
-///                pivot fell below oot_threshold
+///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix.
 template<typename MatrixType, typename PivotType>
 [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
@@ -884,7 +884,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 }
 
 /// \brief Counting overload of solve: also reports the number of
-/// columns whose best in-tile pivot fell below oot_threshold.
+/// columns whose best in-tile pivot fell below oot_pivot_threshold.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like b
@@ -894,7 +894,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 /// \param[in]     b         right-hand side, in original order
 /// \param[out]    x         solution, of the same shape as b
 /// \param[out]    oot_count number of columns whose best in-tile
-///                pivot fell below oot_threshold
+///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename RhsType, typename SolutionType>
@@ -911,7 +911,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot
 /// \param[in]     b         right-hand side, in original order
 /// \param[out]    x         solution, of the same shape as b
 /// \param[out]    oot_count number of columns whose best in-tile
-///                pivot fell below oot_threshold
+///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix.
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
@@ -966,7 +966,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 }
 
 /// \brief Counting overload of solve_inplace: also reports the number
-/// of columns whose best in-tile pivot fell below oot_threshold.
+/// of columns whose best in-tile pivot fell below oot_pivot_threshold.
 /// \tparam UserConfig compile-time knobs, a constexpr TiledLUppConfig
 ///         value of the matrix scalar type
 /// \tparam pass_width columns per substitution pass for a matrix-like y
@@ -975,7 +975,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[in,out] y         right-hand side on entry, solution on exit
 /// \param[out]    oot_count number of columns whose best in-tile
-///                pivot fell below oot_threshold
+///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
@@ -992,7 +992,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
 /// \param[in,out] piv       pivot storage: int pointer/array or dense int object
 /// \param[in,out] y         right-hand side on entry, solution on exit
 /// \param[out]    oot_count number of columns whose best in-tile
-///                pivot fell below oot_threshold
+///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename VectorType>

@@ -37,7 +37,7 @@ constexpr tdls::TiledLUppConfig<double> config{
     .schedule = tdls::Schedule::RightLooking,
     // double (the scalar type T): a pivot at least this large is accepted
     // without searching outside the tile
-    .oot_threshold = 1e-10,
+    .oot_pivot_threshold = 1e-10,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
     .singular_floor = std::numeric_limits<double>::min(),

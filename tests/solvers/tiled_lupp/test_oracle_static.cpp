@@ -109,7 +109,7 @@ TDLS_ANCHOR_CASES(double, 128, 4, "default", 40, 0.5, 1e-8, 112840)
 TDLS_ANCHOR_CASES(double, 1, 1, "default", 1000, 0.5, 1e-9, 100110)
 
 // Stress regime, double: tiny entries put every in-tile pivot below
-// oot_threshold, so the out-of-tile recovery fires on most columns.
+// oot_pivot_threshold, so the out-of-tile recovery fires on most columns.
 TDLS_ANCHOR_CASES(double, 2, 2, "stress", 1000, 5e-10, 1e-9, 200220)
 TDLS_ANCHOR_CASES(double, 7, 4, "stress", 1000, 5e-10, 1e-9, 200740)
 TDLS_ANCHOR_CASES(double, 12, 3, "stress", 1000, 5e-10, 1e-9, 201230)
@@ -121,14 +121,14 @@ TDLS_ANCHOR_CASES(double, 64, 8, "stress", 120, 5e-10, 1e-8, 206480)
 TDLS_ANCHOR_CASES(double, 128, 4, "stress", 40, 5e-10, 1e-8, 212840)
 
 // Float tolerance calibration: the float acceptable-pivot threshold
-// (oot_threshold = 1e-4) deliberately keeps in-tile pivots as small as
+// (oot_pivot_threshold = 1e-4) deliberately keeps in-tile pivots as small as
 // 1e-4, so the worst-case element growth is |A|max / 1e-4 and the
 // backward error can legitimately reach n * eps_float * growth, around
 // 1e-2 on this grid. The reference solver (full partial pivoting) stays
 // near eps_float; the gap is the documented cost of the policy, checked
 // here, not a defect.
 // Float: representative shapes (nominal and trailing tile). The float
-// oot_threshold (1e-4) makes the stress regime fire the out-of-tile
+// oot_pivot_threshold (1e-4) makes the stress regime fire the out-of-tile
 // search on every column.
 TDLS_ANCHOR_CASES(float, 12, 3, "default", 1000, 0.5, 1e-2, 301230)
 TDLS_ANCHOR_CASES(float, 13, 6, "default", 1000, 0.5, 1e-2, 301360)

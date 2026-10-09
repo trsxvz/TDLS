@@ -20,7 +20,7 @@ int main() {
     // snippet begin
     constexpr auto lenient = tdls::TiledLUppConfig<double>{.tile_size = 2};
     constexpr auto strict  = tdls::TiledLUppConfig<double>{
-        .tile_size = 2, .oot_threshold = 1e-6, .singular_floor = 1e-6};
+        .tile_size = 2, .oot_pivot_threshold = 1e-6, .singular_floor = 1e-6};
 
     using Lenient = tdls::TiledLUppSolverStatic<double, 4, lenient>;
     using Strict  = tdls::TiledLUppSolverStatic<double, 4, strict>;

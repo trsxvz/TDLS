@@ -71,13 +71,13 @@ struct TiledLUppConfig {
     /// without looking outside the tile; below it, the search extends to
     /// the rows under the tile (out-of-tile pivoting) and the best
     /// corrected candidate wins.
-    StructuralReal<T> oot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
+    StructuralReal<T> oot_pivot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
 
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it, or
     /// when the best pivot of a trailing tile does. The floor only guards
-    /// the pivots below oot_threshold (a pivot reaching it is accepted
-    /// directly), so it must not exceed oot_threshold, and it
+    /// the pivots below oot_pivot_threshold (a pivot reaching it is accepted
+    /// directly), so it must not exceed oot_pivot_threshold, and it
     /// must be positive, a zero floor letting a zero pivot through; the
     /// solvers enforce both contracts at compile time. `numeric_limits<T>::min()`
     /// rejects only a zero/subnormal pivot, a genuine structural
@@ -89,11 +89,11 @@ struct TiledLUppConfig {
 
     /// Out-of-tile pivot search strategy. When true, the below-tile scan
     /// stops at the first candidate whose corrected magnitude reaches
-    /// oot_threshold instead of scanning the whole panel for the maximum;
+    /// oot_pivot_threshold instead of scanning the whole panel for the maximum;
     /// the running maximum is still kept as the fallback when no candidate
     /// is acceptable. Cheaper in the OOT-heavy regime (especially
     /// left-looking, where every candidate replays the prior tiles), at
-    /// the cost of a possibly smaller (but still >= oot_threshold) pivot.
+    /// the cost of a possibly smaller (but still >= oot_pivot_threshold) pivot.
     /// Set false to restore the full-panel partial-pivoting scan.
     bool oot_first_acceptable = true;
 
