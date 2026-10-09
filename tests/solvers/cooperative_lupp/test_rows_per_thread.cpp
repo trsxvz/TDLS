@@ -142,13 +142,16 @@ TDLS_TEST_CASE("cooperativelupp/bridge/rows-per-thread/traits") {
     TDLS_CHECK(S12_12::rows_per_thread == 12 && S12_12::threads_per_system == 1);
     TDLS_CHECK(S12_20::rows_per_thread == 12 && S12_20::threads_per_system == 1);
     TDLS_CHECK(S13_5::rows_per_thread == 5 && S13_5::threads_per_system == 3);
-    TDLS_CHECK(S12_1::workspace_size == 36 && S13_5::workspace_size == 39);
-    // Physical row interchanges: 2 N + 2 threads_per_system + 5.
+    // Logical row interchanges: 3 N, plus 2 for the barrier of a group of
+    // several threads.
+    TDLS_CHECK(S12_1::workspace_size == 38 && S13_5::workspace_size == 41);
+    TDLS_CHECK(S12_12::workspace_size == 36);
+    // Physical row interchanges: 2 N + 2 threads_per_system + 5, plus 2.
     using P12_1 = tdls::CooperativeLUppSolverStatic<double, 12,
                                                     rows_config<1, tdls::RowInterchange::Physical>>;
     using P13_5 = tdls::CooperativeLUppSolverStatic<double, 13,
                                                     rows_config<5, tdls::RowInterchange::Physical>>;
-    TDLS_CHECK(P12_1::workspace_size == 53 && P13_5::workspace_size == 37);
+    TDLS_CHECK(P12_1::workspace_size == 55 && P13_5::workspace_size == 39);
     // Slot classification of N = 13 on 3 threads of 5 rows: slots 0 .. 3
     // are full (rows up to 11), slot 4 is mixed (row 12 for thread 0 only).
     TDLS_CHECK(S13_5::slot_is_full(3) && !S13_5::slot_is_full(4));

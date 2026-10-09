@@ -16,9 +16,12 @@
 /// instances synchronized by GroupBarrier, a condition-variable barrier
 /// (std::barrier is avoided on purpose: the standard library of the
 /// GCC 10 floor lacks it). A group of one thread runs on the calling
-/// thread with the default tdls::NoSync barrier, the sequential path.
-/// The threads of a group do not run in lockstep, so a data race in the
-/// solver turns into wrong values, which the bitwise bridges catch.
+/// thread with tdls::NoSync, the sequential path. With the `deduced`
+/// template flag, every thread passes tdls::AutoSync instead, so that the
+/// solver deduces its barrier, the CPU barrier of a group of several
+/// threads. The threads of a group do not run in lockstep, so a data
+/// race in the solver turns into wrong values, which the bitwise bridges
+/// catch.
 ///
 /// GroupRunner materializes one system for the compile-time solver, in
 /// the storage dictated by the residency template booleans: per-thread slices in local arrays of each
@@ -81,52 +84,72 @@ class GroupBarrier {
 };
 
 /// \brief Runs fn(tx, sync) on `threads` new threads sharing a
-/// GroupBarrier.
-/// \tparam Fn callable type, invoked as fn(int tx, auto&& sync)
+/// GroupBarrier, or passing tdls::AutoSync.
+/// \tparam deduced whether the threads pass tdls::AutoSync
+/// \tparam Fn      callable type, invoked as fn(int tx, auto&& sync)
 /// \param[in] threads number of threads of the group
 /// \param[in] fn      the work of one thread
-template<typename Fn>
+template<bool deduced, typename Fn>
 void spawn_group(const int threads, Fn& fn) {
     GroupBarrier barrier(threads);
     std::vector<std::thread> group;
     group.reserve(threads);
-    for (int tx = 0; tx < threads; ++tx)
-        group.emplace_back([&fn, &barrier, tx] {
-            auto sync = [&barrier] { barrier.arrive_and_wait(); };
-            fn(tx, sync);
-        });
+    for (int tx = 0; tx < threads; ++tx) {
+        if constexpr (deduced)
+            group.emplace_back([&fn, tx] { fn(tx, tdls::AutoSync{}); });
+        else
+            group.emplace_back([&fn, &barrier, tx] {
+                auto sync = [&barrier] { barrier.arrive_and_wait(); };
+                fn(tx, sync);
+            });
+    }
     for (auto& thread : group)
         thread.join();
 }
 
+/// \brief Runs fn(0, sync) on the calling thread, the group of one
+/// thread: with tdls::NoSync, or tdls::AutoSync.
+/// \tparam deduced whether the thread passes tdls::AutoSync
+/// \tparam Fn      callable type, invoked as fn(int tx, auto&& sync)
+/// \param[in] fn the work of the thread
+template<bool deduced, typename Fn>
+void run_alone(Fn& fn) {
+    if constexpr (deduced)
+        fn(0, tdls::AutoSync{});
+    else
+        fn(0, tdls::NoSync{});
+}
+
 /// \brief Runs fn(tx, sync) on every thread of a group of compile-time
-/// size: on the calling thread with tdls::NoSync for a group of one, on
-/// `threads` new threads sharing a GroupBarrier otherwise. The dispatch is
-/// compile-time, as the barrier contract of the compile-time solver.
+/// size: on the calling thread for a group of one, on `threads` new
+/// threads otherwise. The dispatch is compile-time, as the barrier
+/// contract of the compile-time solver.
 /// \tparam threads number of threads of the group
+/// \tparam deduced whether the threads pass tdls::AutoSync
 /// \tparam Fn      callable type, invoked as fn(int tx, auto&& sync)
 /// \param[in] fn the work of one thread
-template<int threads, typename Fn>
+template<int threads, bool deduced = false, typename Fn>
 void run_group(Fn&& fn) {
     if constexpr (threads == 1)
-        fn(0, tdls::NoSync{});
+        run_alone<deduced>(fn);
     else
-        spawn_group(threads, fn);
+        spawn_group<deduced>(threads, fn);
 }
 
 /// \brief Runs fn(tx, sync) on every thread of a group of runtime size,
 /// for the runtime solver, whose barrier contract is a runtime
-/// precondition: tdls::NoSync on the calling thread for a group of one, a
-/// GroupBarrier otherwise.
-/// \tparam Fn callable type, invoked as fn(int tx, auto&& sync)
+/// precondition: on the calling thread for a group of one, on `threads`
+/// new threads otherwise.
+/// \tparam deduced whether the threads pass tdls::AutoSync
+/// \tparam Fn      callable type, invoked as fn(int tx, auto&& sync)
 /// \param[in] threads number of threads of the group
 /// \param[in] fn      the work of one thread
-template<typename Fn>
+template<bool deduced = false, typename Fn>
 void run_group(const int threads, Fn&& fn) {
     if (threads == 1)
-        fn(0, tdls::NoSync{});
+        run_alone<deduced>(fn);
     else
-        spawn_group(threads, fn);
+        spawn_group<deduced>(threads, fn);
 }
 
 /// \brief Unroll policy of the test configurations: forced for groups
@@ -172,8 +195,9 @@ void for_paths(Fn&& fn) {
 /// \tparam internal_rhs    residency of the right-hand side and solution
 /// \tparam internal_piv    residency of the pivot
 /// \tparam internal_matrix residency of the matrix
+/// \tparam deduced         whether the threads pass tdls::AutoSync
 template<typename T, int N, tdls::CooperativeLUppConfig<T> Config, bool internal_rhs,
-         bool internal_piv, bool internal_matrix>
+         bool internal_piv, bool internal_matrix, bool deduced = false>
 struct GroupRunner {
     /// \brief Solver under test.
     using Solver = tdls::CooperativeLUppSolverStatic<T, N, Config>;
@@ -237,7 +261,7 @@ struct GroupRunner {
         std::vector<T> work(Solver::workspace_size, T(0));
         std::vector<int> verdicts(threads, 0);
 
-        run_group<threads>([&](const int tx, auto&& sync) {
+        run_group<threads, deduced>([&](const int tx, auto&& sync) {
             // Per-thread slices: the rows tx + K * threads of the system.
             T A_slice[rows * N];
             int piv_slice[rows];
@@ -316,9 +340,10 @@ struct GroupRunner {
 /// \brief Runs one entry path of the runtime CooperativeLUpp solver on a
 /// group of CPU threads. Every operand is external, in the middle slot of
 /// a three-slot arena, as in the external mode of GroupRunner.
-/// \tparam T      scalar type
-/// \tparam Config solver configuration
-template<typename T, tdls::CooperativeLUppConfig<T> Config>
+/// \tparam T       scalar type
+/// \tparam Config  solver configuration
+/// \tparam deduced whether the threads pass tdls::AutoSync
+template<typename T, tdls::CooperativeLUppConfig<T> Config, bool deduced = false>
 struct DynamicGroupRunner {
     /// \brief Solver under test.
     using Solver = tdls::CooperativeLUppSolverDynamic<T, Config>;
@@ -369,7 +394,7 @@ struct DynamicGroupRunner {
         T* xs                  = x.data() + slot;
         const int stride       = arena_count;
 
-        run_group(threads, [&](const int tx, auto&& sync) {
+        run_group<deduced>(threads, [&](const int tx, auto&& sync) {
             bool ok = true;
             if constexpr (path == Path::combined) {
                 ok =

@@ -18,9 +18,10 @@
 /// two lanes, and 32 lanes solve sixteen points. Each lane holds four
 /// rows of the jacobian instead of seven, the last slot of the second
 /// lane being a phantom row, so the registers of a lane hold a slice of
-/// the system, not the whole of it. The barrier of a group is
-/// a warp barrier on its lanes only, so the groups of a warp iterate
-/// their Newton loops independently.
+/// the system, not the whole of it. The barrier of a group, deduced by
+/// the solver and returned by make_sync for the exchanges of the
+/// example, is a warp barrier on its lanes only, so the groups of a
+/// warp iterate their Newton loops independently.
 ///
 /// Why the residencies are internal: each lane hands the solver local
 /// arrays for its rows of the jacobian, their pivot entries and their
@@ -74,7 +75,7 @@ __global__ void integrate_batch(const int points, const int steps, const double 
     // leave at once: a barrier only involves the lanes of its group.
     if (group >= groups || t >= points) return;
     double* work = workspaces + (pack * groups + group) * Solver::workspace_size;
-    auto sync    = [=] { gpu_group_sync(group * threads, threads); };
+    auto sync    = Solver::make_sync(work);
     auto any     = [](const bool flag) { return flag; };
 
     double eel[stensor_size] = {};

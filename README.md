@@ -86,16 +86,16 @@ constexpr tdls::CooperativeLUppConfig<double> config{
 
 // LU solver for systems of dimension 9, shared by a group of 3 threads
 // holding 3 rows each. Every thread of the group makes the same call
-// with its rank tx in the group, the workspace of the group
-// (Solver::workspace_size elements in memory shared by the group) and
-// the barrier of the group, any callable: __syncwarp(mask) in CUDA, a
-// group barrier in SYCL, a thread barrier on CPU. The residency
-// booleans declare every operand external: the whole matrix, pivot and
-// right-hand side, reached by the group with an element stride (the
-// 1s). A single thread holding every row needs neither tx nor sync.
+// with its rank tx in the group and the workspace of the group
+// (Solver::workspace_size elements in memory shared by the group). The
+// solver deduces the barrier of the group from the compilation target:
+// the lanes of a warp on GPU, threads on CPU. An optional last argument
+// passes another barrier, any callable. The residency booleans declare
+// every operand external: the whole matrix, pivot and right-hand side,
+// reached by the group with an element stride (the 1s). A single thread
+// holding every row passes 0 for tx.
 using Solver = tdls::CooperativeLUppSolverStatic<double, 9, config>;
-const bool ok =
-    Solver::solve_inplace<false, false, false>(tx, M, 1, piv, 1, y, 1, work, sync);
+const bool ok = Solver::solve_inplace<false, false, false>(tx, M, 1, piv, 1, y, 1, work);
 ```
 
 The `tfel::math` objects (matrices, vectors, strided views) can also

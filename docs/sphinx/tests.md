@@ -202,13 +202,14 @@ keeps the instrumented builds short.
 | `static_vs_dynamic` | bitwise equality of the two variants, on every entry point |
 | `rows_per_thread` | every mapping of rows to threads against one thread per system, bitwise, from one row per thread to more rows than the dimension, under both row interchanges |
 | `row_interchange` | physical row interchanges against logical ones, bitwise, on every entry point: the solutions, and the factored rows once placed |
+| `auto_sync` | the deduced barrier against an explicit one, bitwise, on every entry point of both solvers, and the barrier of `make_sync` in the exchanges of the caller; the barrier elements of the workspace back to their state between calls |
 | `entry_points` | the documented entry point equivalences, bitwise, and the guarantees on return: every result visible to the whole group, the workspace free; a regression case guards the workspace, which no solver may declare `restrict` |
 | `residencies` | every residency combination against the external one, bitwise |
 | `layouts` | the two matrix layouts and the AoS, SoA and AoSoA addressing, bitwise, on both solvers |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case, with a verdict uniform across the group |
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the pivot choice under a relative threshold |
 | `constexpr` | compile-time certificates on both solvers, one thread per system, under both row interchanges |
-| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a relative pivot threshold in (0, 1], a barrier for a group of several threads |
+| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a relative pivot threshold in (0, 1], no `tdls::NoSync` for a group of several threads |
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in
@@ -232,12 +233,16 @@ Each scale picks its group of threads:
 - sequential, OpenMP and parallel STL: one thread per system, with no
   barrier. `rows_per_thread` covers the dimension. A barrier between
   CPU threads would cost more than a step of the elimination, and
-  `par_unseq` forbids any synchronization;
+  `par_unseq` forbids any synchronization. One exception,
+  `norton_law_batch_stdpar_groups`, built with nvc++ for a GPU only,
+  shares each point between two iterations, which nvc++ runs on two
+  lanes of a warp; the deduced barrier checks it on entry;
 - SYCL: a group of work-items per system and several systems per
   work-group, with the barrier of the work-group. Every SYCL device
   provides it, whatever the size of its sub-groups;
 - CUDA or HIP: a group of lanes per system and several groups per
-  warp, with a warp barrier on the lanes of the group.
+  warp, with the barrier deduced by the solver, which `make_sync`
+  returns for the exchanges of the example.
 
 In a group, every thread keeps its own copy of the state of the
 problem and computes the whole residual. It builds only the rows it

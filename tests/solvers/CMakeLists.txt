@@ -138,6 +138,7 @@ tdls_add_solver_suites(
         singular
         config_knobs
         row_interchange
+        auto_sync
         constexpr
     LIBRARIES Threads::Threads)
 
@@ -149,10 +150,10 @@ tdls_add_reject_cases(
         reject_config_rows_per_thread
         reject_config_pivot_threshold_zero
         reject_config_pivot_threshold_above_one
-        reject_missing_barrier
+        reject_nosync_group
     DIAGNOSTICS
         "singular_floor must be positive"
         "rows_per_thread must be >= 1"
         "CooperativeLUppSolverStatic: relative_pivot_threshold must be in"
         "CooperativeLUppSolverDynamic: relative_pivot_threshold must be in"
-        "a group of several threads needs a barrier")
+        "a group of several threads cannot run with tdls::NoSync")

@@ -16,9 +16,10 @@
 ///
 /// Why groups of lanes: with three rows per lane, a cell takes a group
 /// of three lanes, and 32 lanes solve ten cells. Each lane holds three
-/// rows of the Newton matrix instead of nine. The barrier of a group is
-/// a warp barrier on its lanes only, so the groups of a warp iterate
-/// their Newton loops independently.
+/// rows of the Newton matrix instead of nine. The barrier of a group,
+/// deduced by the solver and returned by make_sync for the exchanges of
+/// the example, is a warp barrier on its lanes only, so the groups of a
+/// warp iterate their Newton loops independently.
 ///
 /// Why the residencies are internal: each lane passes residency
 /// booleans set to true, so the solver indexes its rows of the matrix,
@@ -70,7 +71,7 @@ __global__ void reaction_substep(const int cells, const int steps, const double 
     // leave at once: a barrier only involves the lanes of its group.
     if (group >= groups || t >= cells) return;
     double* work = workspaces + (pack * groups + group) * Solver::workspace_size;
-    auto sync    = [=] { gpu_group_sync(group * threads, threads); };
+    auto sync    = Solver::make_sync(work);
     auto any     = [](const bool flag) { return flag; };
 
     double butcher[stages][stages];

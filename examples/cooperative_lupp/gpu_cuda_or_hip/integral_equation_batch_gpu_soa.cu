@@ -85,7 +85,7 @@ __global__ void solve_batch(const int n, double* A, int* piv, double* g, double*
     // leave at once: a barrier only involves the lanes of its group.
     if (group >= groups || t >= instances) return;
     double* work = workspaces + (pack * groups + group) * Solver::workspace_size(n);
-    auto sync    = [=] { gpu_group_sync(group * threads, threads); };
+    auto sync    = Solver::make_sync(n, work);
 
     // One factorization, two right-hand sides, every operand walked
     // with the batch stride. The verdict is the same in every lane of

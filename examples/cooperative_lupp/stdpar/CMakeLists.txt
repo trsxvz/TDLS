@@ -64,7 +64,14 @@ if(TDLS_BUILD_STDPAR_DEVICE_EXAMPLES)
                             "the C++ compiler (--acpp-stdpar, -stdpar=gpu, --hipstdpar ...)")
     endif()
     separate_arguments(TDLS_STDPAR_DEVICE_FLAGS_LIST NATIVE_COMMAND "${TDLS_STDPAR_DEVICE_FLAGS}")
-    foreach(example IN LISTS TDLS_STDPAR_EXAMPLES)
+    # The groups of iterations of norton_law_batch_stdpar_groups rely on
+    # how nvc++ runs the iterations on a GPU (see its source): the target
+    # exists with nvc++ only.
+    set(TDLS_STDPAR_DEVICE_EXAMPLES ${TDLS_STDPAR_EXAMPLES})
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "NVHPC")
+        list(APPEND TDLS_STDPAR_DEVICE_EXAMPLES norton_law_batch_stdpar_groups)
+    endif()
+    foreach(example IN LISTS TDLS_STDPAR_DEVICE_EXAMPLES)
         set(target tdls_example_cooperativelupp_${example}_gpu)
         add_executable(${target} EXCLUDE_FROM_ALL ${example}.cpp)
         add_dependencies(buildtests ${target})

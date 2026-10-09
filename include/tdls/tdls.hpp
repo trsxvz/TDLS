@@ -11,6 +11,7 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 
+#include <tdls/core/group.hpp>
 #include <tdls/core/macros.hpp>
 #include <tdls/core/structural_real.hpp>
 #include <tdls/core/version.hpp>

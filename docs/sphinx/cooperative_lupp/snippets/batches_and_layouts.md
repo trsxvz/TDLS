@@ -82,10 +82,10 @@ more than the solve itself.
 
 Groups of 2 lanes per system of an SoA batch, as many groups per warp
 as fit, in the common CUDA/HIP dialect. Each group has its workspace
-in shared memory. `gpu_group_sync`, a helper of the examples, is the
-barrier of the group: `__syncwarp` on its lanes under CUDA, a
-wavefront fence and barrier under HIP. Built with the GPU example
-options, skipped without a device.
+in shared memory. No barrier is passed: the solver deduces the barrier
+of the 2 lanes, `__syncwarp` on them under CUDA, a wavefront fence
+under HIP. Built with the GPU example options, skipped without a
+device.
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/batch_gpu.cu
 :language: cpp

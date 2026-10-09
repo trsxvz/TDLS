@@ -69,7 +69,7 @@ __global__ void reaction_substep(const int cells, const int steps, const double 
     // leave at once: a barrier only involves the lanes of its group.
     if (group >= groups || t >= cells) return;
     double* work = workspaces + (pack * groups + group) * Solver::workspace_size;
-    auto sync    = [=] { gpu_group_sync(group * threads, threads); };
+    auto sync    = Solver::make_sync(work);
     auto any     = [](const bool flag) { return flag; };
 
     double butcher[stages][stages];

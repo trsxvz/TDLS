@@ -21,7 +21,8 @@
 /// Why groups of lanes: with four rows per lane, an instance takes a
 /// group of ceil(n / 4) lanes, nine at the default resolution, and a
 /// warp solves as many instances as fit in its 32 lanes. The barrier of
-/// a group is a warp barrier on its lanes only.
+/// a group, deduced by the solver and returned by make_sync for the
+/// exchanges of the example, is a warp barrier on its lanes only.
 ///
 /// Placement on GPU: the runtime solver has no residency booleans,
 /// because a runtime dimension forces runtime indexing; the placement
@@ -73,7 +74,6 @@ __global__ void capacitor_sweep(const int n, double* err, double* u_mid, int* ok
     // The lanes past the last group, and the groups past the sweep,
     // leave at once: a barrier only involves the lanes of its group.
     if (group >= groups || t >= instances) return;
-    auto sync = [=] { gpu_group_sync(group * threads, threads); };
 
     // Shared storage of the group, unit strides: A, g, u and the
     // workspace, then the pivots after those of every group.
@@ -83,6 +83,7 @@ __global__ void capacitor_sweep(const int n, double* err, double* u_mid, int* ok
     double* u         = g + n;
     double* work      = u + n;
     int* piv          = reinterpret_cast<int*>(shared + groups * doubles) + group * n;
+    auto sync         = Solver::make_sync(n, work);
 
     // One factorization, two right-hand sides.
     double err_t = 0, u_mid_t = 0;

@@ -70,31 +70,83 @@ and in the NOTICE file, installed with the library.
 ## Groups of threads
 
 Every thread of the group makes the same call, with the same template
-arguments, the same operands and its own rank `tx`. Two arguments come
-in addition to the operands:
+arguments, the same operands and its own rank `tx`. The workspace of
+the group comes in addition to the operands: `workspace_size`
+elements, in memory shared by the group, shared memory on GPU, a plain
+array on CPU.
 
-- the workspace of the group, `workspace_size` elements, in memory
-  shared by the group: shared memory on GPU, a plain array on CPU;
-- the barrier of the group, `sync`: any callable taking no argument
-  that makes the memory writes of each thread visible to all of them.
+### The deduced barrier
 
-| Programming model | Group | Barrier |
+The last argument, `sync`, is the barrier of the group. It is
+optional: by default, `tdls::AutoSync`, the solver deduces the barrier
+from the target the code is compiled for.
+
+| Target | Deduced barrier |
+|---|---|
+| any target, one thread per system | none |
+| NVIDIA GPU, sm_70 or newer | `__syncwarp` on the lanes of the group |
+| AMD GPU | a wavefront fence: the lanes of a wavefront run in lockstep |
+| CPU threads | a counter in the last two elements of the workspace |
+
+On GPU, this covers every model whose kernels the compiler builds as
+GPU code: CUDA, HIP (ROCm 7.0 or newer), Kokkos and RAJA, OpenMP
+offloading with clang (clang 19 or newer on AMD), nvc++ with
+`-stdpar=gpu`, or with `-cuda` for OpenMP and OpenACC offloading, and
+SYCL on NVIDIA and AMD devices. The lanes of a group may sit anywhere
+in their warp or wavefront. On entry, the active lanes match the
+address of their workspace, and the group must find all its threads
+among them. A group that does not stops the program with a message,
+before any exchange: a wrong placement of the threads never gives a
+wrong result nor a deadlock. The threads of a group must therefore
+call the solver together, from the same path of the code, as they do
+when they solve the same system. The check runs once per call, and the
+barrier is the one a caller would write by hand.
+
+On CPU, the threads of a group are any threads that run concurrently:
+OpenMP, `std::thread`, Kokkos team threads. The last two elements of
+the workspace must be zero before the first call, as in a
+`std::vector`, and the barrier keeps them so between calls. A group
+that waits for more than a second prints a diagnostic once and keeps
+waiting: the threads of a group must not run one after the other, as
+in a worksharing loop or in the parallel algorithms on CPU. A barrier
+between CPU threads costs more than a step of the solve: one thread
+per system stays the fast choice on CPU.
+
+A few targets offer no warp instruction callable without a handle of
+the kernel: nvc++ OpenMP or OpenACC offloading without `-cuda`, the
+generic mode of AdaptiveCpp, GCC offloading, and the SYCL devices
+other than NVIDIA and AMD. There, a group of several threads needs an
+explicit barrier, and the compiler says so.
+
+### An explicit barrier
+
+A caller may pass its own barrier: any callable taking no argument
+that makes the memory writes of each thread visible to all of them.
+The solver uses it as is, without any check. `tdls::NoSync`, no
+barrier at all, serves a group of one thread; the compile-time solver
+refuses it for several threads.
+
+| Programming model | Group | Explicit barrier |
 |---|---|---|
 | CUDA | lanes of a warp | `__syncwarp` on the lanes of the group |
 | HIP | lanes of a wavefront | a wavefront fence and barrier |
-| SYCL | work-items of a work-group | `sycl::group_barrier` on the work-group |
+| SYCL | work-items of a sub-group or a work-group | `sycl::group_barrier` |
+| Kokkos | threads of a team | `team.team_barrier()` |
 | CPU threads | threads | a thread barrier |
-| any model, one thread per system | the thread alone | none, the default `tdls::NoSync` |
 
-The barrier is mandatory as soon as a group has several threads. The
-compile-time solver checks it at compile time.
+`make_sync(work)`, or `make_sync(n, work)` for the runtime solver,
+returns the deduced barrier. A caller that also needs it for its own
+exchanges between the threads of the group builds it once, calls it,
+and passes it to the entry points.
+
+### The sequence of barriers
 
 Every entry point runs a fixed sequence of barriers. It depends on the
 dimension, on `rows_per_thread`, on the row interchanges and on the
-entry point, never on the data. A singular matrix runs the whole sequence too, and the verdict
-comes at the end. A barrier wider than the group, a whole warp or a
-work-group, is therefore valid as well, provided every thread of its
-scope makes the same calls.
+entry point, never on the data. A singular matrix runs the whole
+sequence too, and the verdict comes at the end. A barrier wider than
+the group, a whole warp or a work-group, is therefore valid as well,
+provided every thread of its scope makes the same calls.
 
 On entry, each thread reads only the entries of its own rows: the rows
 a thread builds itself need no barrier before the call. Every entry
@@ -118,9 +170,9 @@ what its buffers are.
 time. The rows stay in the matrix and are updated in place. Every
 operand is a pointer plus a stride, reachable by the group; there are
 no residency booleans and no unroll pragma. The number of threads and
-the size of the workspace become functions of n. The barrier cannot be
-checked at compile time: with one thread and no barrier, n must not
-exceed `rows_per_thread`.
+the size of the workspace become functions of n. So does the size of
+the group, which the deduced barrier checks at run time. With
+`tdls::NoSync`, n must not exceed `rows_per_thread`.
 
 At equal shape and configuration, the two solvers execute the same
 arithmetic and produce bitwise identical results.

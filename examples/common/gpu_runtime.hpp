@@ -102,28 +102,6 @@ constexpr int gpu_skip_code = 77;
     return TDLS_EXAMPLES_GPU_API(GetDeviceCount)(&count) == gpuSuccess && count > 0;
 }
 
-/// \brief Barrier of a group of `threads` consecutive lanes of a warp,
-/// starting at lane `first_lane`: the barrier the CooperativeLUpp
-/// examples hand to the solver. It makes the memory writes of every lane
-/// of the group visible to the others.
-///
-/// CUDA synchronizes exactly the lanes of the group, so the groups of a
-/// warp may diverge. Under HIP on AMD GPUs the lanes of a wavefront
-/// execute in lockstep, so a wavefront fence and a scheduling barrier
-/// serve, the body of __syncwarp in recent HIP releases; the builtins
-/// exist in every ROCm release. A group must not span two warps.
-/// \param[in] first_lane first lane of the group in its warp
-/// \param[in] threads    number of lanes of the group
-__device__ inline void gpu_group_sync([[maybe_unused]] const int first_lane,
-                                      [[maybe_unused]] const int threads) {
-#if defined(__AMDGCN__)
-    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "wavefront");
-    __builtin_amdgcn_wave_barrier();
-    __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "wavefront");
-#elif defined(__CUDA_ARCH__)
-    const unsigned lanes = threads >= 32 ? 0xffffffffu : (1u << threads) - 1u;
-    __syncwarp(lanes << first_lane);
-#endif
-}
+
 
 #endif // TDLS_EXAMPLES_GPU_RUNTIME_HPP

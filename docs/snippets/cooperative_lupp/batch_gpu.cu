@@ -33,9 +33,9 @@ __global__ void solve_batch(const int count, double* A, double* y, int* ok) {
 
     // matrix and right-hand side in the batch, pivot slice of 2 rows in registers
     int piv[Solver::rows_per_thread];
-    const bool solved = Solver::solve_inplace<false, true, false>(
-        tx, A + s, count, piv, 1, y + s, count, work[block_slot],
-        [=] { gpu_group_sync(group * threads, threads); });
+    // no barrier argument: the solver deduces the barrier of the 2 lanes
+    const bool solved = Solver::solve_inplace<false, true, false>(tx, A + s, count, piv, 1, y + s,
+                                                                  count, work[block_slot]);
     if (tx == 0) ok[s] = solved ? 1 : 0;
 }
 // snippet end
