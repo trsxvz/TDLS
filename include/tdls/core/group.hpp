@@ -271,8 +271,10 @@ inline constexpr bool group_barrier_available = true;
 inline constexpr int barrier_elements = 2;
 
 /// \brief Largest group the warp of the pass can hold, checked at compile
-/// time when the size of the group is (0: no compile-time bound).
-#if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX)
+/// time when the size of the group is (0: no compile-time bound). The one
+/// pass of nvc++ serves the GPU as well, so the bound of its warp holds.
+#if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX) ||                         \
+    defined(TDLS_DETAIL_GROUP_NVCXX)
 inline constexpr int group_lanes = 32;
 #elif defined(TDLS_DETAIL_GROUP_AMDGCN)
 inline constexpr int group_lanes = 64;
