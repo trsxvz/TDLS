@@ -29,15 +29,15 @@ int main() {
     using Unrolled = tdls::CooperativeLUppSolverStatic<double, 4, unrolled>;
     using Rolled   = tdls::CooperativeLUppSolverStatic<double, 4, rolled>;
 
-    double work[Unrolled::workspace_size];
+    double work[Unrolled::workspace_size] = {};
     int piv[4];
 
     // no unroll pragma: same values, smaller code and faster builds, the choice for CPU code
-    snippets::run_group<Unrolled::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Unrolled::threads_per_system>([&](const int tx) {
         ok[tx] = Unrolled::solve_inplace<false, false, false>(tx, A_unrolled, 1, piv, 1, y_unrolled,
-                                                              1, work, sync);
+                                                              1, work);
         ok[tx] = Rolled::solve_inplace<false, false, false>(tx, A_rolled, 1, piv, 1, y_rolled, 1,
-                                                            work, sync) &&
+                                                            work) &&
                  ok[tx];
     });
     // snippet end

@@ -154,9 +154,9 @@ $$
 
 ## More rows per thread than the dimension
 
-A `rows_per_thread` of 8: one thread solves every n up to 8, with no
-barrier. The runtime solver cannot check it at compile time, so the
-snippet checks the number of threads.
+A `rows_per_thread` of 8: one thread solves every n up to 8, and the
+deduced barrier does nothing for it. Beyond 8, the group would need a
+second thread, so the snippet checks the number of threads.
 
 $$
 A = \begin{pmatrix}

@@ -28,16 +28,14 @@ int main() {
     using Default = tdls::CooperativeLUppSolverStatic<double, 4, standard>;
     using Raised  = tdls::CooperativeLUppSolverStatic<double, 4, raised>;
 
-    double work[Default::workspace_size];
+    double work[Default::workspace_size] = {};
     int piv[4];
-    snippets::run_group<Default::threads_per_system>([&](const int tx, auto&& sync) {
-        ok_default[tx] =
-            Default::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work, sync);
+    snippets::run_group<Default::threads_per_system>([&](const int tx) {
+        ok_default[tx] = Default::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work);
     });
     // the verdict comes back to every thread, after the full sequence of barriers
-    snippets::run_group<Raised::threads_per_system>([&](const int tx, auto&& sync) {
-        ok_raised[tx] =
-            Raised::solve_inplace<false, false, false>(tx, A2, 1, piv, 1, y2, 1, work, sync);
+    snippets::run_group<Raised::threads_per_system>([&](const int tx) {
+        ok_raised[tx] = Raised::solve_inplace<false, false, false>(tx, A2, 1, piv, 1, y2, 1, work);
     });
     // snippet end
 

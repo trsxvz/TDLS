@@ -40,10 +40,13 @@ int main() {
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
     // J(x) = A + 2 diag(x) and the residual, shared by the group
-    double J[4 * 4], r[4], work[Solver::workspace_size];
+    double J[4 * 4], r[4], work[Solver::workspace_size] = {};
     int piv[4];
 
-    snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
+        // the barrier of the group, for the exchange of the loop below: make_sync returns the
+        // one the solver deduces, checked once, and the calls below use it as is
+        auto sync = Solver::make_sync(work);
         // every thread iterates on its own copy of x, kept identical by the shared steps
         double x[4] = {0, 0, 0, 0};
         for (int iteration = 0; iteration < 20; ++iteration) {

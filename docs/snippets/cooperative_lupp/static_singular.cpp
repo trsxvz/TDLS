@@ -20,13 +20,13 @@ int main() {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size];
+    double work[Solver::workspace_size] = {};
     int piv[4];
 
     // every thread runs the whole sequence of barriers and receives the same verdict;
     // the content of y is then unspecified
-    snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] = Solver::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work, sync);
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
+        ok[tx] = Solver::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work);
     });
     // snippet end
 

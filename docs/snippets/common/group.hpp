@@ -12,11 +12,12 @@
 /// licensing conditions.
 ///
 /// run_group runs its function on every thread of a group, passing the
-/// rank of the thread and the barrier of the group, as a GPU kernel runs
-/// on the lanes of a warp. The threads are std::thread instances and the
-/// barrier a condition-variable barrier, which the standard library of
-/// every supported compiler provides. A group of one thread runs on the
-/// calling thread with tdls::NoSync.
+/// rank of the thread, as a GPU kernel runs on the lanes of a warp. The
+/// threads are std::thread instances; a group of one thread runs on the
+/// calling thread. The solver deduces the barrier of the group, so the
+/// function passes none. Barrier is the explicit barrier of the snippet
+/// that passes one: a condition-variable barrier, which the standard
+/// library of every supported compiler provides.
 
 
 
@@ -24,8 +25,6 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-
-#include <tdls/tdls.hpp>
 
 
 
@@ -62,49 +61,33 @@ class Barrier {
     unsigned long long generation = 0;
 };
 
-/// \brief Runs fn(tx, sync) on `threads` new threads sharing a Barrier.
-/// \tparam Fn callable type, invoked as fn(int tx, auto&& sync)
-/// \param[in] threads number of threads of the group
-/// \param[in] fn      the work of one thread
-template<typename Fn>
-void spawn_group(const int threads, Fn& fn) {
-    Barrier barrier(threads);
-    std::vector<std::thread> group;
-    for (int tx = 0; tx < threads; ++tx)
-        group.emplace_back([&fn, &barrier, tx] {
-            auto sync = [&barrier] { barrier.arrive_and_wait(); };
-            fn(tx, sync);
-        });
-    for (auto& thread : group)
-        thread.join();
-}
-
-/// \brief Runs fn(tx, sync) on every thread of a group whose size is
-/// known at compile time, as the number of threads of a compile-time
-/// solver: on the calling thread with tdls::NoSync for a group of one.
-/// \tparam threads number of threads of the group
-/// \tparam Fn      callable type, invoked as fn(int tx, auto&& sync)
-/// \param[in] fn the work of one thread
-template<int threads, typename Fn>
-void run_group(Fn&& fn) {
-    if constexpr (threads == 1)
-        fn(0, tdls::NoSync{});
-    else
-        spawn_group(threads, fn);
-}
-
-/// \brief Runs fn(tx, sync) on every thread of a group whose size is a
-/// runtime value, as the number of threads of a runtime solver: on the
-/// calling thread with tdls::NoSync for a group of one.
-/// \tparam Fn callable type, invoked as fn(int tx, auto&& sync)
+/// \brief Runs fn(tx) on every thread of a group whose size is a
+/// runtime value, as the number of threads of a runtime solver: new
+/// threads, or the calling thread for a group of one.
+/// \tparam Fn callable type, invoked as fn(int tx)
 /// \param[in] threads number of threads of the group
 /// \param[in] fn      the work of one thread
 template<typename Fn>
 void run_group(const int threads, Fn&& fn) {
-    if (threads == 1)
-        fn(0, tdls::NoSync{});
-    else
-        spawn_group(threads, fn);
+    if (threads == 1) {
+        fn(0);
+        return;
+    }
+    std::vector<std::thread> group;
+    for (int tx = 0; tx < threads; ++tx)
+        group.emplace_back([&fn, tx] { fn(tx); });
+    for (auto& thread : group)
+        thread.join();
+}
+
+/// \brief Runs fn(tx) on every thread of a group whose size is known at
+/// compile time, as the number of threads of a compile-time solver.
+/// \tparam threads number of threads of the group
+/// \tparam Fn      callable type, invoked as fn(int tx)
+/// \param[in] fn the work of one thread
+template<int threads, typename Fn>
+void run_group(Fn&& fn) {
+    run_group(threads, fn);
 }
 
 

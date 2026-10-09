@@ -25,10 +25,10 @@ int main() {
     static_assert(Solver::threads_per_system == 3);
     static_assert(Solver::slot_is_full(0) && !Solver::slot_is_full(1) && Solver::slot_has_rows(1));
 
-    double work[Solver::workspace_size];
+    double work[Solver::workspace_size] = {};
     int piv[5];
-    snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] = Solver::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work, sync);
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
+        ok[tx] = Solver::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work);
     });
     // snippet end
 

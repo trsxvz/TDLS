@@ -32,15 +32,14 @@ int main() {
     using Lapack           = tdls::CooperativeLUppSolverStatic<double, 4, lapack>;
     using Relaxed          = tdls::CooperativeLUppSolverStatic<double, 4, relaxed>;
 
-    double work[Lapack::workspace_size];
+    double work[Lapack::workspace_size] = {};
     int piv1[4], piv2[4];
-    snippets::run_group<2>([&](const int tx, auto&& sync) {
-        ok[tx] = Lapack::solve_inplace<false, false, false>(tx, A1, 1, piv1, 1, y1, 1, work, sync);
+    snippets::run_group<2>([&](const int tx) {
+        ok[tx] = Lapack::solve_inplace<false, false, false>(tx, A1, 1, piv1, 1, y1, 1, work);
     });
-    snippets::run_group<2>([&](const int tx, auto&& sync) {
+    snippets::run_group<2>([&](const int tx) {
         ok[tx] =
-            Relaxed::solve_inplace<false, false, false>(tx, A2, 1, piv2, 1, y2, 1, work, sync) &&
-            ok[tx];
+            Relaxed::solve_inplace<false, false, false>(tx, A2, 1, piv2, 1, y2, 1, work) && ok[tx];
     });
 
     // LAPACK exchanges rows 0 and 1; under the threshold every row stays at

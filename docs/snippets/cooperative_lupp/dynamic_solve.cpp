@@ -28,9 +28,9 @@ int main() {
     std::vector<double> work(Solver::workspace_size(n)), x(n);
     std::vector<int> piv(n);
 
-    snippets::run_group(Solver::threads_per_system(n), [&](const int tx, auto&& sync) {
-        ok[tx] = Solver::solve(n, tx, A.data(), 1, piv.data(), 1, b.data(), x.data(), 1,
-                               work.data(), sync);
+    snippets::run_group(Solver::threads_per_system(n), [&](const int tx) {
+        ok[tx] =
+            Solver::solve(n, tx, A.data(), 1, piv.data(), 1, b.data(), x.data(), 1, work.data());
     });
     // snippet end
 

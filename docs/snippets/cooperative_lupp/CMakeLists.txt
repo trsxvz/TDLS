@@ -23,6 +23,7 @@ foreach(snippet
         static_constexpr
         static_newton
         static_deduced_barrier
+        static_explicit_barrier
         dynamic_factorize_substitute
         dynamic_substitute_inplace
         dynamic_solve

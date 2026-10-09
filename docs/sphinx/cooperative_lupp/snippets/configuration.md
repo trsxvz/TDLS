@@ -258,7 +258,10 @@ $$
 
 ## Scalar types
 
-The same system in `float` and in `long double`.
+The same system in `float` and in `long double`. A group of CPU
+threads in `long double` passes its own barrier: the deduced one needs
+lock-free atomics on the scalar type, which `long double` lacks on
+most CPUs, and the compiler says so.
 
 $$
 A = \begin{pmatrix}

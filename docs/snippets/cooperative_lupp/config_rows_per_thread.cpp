@@ -37,18 +37,17 @@ int main() {
                   Three::threads_per_system == 2);
 
     // thread tx holds rows tx, tx + threads, ...: on 3 threads, thread 0 holds rows 0 and 3
-    double work[One::workspace_size];
+    double work[One::workspace_size] = {};
     int piv[6];
-    snippets::run_group<One::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] = One::solve_inplace<false, false, false>(tx, A1, 1, piv, 1, y1, 1, work, sync);
+    snippets::run_group<One::threads_per_system>([&](const int tx) {
+        ok[tx] = One::solve_inplace<false, false, false>(tx, A1, 1, piv, 1, y1, 1, work);
     });
-    snippets::run_group<Two::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Two::threads_per_system>([&](const int tx) {
+        ok[tx] = Two::solve_inplace<false, false, false>(tx, A2, 1, piv, 1, y2, 1, work) && ok[tx];
+    });
+    snippets::run_group<Three::threads_per_system>([&](const int tx) {
         ok[tx] =
-            Two::solve_inplace<false, false, false>(tx, A2, 1, piv, 1, y2, 1, work, sync) && ok[tx];
-    });
-    snippets::run_group<Three::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] = Three::solve_inplace<false, false, false>(tx, A3, 1, piv, 1, y3, 1, work, sync) &&
-                 ok[tx];
+            Three::solve_inplace<false, false, false>(tx, A3, 1, piv, 1, y3, 1, work) && ok[tx];
     });
 
     // the mapping changes nothing in the arithmetic: the three solutions are bitwise identical

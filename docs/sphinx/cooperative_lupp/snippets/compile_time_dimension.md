@@ -175,7 +175,8 @@ The MFront pattern on a small nonlinear system, run by the group. Each
 thread builds the rows it holds, so the solver reads them without a
 barrier. On return, every thread reads the whole Newton step and
 updates its copy of x. A barrier keeps the next iteration from
-overwriting the step before every thread has read it. At the solution,
+overwriting the step before every thread has read it: the one
+`make_sync` returns, the barrier the solver deduces. At the solution,
 one factorization serves the tangent columns.
 
 $$
@@ -222,6 +223,32 @@ x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/static_deduced_barrier.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## An explicit barrier
+
+The same system with a barrier passed by the caller, the case of a
+group that the deduced barrier does not know, such as a group larger
+than a warp. Any callable taking no argument serves. The solver uses
+it as is, and the workspace then needs no initial value.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/static_explicit_barrier.cpp
 :language: cpp
 :start-after: // snippet begin
 :end-before: // snippet end

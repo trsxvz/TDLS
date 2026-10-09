@@ -28,13 +28,13 @@ int main() {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size];
+    double work[Solver::workspace_size] = {};
 
     // system s at A + s * N * N, its pivots and right-hand side at s * N: stride 1
     for (int s = 0; s < count; ++s) {
-        snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
+        snippets::run_group<Solver::threads_per_system>([&](const int tx) {
             ok[s][tx] = Solver::solve_inplace<false, false, false>(
-                tx, A + s * N * N, 1, piv + s * N, 1, y + s * N, 1, work, sync);
+                tx, A + s * N * N, 1, piv + s * N, 1, y + s * N, 1, work);
         });
     }
     // snippet end

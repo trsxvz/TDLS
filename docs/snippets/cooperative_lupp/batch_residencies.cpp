@@ -30,9 +30,9 @@ int main() {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size];
+    double work[Solver::workspace_size] = {};
 
-    snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
         // internal: every operand is the slice of the thread, its rows tx and tx + 2,
         // in local arrays: the matrix rows, the right-hand side entries and the pivots
         double A_slice[2 * N], y_slice[2];
@@ -42,15 +42,15 @@ int main() {
                 A_slice[K * N + c] = matrix(0, (tx + 2 * K) * N + c);
             y_slice[K] = rhs(0, tx + 2 * K);
         }
-        ok[tx] = Solver::solve_inplace<true, true, true>(tx, A_slice, 1, piv_slice, 1, y_slice, 1,
-                                                         work, sync);
+        ok[tx] =
+            Solver::solve_inplace<true, true, true>(tx, A_slice, 1, piv_slice, 1, y_slice, 1, work);
         for (int K = 0; K < 2; ++K)
             y_local[tx][K] = y_slice[K]; // entry tx + 2 K of the solution
 
         // external: every operand is system 1 of the SoA batch, reachable by the whole
         // group and walked with the batch stride 3
         ok_batch[tx] = Solver::solve_inplace<false, false, false>(tx, A_soa + 1, 3, piv_soa + 1, 3,
-                                                                  y_soa + 1, 3, work, sync);
+                                                                  y_soa + 1, 3, work);
     });
     // snippet end
 

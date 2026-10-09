@@ -28,14 +28,14 @@ int main() {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size];
+    double work[Solver::workspace_size] = {};
 
     // blocks of 4 interleaved systems: system s at (s / 4) * N * N * 4 + s % 4, stride 4
     for (int s = 0; s < count; ++s) {
-        snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
+        snippets::run_group<Solver::threads_per_system>([&](const int tx) {
             ok[s][tx] = Solver::solve_inplace<false, false, false>(
                 tx, A + (s / 4) * N * N * 4 + s % 4, 4, piv + (s / 4) * N * 4 + s % 4, 4,
-                y + (s / 4) * N * 4 + s % 4, 4, work, sync);
+                y + (s / 4) * N * 4 + s % 4, 4, work);
         });
     }
     // snippet end

@@ -28,11 +28,10 @@ int main() {
     std::vector<double> work(Solver::workspace_size(n));
     std::vector<int> piv(n);
 
-    snippets::run_group(Solver::threads_per_system(n), [&](const int tx, auto&& sync) {
-        ok[tx] = Solver::factorize(n, tx, A.data(), 1, piv.data(), 1, work.data(), sync);
+    snippets::run_group(Solver::threads_per_system(n), [&](const int tx) {
+        ok[tx] = Solver::factorize(n, tx, A.data(), 1, piv.data(), 1, work.data());
         // x holds b on entry and the solution on exit
-        Solver::substitute_inplace(n, tx, A.data(), 1, piv.data(), 1, x.data(), 1, work.data(),
-                                   sync);
+        Solver::substitute_inplace(n, tx, A.data(), 1, piv.data(), 1, x.data(), 1, work.data());
     });
     // snippet end
 

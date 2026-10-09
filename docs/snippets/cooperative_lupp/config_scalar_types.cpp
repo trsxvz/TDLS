@@ -28,12 +28,16 @@ int main() {
     using Extended = tdls::CooperativeLUppSolverStatic<
         long double, 4, tdls::CooperativeLUppConfig<long double>{.rows_per_thread = 2}>;
 
-    float work_single[Single::workspace_size];
+    float work_single[Single::workspace_size] = {};
     long double work_extended[Extended::workspace_size];
     int piv[4];
-    snippets::run_group<Single::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] = Single::solve_inplace<false, false, false>(tx, A_single, 1, piv, 1, y_single, 1,
-                                                            work_single, sync);
+    // long double has no lock-free atomics on most CPUs: the compiler refuses the deduced
+    // barrier of CPU threads there, so the extended solver takes a barrier of the caller
+    snippets::Barrier barrier(Extended::threads_per_system);
+    snippets::run_group<Single::threads_per_system>([&](const int tx) {
+        ok[tx]    = Single::solve_inplace<false, false, false>(tx, A_single, 1, piv, 1, y_single, 1,
+                                                               work_single);
+        auto sync = [&barrier] { barrier.arrive_and_wait(); };
         ok[tx] = Extended::solve_inplace<false, false, false>(tx, A_extended, 1, piv, 1, y_extended,
                                                               1, work_extended, sync) &&
                  ok[tx];

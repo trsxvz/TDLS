@@ -299,10 +299,11 @@ the matrix as a row-major `double` array, the right-hand sides, and
 the expected solution. Below the shown code, it checks its result.
 
 The groups of the snippets are CPU threads. `snippets::run_group`
-runs its function on every thread of a group and passes it the rank
-of the thread and the barrier of the group. A group of one thread
-runs on the calling thread, with no barrier. The formulas mark the
-thread that holds each row.
+starts them, as a GPU launch starts the lanes of a warp, and runs its
+function on each one with the rank `tx` of the thread. A group of one
+thread runs on the calling thread. The solver deduces the barrier of
+the group, so the snippets pass none; one snippet passes its own. The
+formulas mark the thread that holds each row.
 
 ```{toctree}
 :maxdepth: 1

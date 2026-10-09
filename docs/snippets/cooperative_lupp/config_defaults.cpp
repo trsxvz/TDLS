@@ -33,16 +33,16 @@ int main() {
     static_assert(std::is_same_v<Dynamic, tdls::CooperativeLUppSolverDynamic<double>>);
 
     // 4 rows of 1: a group of 4 threads and the workspace they share
-    double work[Static::workspace_size];
+    double work[Static::workspace_size] = {};
     int piv[4];
 
     // every thread of the group makes the same call with its rank tx and
     // the barrier of the group; y holds b on entry and x on exit
-    snippets::run_group<Static::threads_per_system>([&](const int tx, auto&& sync) {
-        ok[tx] = Static::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work, sync);
+    snippets::run_group<Static::threads_per_system>([&](const int tx) {
+        ok[tx] = Static::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work);
     });
-    snippets::run_group(Dynamic::threads_per_system(4), [&](const int tx, auto&& sync) {
-        ok2[tx] = Dynamic::solve_inplace(4, tx, A2, 1, piv, 1, y2, 1, work, sync);
+    snippets::run_group(Dynamic::threads_per_system(4), [&](const int tx) {
+        ok2[tx] = Dynamic::solve_inplace(4, tx, A2, 1, piv, 1, y2, 1, work);
     });
     // snippet end
 

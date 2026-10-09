@@ -27,13 +27,13 @@ int main() {
 
     // 2 threads of 2 rows share the objects: they are external operands, row-major with
     // stride 1, as the default configuration expects
-    constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
-    using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
-    double work[Solver::workspace_size];
+    constexpr auto config               = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
+    using Solver                        = tdls::CooperativeLUppSolverStatic<double, 4, config>;
+    double work[Solver::workspace_size] = {};
 
-    snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
         ok[tx] = Solver::solve_inplace<false, false, false>(tx, A.data(), 1, piv.data(), 1,
-                                                            y.data(), 1, work, sync);
+                                                            y.data(), 1, work);
     });
     // snippet end
 

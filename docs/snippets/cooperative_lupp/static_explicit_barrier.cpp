@@ -1,5 +1,6 @@
 /// \file
-/// \brief Documentation snippet: solve in place, compile-time dimension.
+/// \brief Documentation snippet: a barrier passed by the caller, used as
+/// is by the solver.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -21,12 +22,16 @@ int main() {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size] = {};
+    double work[Solver::workspace_size]; // no initial value needed with an explicit barrier
     int piv[4];
 
-    // the forward pass folded into the factorization: y holds b on entry, x on exit
+    // the barrier of the caller: any callable taking no argument, called by every thread of
+    // the group, that makes the writes of each thread visible to all of them. Here a barrier
+    // of CPU threads; on GPU, __syncthreads, a SYCL group barrier or a Kokkos team barrier
+    snippets::Barrier barrier(Solver::threads_per_system);
     snippets::run_group<Solver::threads_per_system>([&](const int tx) {
-        ok[tx] = Solver::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work);
+        auto sync = [&barrier] { barrier.arrive_and_wait(); };
+        ok[tx]    = Solver::solve_inplace<false, false, false>(tx, A, 1, piv, 1, y, 1, work, sync);
     });
     // snippet end
 

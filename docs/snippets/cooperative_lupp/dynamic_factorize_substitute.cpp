@@ -32,13 +32,11 @@ int main() {
     std::vector<int> piv(n);
 
     // n comes first, then the rank: every operand is a pointer plus a stride
-    snippets::run_group(Solver::threads_per_system(n), [&](const int tx, auto&& sync) {
-        ok[tx] = Solver::factorize(n, tx, A.data(), 1, piv.data(), 1, work.data(), sync);
+    snippets::run_group(Solver::threads_per_system(n), [&](const int tx) {
+        ok[tx] = Solver::factorize(n, tx, A.data(), 1, piv.data(), 1, work.data());
         // two right-hand sides on the same factorization
-        Solver::substitute(n, tx, A.data(), 1, piv.data(), 1, b1.data(), x1.data(), 1, work.data(),
-                           sync);
-        Solver::substitute(n, tx, A.data(), 1, piv.data(), 1, b2.data(), x2.data(), 1, work.data(),
-                           sync);
+        Solver::substitute(n, tx, A.data(), 1, piv.data(), 1, b1.data(), x1.data(), 1, work.data());
+        Solver::substitute(n, tx, A.data(), 1, piv.data(), 1, b2.data(), x2.data(), 1, work.data());
     });
     // snippet end
 

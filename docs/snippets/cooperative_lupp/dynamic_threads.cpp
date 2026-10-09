@@ -30,9 +30,8 @@ int main() {
     std::vector<double> work(Solver::workspace_size(n)); // 3 * n elements
     std::vector<int> piv(n);
 
-    snippets::run_group(threads, [&](const int tx, auto&& sync) {
-        ok[tx] = Solver::solve_inplace(n, tx, A.data(), 1, piv.data(), 1, y.data(), 1, work.data(),
-                                       sync);
+    snippets::run_group(threads, [&](const int tx) {
+        ok[tx] = Solver::solve_inplace(n, tx, A.data(), 1, piv.data(), 1, y.data(), 1, work.data());
     });
     // snippet end
 

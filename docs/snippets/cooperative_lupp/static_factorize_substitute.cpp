@@ -24,15 +24,15 @@ int main() {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size];
+    double work[Solver::workspace_size] = {};
     int piv[4];
 
-    snippets::run_group<Solver::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
         // A holds the factors on exit, piv the position of each row in the pivoted order
-        ok[tx] = Solver::factorize<false, false>(tx, A, 1, piv, 1, work, sync);
+        ok[tx] = Solver::factorize<false, false>(tx, A, 1, piv, 1, work);
         // one factorization, two right-hand sides
-        Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b1, x1, 1, work, sync);
-        Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b2, x2, 1, work, sync);
+        Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b1, x1, 1, work);
+        Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b2, x2, 1, work);
     });
     // snippet end
 

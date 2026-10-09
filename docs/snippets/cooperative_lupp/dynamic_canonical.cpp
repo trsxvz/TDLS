@@ -28,11 +28,11 @@ int main() {
     std::vector<double> work(Solver::workspace_size(n)), x(n);
     std::vector<int> piv(n);
 
-    snippets::run_group(Solver::threads_per_system(n), [&](const int tx, auto&& sync) {
-        ok[tx] = Solver::factorize(n, tx, A.data(), 1, piv.data(), 1, work.data(), sync);
+    snippets::run_group(Solver::threads_per_system(n), [&](const int tx) {
+        ok[tx] = Solver::factorize(n, tx, A.data(), 1, piv.data(), 1, work.data());
         // x := A^-1 e_2, the right-hand side generated on the fly
-        Solver::substitute_canonical(n, tx, A.data(), 1, piv.data(), 1, 2, x.data(), 1, work.data(),
-                                     sync);
+        Solver::substitute_canonical(n, tx, A.data(), 1, piv.data(), 1, 2, x.data(), 1,
+                                     work.data());
     });
     // snippet end
 

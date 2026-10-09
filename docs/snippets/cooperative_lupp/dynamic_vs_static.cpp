@@ -29,16 +29,16 @@ int main() {
     using Dynamic         = tdls::CooperativeLUppSolverDynamic<double, config>;
     using Static          = tdls::CooperativeLUppSolverStatic<double, 5, config>;
 
-    double work[Static::workspace_size];
+    double work[Static::workspace_size] = {};
     std::vector<int> piv_dynamic(n);
     int piv_static[5];
 
     // same shape, same configuration: the same arithmetic, bit for bit
-    snippets::run_group<Static::threads_per_system>([&](const int tx, auto&& sync) {
+    snippets::run_group<Static::threads_per_system>([&](const int tx) {
         ok[tx] = Dynamic::solve_inplace(n, tx, A_dynamic.data(), 1, piv_dynamic.data(), 1,
-                                        y_dynamic.data(), 1, work, sync);
+                                        y_dynamic.data(), 1, work);
         ok[tx] = Static::solve_inplace<false, false, false>(tx, A_static, 1, piv_static, 1,
-                                                            y_static, 1, work, sync) &&
+                                                            y_static, 1, work) &&
                  ok[tx];
     });
     // snippet end
