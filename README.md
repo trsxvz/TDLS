@@ -41,11 +41,11 @@ constexpr tdls::TiledLUppConfig<double> config{
     // double (the scalar type T): a pivot at least this large is accepted
     // without searching outside the tile
     .oot_pivot_threshold = 1e-10,
+    // bool: the out-of-tile search stops at the first acceptable pivot
+    .oot_first_acceptable = true,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
     .singular_floor = std::numeric_limits<double>::min(),
-    // bool: the out-of-tile search stops at the first acceptable pivot
-    .oot_first_acceptable = true,
     // bool: forced unrolling of the in-tile loops, the ones where it pays
     .unroll_loops = true,
     // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor

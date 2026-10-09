@@ -72,8 +72,8 @@ individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 | `tile_size` | 3 | extent of the register tiles, the main performance axis; may exceed the dimension |
 | `schedule` | `RightLooking` | elimination schedule, `RightLooking` or `LeftLooking` |
 | `oot_pivot_threshold` | 1e-10 for `double` and `long double`<br>1e-4 for `float` | an in-tile pivot at least this large is accepted without searching below the tile |
-| `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in a trailing tile; positive, at most `oot_pivot_threshold` |
 | `oot_first_acceptable` | `true` | the search below the tile stops at the first candidate reaching `oot_pivot_threshold` |
+| `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in a trailing tile; positive, at most `oot_pivot_threshold` |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops, whose unrolling keeps the tiles in registers on GPU; the tile sweeps never carry a pragma; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; results are bitwise identical |
 

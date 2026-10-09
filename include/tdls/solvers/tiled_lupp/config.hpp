@@ -73,6 +73,16 @@ struct TiledLUppConfig {
     /// corrected candidate wins.
     StructuralReal<T> oot_pivot_threshold = std::is_same_v<T, float> ? T(1e-4f) : T(1e-10);
 
+    /// Out-of-tile pivot search strategy. When true, the below-tile scan
+    /// stops at the first candidate whose corrected magnitude reaches
+    /// oot_pivot_threshold instead of scanning the whole panel for the maximum;
+    /// the running maximum is still kept as the fallback when no candidate
+    /// is acceptable. Cheaper in the OOT-heavy regime (especially
+    /// left-looking, where every candidate replays the prior tiles), at
+    /// the cost of a possibly smaller (but still >= oot_pivot_threshold) pivot.
+    /// Set false to restore the full-panel partial-pivoting scan.
+    bool oot_first_acceptable = true;
+
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it, or
     /// when the best pivot of a trailing tile does. The floor only guards
@@ -86,16 +96,6 @@ struct TiledLUppConfig {
     /// downstream by the caller, whereas an absolute floor wrongly flags
     /// well-conditioned matrices at small scale.
     StructuralReal<T> singular_floor = std::numeric_limits<T>::min();
-
-    /// Out-of-tile pivot search strategy. When true, the below-tile scan
-    /// stops at the first candidate whose corrected magnitude reaches
-    /// oot_pivot_threshold instead of scanning the whole panel for the maximum;
-    /// the running maximum is still kept as the fallback when no candidate
-    /// is acceptable. Cheaper in the OOT-heavy regime (especially
-    /// left-looking, where every candidate replays the prior tiles), at
-    /// the cost of a possibly smaller (but still >= oot_pivot_threshold) pivot.
-    /// Set false to restore the full-panel partial-pivoting scan.
-    bool oot_first_acceptable = true;
 
     /// Unroll policy, applied through a two-branch `if constexpr` (the
     /// pragma dialect itself lives in core/macros.hpp). The knob does not
