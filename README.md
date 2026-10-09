@@ -180,6 +180,8 @@ Copyright (C) 2026 CEA. All rights reserved.
 
 TDLS is publicly released under the BSD 3-Clause License (see the
 LICENSE file); CEA may also distribute it under specific licensing
-conditions. TDLS is designed to be embedded in
+conditions. The kernels of the CooperativeLUpp solvers are derived from
+MAGMA and remain subject to the MAGMA license, BSD 3-Clause as well
+(see the NOTICE file). TDLS is designed to be embedded in
 [TFEL/MFront](https://github.com/thelfer/tfel); the BSD-3-Clause
 license places no meaningful restriction on such use.

@@ -1,8 +1,9 @@
 # TDLS is header-only: this file compiles nothing for the library itself.
 # It declares the tdls::tdls INTERFACE target consumed through
 # add_subdirectory()/FetchContent (include path + C++20 floor), installs
-# the headers and a relocatable package config so a system install and
-# find_package(tdls) work too, and orchestrates the tests.
+# the headers, the license files and a relocatable package config so a
+# system install and find_package(tdls) work too, and orchestrates the
+# tests.
 cmake_minimum_required(VERSION 3.21)
 
 project(tdls VERSION 0.2.0 LANGUAGES NONE)
@@ -113,6 +114,11 @@ if(TDLS_INSTALL)
     install(TARGETS tdls EXPORT tdlsTargets)
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/tdls"
             DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    # Every installed copy carries the license of TDLS and the notice of
+    # its third-party portions (MAGMA), as both BSD 3-Clause licenses
+    # require for redistributions.
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/NOTICE"
+            DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 
     set(TDLS_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/tdls")
     install(EXPORT tdlsTargets

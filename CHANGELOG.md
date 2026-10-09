@@ -37,6 +37,9 @@ the API may change between minor versions.
   TFEL interoperability page, and the three example problems at every
   execution scale, from one thread per system on CPU to groups of
   lanes on GPU and groups of work-items in SYCL.
+- A NOTICE file reproduces the license of the portions derived from
+  MAGMA. The install rules now ship LICENSE and NOTICE under
+  `share/doc/tdls`.
 
 ### Changed
 

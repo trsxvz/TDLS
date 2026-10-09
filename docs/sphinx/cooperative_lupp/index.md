@@ -38,6 +38,10 @@ the mapping of rows to threads, the device-callable entry points, the
 pivot output, the singularity criterion, and a data race of the back
 substitution, removed.
 
+The portions derived from MAGMA remain subject to its license, BSD
+3-Clause. The license is reproduced at the top of each solver header
+and in the NOTICE file, installed with the library.
+
 ## Groups of threads
 
 Every thread of the group makes the same call, with the same template
