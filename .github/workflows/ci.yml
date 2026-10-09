@@ -173,9 +173,12 @@ jobs:
     # Cross-compilation of the GPU examples with the oldest CUDA
     # release the headers support. The container pins nvcc and its
     # host compiler together, and the CPU suites run in it as usual.
+    # The image comes from the registry of NVIDIA: the same image as on
+    # Docker Hub, same digest, without its limit on anonymous pulls,
+    # which the shared addresses of the runners reach.
     name: gpu examples build only (nvcc 12.0, gcc 11)
     runs-on: ubuntu-latest
-    container: nvidia/cuda:12.0.1-devel-ubuntu22.04
+    container: nvcr.io/nvidia/cuda:12.0.1-devel-ubuntu22.04
     steps:
       - name: Install cmake and git
         # The CMake of Ubuntu 22.04 (3.22) predates CUDA 12: this job
@@ -197,10 +200,11 @@ jobs:
   gpu-clang-cuda:
     # Second CUDA frontend: clang compiles the same examples against the
     # toolkit of the container. CUDA 12.3 is the newest release clang 18
-    # fully supports, so the pairing raises no version warning.
+    # fully supports, so the pairing raises no version warning. The
+    # image comes from the registry of NVIDIA, as above.
     name: gpu examples build only (clang 18 CUDA, CUDA 12.3)
     runs-on: ubuntu-latest
-    container: nvidia/cuda:12.3.2-devel-ubuntu22.04
+    container: nvcr.io/nvidia/cuda:12.3.2-devel-ubuntu22.04
     steps:
       - name: Install cmake, git and clang 18 (apt.llvm.org)
         run: |
