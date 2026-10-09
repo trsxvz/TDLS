@@ -69,6 +69,12 @@ const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 constexpr tdls::CooperativeLUppConfig<double> config{
     // int: rows of the system held by each thread of the group
     .rows_per_thread = 3,
+    // tdls::RowInterchange: Logical (rows never move) or Physical (rows
+    // move between the threads, as in LAPACK); same pivots, same operations
+    .row_interchange = tdls::RowInterchange::Logical,
+    // double (the scalar type T): the row in place keeps the pivot when it
+    // reaches this fraction of the largest magnitude of its column
+    .relative_pivot_threshold = 1.0,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
     .singular_floor = std::numeric_limits<double>::min(),

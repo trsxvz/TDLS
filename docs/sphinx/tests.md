@@ -198,16 +198,17 @@ keeps the instrumented builds short.
 
 | Suite | What it locks |
 |---|---|
-| `oracle_static`, `oracle_dynamic` | backward error of `solve_inplace` against the naive LU, on one thread per system and on groups of threads, in float, double and long double |
+| `oracle_static`, `oracle_dynamic` | backward error of `solve_inplace` against the naive LU, on one thread per system and on groups of threads, in float, double and long double, under both row interchanges and under a relative pivot threshold |
 | `static_vs_dynamic` | bitwise equality of the two variants, on every entry point |
-| `rows_per_thread` | every mapping of rows to threads against one thread per system, bitwise, from one row per thread to more rows than the dimension |
+| `rows_per_thread` | every mapping of rows to threads against one thread per system, bitwise, from one row per thread to more rows than the dimension, under both row interchanges |
+| `row_interchange` | physical row interchanges against logical ones, bitwise, on every entry point: the solutions, and the factored rows once placed |
 | `entry_points` | the documented entry point equivalences, bitwise, and the guarantees on return: every result visible to the whole group, the workspace free; a regression case guards the workspace, which no solver may declare `restrict` |
 | `residencies` | every residency combination against the external one, bitwise |
 | `layouts` | the two matrix layouts and the AoS, SoA and AoSoA addressing, bitwise, on both solvers |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case, with a verdict uniform across the group |
-| `config_knobs` | each configuration knob changes what it should and nothing else |
-| `constexpr` | compile-time certificates on both solvers, one thread per system |
-| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a barrier for a group of several threads |
+| `config_knobs` | each configuration knob changes what it should and nothing else, including the pivot choice under a relative threshold |
+| `constexpr` | compile-time certificates on both solvers, one thread per system, under both row interchanges |
+| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a relative pivot threshold in (0, 1], a barrier for a group of several threads |
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in

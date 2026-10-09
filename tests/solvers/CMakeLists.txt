@@ -137,6 +137,7 @@ tdls_add_solver_suites(
         layouts
         singular
         config_knobs
+        row_interchange
         constexpr
     LIBRARIES Threads::Threads)
 
@@ -146,8 +147,12 @@ tdls_add_reject_cases(
     CASES
         reject_config_zero_floor
         reject_config_rows_per_thread
+        reject_config_pivot_threshold_zero
+        reject_config_pivot_threshold_above_one
         reject_missing_barrier
     DIAGNOSTICS
         "singular_floor must be positive"
         "rows_per_thread must be >= 1"
+        "CooperativeLUppSolverStatic: relative_pivot_threshold must be in"
+        "CooperativeLUppSolverDynamic: relative_pivot_threshold must be in"
         "a group of several threads needs a barrier")

@@ -10,7 +10,9 @@
 /// independent reference LU on the shape grid of the static anchor, plus
 /// shapes the static suite does not cover: rows_per_thread exceeding the
 /// dimension (one thread holding phantom slots) and dimensions beyond the
-/// static grid, up to 100. The verdict of every case is the normwise
+/// static grid, up to 100. Physical row interchanges and a relative pivot
+/// threshold of 0.1 are anchored as well, up to 100. The verdict of every
+/// case is the normwise
 /// backward error of both solvers, plus the exact agreement of the
 /// singularity verdicts, uniform across the group (one structurally
 /// singular system is injected in every batch).
@@ -35,17 +37,23 @@ namespace {
 /// errors under the tolerance.
 /// \tparam T               scalar type
 /// \tparam rows_per_thread rows held by each thread
+/// \tparam interchange     row interchanges
+/// \tparam relaxed         relative pivot threshold 0.1 instead of 1
 /// \param[in] n         system dimension
 /// \param[in] count     number of systems
 /// \param[in] bound     half-width of the entry distribution
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, int rows_per_thread>
+template<typename T, int rows_per_thread,
+         tdls::RowInterchange interchange = tdls::RowInterchange::Logical, bool relaxed = false>
 void anchor_case(const int n, const int count, const double bound, const double tolerance,
                  const std::uint64_t seed) {
-    constexpr auto config = tdls::CooperativeLUppConfig<T>{.rows_per_thread = rows_per_thread};
-    using Runner          = tdls_tests::DynamicGroupRunner<T, config>;
-    auto batch            = tdls_tests::make_batch<T>(n, count, seed, bound);
+    constexpr auto config =
+        tdls::CooperativeLUppConfig<T>{.rows_per_thread          = rows_per_thread,
+                                       .row_interchange          = interchange,
+                                       .relative_pivot_threshold = relaxed ? 0.1 : 1.0};
+    using Runner = tdls_tests::DynamicGroupRunner<T, config>;
+    auto batch   = tdls_tests::make_batch<T>(n, count, seed, bound);
     tdls_tests::zero_column(batch, 0, 0);
 
     bool verdicts_agree    = true;
@@ -124,5 +132,29 @@ TDLS_ANCHOR_CASES(float, 13, 5, 200, 1e-5, 791305)
 // Long double: the backward error accumulates in double, so the double
 // tolerance applies.
 TDLS_ANCHOR_CASES(long double, 12, 12, 1000, 1e-9, 881212)
+
+/// Emits the default and tiny-entry anchor cases of one (type, n,
+/// rows_per_thread) cell under the given pivoting.
+#define TDLS_PIVOTING_ANCHOR_CASES(T, N, ROWS, INTERCHANGE, RELAXED, NAME, COUNT, TOL, SEED)       \
+    TDLS_TEST_CASE("cooperativelupp/oracle/dynamic/" #T "/n=" #N ",rows_per_thread=" #ROWS         \
+                   "," NAME ",default") {                                                          \
+        anchor_case<T, ROWS, tdls::RowInterchange::INTERCHANGE, RELAXED>(N, COUNT, 0.5, TOL,       \
+                                                                         SEED);                    \
+    }                                                                                              \
+    TDLS_TEST_CASE("cooperativelupp/oracle/dynamic/" #T "/n=" #N ",rows_per_thread=" #ROWS         \
+                   "," NAME ",tiny") {                                                             \
+        anchor_case<T, ROWS, tdls::RowInterchange::INTERCHANGE, RELAXED>(N, COUNT, 5e-10, TOL,     \
+                                                                         SEED + 1);                \
+    }
+
+// Physical row interchanges: the sequential path up to 100, a mixed slot
+// and one row per thread.
+TDLS_PIVOTING_ANCHOR_CASES(double, 32, 32, Physical, false, "physical", 400, 1e-9, 693232)
+TDLS_PIVOTING_ANCHOR_CASES(double, 100, 100, Physical, false, "physical", 60, 1e-8, 694100)
+TDLS_PIVOTING_ANCHOR_CASES(double, 13, 5, Physical, false, "physical", 200, 1e-9, 693305)
+TDLS_PIVOTING_ANCHOR_CASES(double, 7, 1, Physical, false, "physical", 200, 1e-9, 692701)
+// Relative pivot threshold 0.1, under both row interchanges.
+TDLS_PIVOTING_ANCHOR_CASES(double, 32, 32, Physical, true, "physical,threshold", 400, 1e-9, 695232)
+TDLS_PIVOTING_ANCHOR_CASES(double, 13, 5, Logical, true, "threshold", 200, 1e-9, 695305)
 
 TDLS_TEST_MAIN

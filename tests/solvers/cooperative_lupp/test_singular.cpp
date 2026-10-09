@@ -14,7 +14,8 @@
 /// solvable extreme case (uniformly tiny but normal entries), the verdicts
 /// of solve(), solve_inplace() and factorize() of both solvers must match
 /// the reference and be uniform across the threads of the group, on the
-/// sequential path, on a full group and on a group with a mixed slot. The verdict is
+/// sequential path, on a full group and on a group with a mixed slot,
+/// under both row interchanges. The verdict is
 /// returned after a full sequence of barriers, never by an early exit, so
 /// every path also runs to completion on a singular matrix.
 
@@ -34,13 +35,15 @@ constexpr int N = 12;
 
 /// \brief Checks the verdicts of every path under one mapping.
 /// \tparam rows_per_thread rows held by each thread
+/// \tparam interchange     row interchanges
 /// \param[in] A0       matrix, contiguous row-major
 /// \param[in] b0       right-hand side
 /// \param[in] solvable expected verdict
-template<int rows_per_thread>
+template<int rows_per_thread, tdls::RowInterchange interchange = tdls::RowInterchange::Logical>
 void check_mapping(const double* A0, const double* b0, const bool solvable) {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{
         .rows_per_thread = rows_per_thread,
+        .row_interchange = interchange,
         .unroll_loops    = tdls_tests::test_unroll<N, rows_per_thread>};
     using Runner = tdls_tests::GroupRunner<double, N, config, false, false, false>;
     std::vector<double> A_out(N * N), x(N);
@@ -59,12 +62,14 @@ void check_mapping(const double* A0, const double* b0, const bool solvable) {
 /// \brief Checks the verdicts of every path of the dynamic solver under
 /// one mapping.
 /// \tparam rows_per_thread rows held by each thread
+/// \tparam interchange     row interchanges
 /// \param[in] A0       matrix, contiguous row-major
 /// \param[in] b0       right-hand side
 /// \param[in] solvable expected verdict
-template<int rows_per_thread>
+template<int rows_per_thread, tdls::RowInterchange interchange = tdls::RowInterchange::Logical>
 void check_mapping_dynamic(const double* A0, const double* b0, const bool solvable) {
-    constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = rows_per_thread};
+    constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = rows_per_thread,
+                                                                .row_interchange = interchange};
     using Runner          = tdls_tests::DynamicGroupRunner<double, config>;
     std::vector<double> A_out(N * N), x(N);
     std::vector<int> piv(N);
@@ -92,6 +97,9 @@ void check_verdicts(const double* A0, const double* b0, const bool solvable) {
     check_mapping_dynamic<N>(A0, b0, solvable);
     check_mapping_dynamic<3>(A0, b0, solvable);
     check_mapping_dynamic<5>(A0, b0, solvable);
+    check_mapping<N, tdls::RowInterchange::Physical>(A0, b0, solvable);
+    check_mapping<5, tdls::RowInterchange::Physical>(A0, b0, solvable);
+    check_mapping_dynamic<3, tdls::RowInterchange::Physical>(A0, b0, solvable);
 
     std::vector<double> A(A0, A0 + N * N), xr(N);
     std::vector<int> piv(N);

@@ -19,6 +19,7 @@ int main() {
     static_assert(Solver::rows_per_thread == 5);
     static_assert(Solver::threads_per_system == 3);
     static_assert(Solver::workspace_size == 3 * 13); // elements shared by the group
+    static_assert(Solver::relative_pivot_threshold == 1.0);
     static_assert(Solver::singular_floor == std::numeric_limits<double>::min());
 
     // slots 0 to 3 are full, slot 4 is mixed

@@ -16,8 +16,9 @@
 /// The grid crosses the structural cases of the mapping: the scalar
 /// corner, one thread per system, rows_per_thread above the dimension,
 /// full groups, a mixed slot and one row per thread, on real groups of
-/// CPU threads. The dynamic solver ignores unroll_loops: under
-/// both settings it must reproduce the static solver, which honours it.
+/// CPU threads, under both row interchanges and under a relative pivot
+/// threshold. The dynamic solver ignores unroll_loops: under both
+/// settings it must reproduce the static solver, which honours it.
 
 #include <cstdint>
 #include <vector>
@@ -98,6 +99,28 @@ template<typename T, int N, int rows_per_thread>
 constexpr auto test_config = config<T, rows_per_thread, tdls::MatrixLayout::RowMajor,
                                     tdls_tests::test_unroll<N, rows_per_thread>>;
 
+/// \brief The same configuration under physical row interchanges.
+/// \tparam T               scalar type
+/// \tparam N               system dimension
+/// \tparam rows_per_thread rows held by each thread
+template<typename T, int N, int rows_per_thread>
+constexpr auto physical_config =
+    tdls::CooperativeLUppConfig<T>{.rows_per_thread = rows_per_thread,
+                                   .row_interchange = tdls::RowInterchange::Physical,
+                                   .unroll_loops    = tdls_tests::test_unroll<N, rows_per_thread>};
+
+/// \brief The same configuration under a relative pivot threshold of 0.1.
+/// \tparam T               scalar type
+/// \tparam N               system dimension
+/// \tparam rows_per_thread rows held by each thread
+/// \tparam interchange     row interchanges
+template<typename T, int N, int rows_per_thread, tdls::RowInterchange interchange>
+constexpr auto threshold_config =
+    tdls::CooperativeLUppConfig<T>{.rows_per_thread          = rows_per_thread,
+                                   .row_interchange          = interchange,
+                                   .relative_pivot_threshold = 0.1,
+                                   .unroll_loops = tdls_tests::test_unroll<N, rows_per_thread>};
+
 } // namespace
 
 /// Emits the default and tiny-entry bridge cases of one (type, N,
@@ -123,6 +146,38 @@ TDLS_BRIDGE_CASES(double, 13, 5, 30, 861305)
 TDLS_BRIDGE_CASES(double, 7, 1, 30, 860701)
 // Float.
 TDLS_BRIDGE_CASES(float, 13, 5, 30, 961305)
+
+/// Emits the default and tiny-entry bridge cases of one (type, N,
+/// rows_per_thread) cell under physical row interchanges.
+#define TDLS_PHYSICAL_BRIDGE_CASES(T, N, ROWS, COUNT, SEED)                                        \
+    TDLS_TEST_CASE("cooperativelupp/bridge/static-vs-dynamic/" #T "/N=" #N                         \
+                   ",rows_per_thread=" #ROWS ",physical,default") {                                \
+        bridge_case<T, N, physical_config<T, N, ROWS>>(COUNT, 0.5, SEED);                          \
+    }                                                                                              \
+    TDLS_TEST_CASE("cooperativelupp/bridge/static-vs-dynamic/" #T "/N=" #N                         \
+                   ",rows_per_thread=" #ROWS ",physical,tiny") {                                   \
+        bridge_case<T, N, physical_config<T, N, ROWS>>(COUNT, 5e-10, SEED + 1);                    \
+    }
+
+// Physical row interchanges: the same structural cases.
+TDLS_PHYSICAL_BRIDGE_CASES(double, 1, 1, 100, 862101)
+TDLS_PHYSICAL_BRIDGE_CASES(double, 12, 12, 100, 863212)
+TDLS_PHYSICAL_BRIDGE_CASES(double, 5, 8, 100, 862508)
+TDLS_PHYSICAL_BRIDGE_CASES(double, 12, 3, 30, 863203)
+TDLS_PHYSICAL_BRIDGE_CASES(double, 13, 5, 30, 863305)
+TDLS_PHYSICAL_BRIDGE_CASES(double, 7, 1, 30, 862701)
+TDLS_PHYSICAL_BRIDGE_CASES(float, 13, 5, 30, 963305)
+
+// Relative pivot threshold 0.1, under both row interchanges.
+TDLS_TEST_CASE("cooperativelupp/bridge/static-vs-dynamic/double/N=12,rows_per_thread=3,threshold") {
+    bridge_case<double, 12, threshold_config<double, 12, 3, tdls::RowInterchange::Logical>>(30, 0.5,
+                                                                                            864203);
+}
+TDLS_TEST_CASE("cooperativelupp/bridge/static-vs-dynamic/double/N=13,rows_per_thread=5,"
+               "physical,threshold") {
+    bridge_case<double, 13, threshold_config<double, 13, 5, tdls::RowInterchange::Physical>>(
+        30, 0.5, 864305);
+}
 
 TDLS_TEST_CASE("cooperativelupp/bridge/static-vs-dynamic/double/N=13,rows_per_thread=5,colmajor") {
     bridge_case<double, 13,

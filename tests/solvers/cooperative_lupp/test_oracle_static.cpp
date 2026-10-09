@@ -14,7 +14,10 @@
 /// cover a full mapping, a mapping with a mixed slot (some threads holding
 /// a phantom row) and one row per thread, the mapping of MAGMA. The three
 /// scalar types and both input regimes (default +-0.5 and tiny entries
-/// +-5e-10) are covered. The verdict of every case is the normwise
+/// +-5e-10) are covered. Physical row interchanges and a relative pivot
+/// threshold of 0.1 are anchored as well, on the sequential path and on
+/// groups: the threshold chooses other pivots, the interchanges only
+/// move the rows. The verdict of every case is the normwise
 /// backward error of both solvers, plus the exact agreement of the
 /// singularity verdicts (one structurally singular system is injected in
 /// every batch).
@@ -37,23 +40,17 @@ namespace {
 /// slices of the threads) and with the reference, requires identical
 /// verdicts, uniform across the group, exactly one singular report on each
 /// side, and both backward errors under the tolerance.
-/// \tparam T               scalar type
-/// \tparam N               system dimension
-/// \tparam rows_per_thread rows held by each thread
-/// \tparam unroll          unroll policy of the configuration (by default
-///         the policy of the test configurations, see
-///         tdls_tests::test_unroll)
+/// \tparam T      scalar type
+/// \tparam N      system dimension
+/// \tparam Config solver configuration
 /// \param[in] count     number of systems
 /// \param[in] bound     half-width of the entry distribution
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, int N, int rows_per_thread,
-         bool unroll = tdls_tests::test_unroll<N, rows_per_thread>>
-void anchor_case(const int count, const double bound, const double tolerance,
+template<typename T, int N, tdls::CooperativeLUppConfig<T> Config>
+void anchor_with(const int count, const double bound, const double tolerance,
                  const std::uint64_t seed) {
-    constexpr auto config =
-        tdls::CooperativeLUppConfig<T>{.rows_per_thread = rows_per_thread, .unroll_loops = unroll};
-    using Runner = tdls_tests::GroupRunner<T, N, config, false, true, false>;
+    using Runner = tdls_tests::GroupRunner<T, N, Config, false, true, false>;
     auto batch   = tdls_tests::make_batch<T>(N, count, seed, bound);
     tdls_tests::zero_column(batch, 0, 0);
 
@@ -92,6 +89,42 @@ void anchor_case(const int count, const double bound, const double tolerance,
     TDLS_CHECK_LE(be_coop, tolerance);
     TDLS_CHECK_LE(be_reference, tolerance);
 }
+
+/// \brief Anchor comparison under the default pivoting.
+/// \tparam T               scalar type
+/// \tparam N               system dimension
+/// \tparam rows_per_thread rows held by each thread
+/// \tparam unroll          unroll policy of the configuration (by default
+///         the policy of the test configurations, see
+///         tdls_tests::test_unroll)
+/// \param[in] count     number of systems
+/// \param[in] bound     half-width of the entry distribution
+/// \param[in] tolerance backward-error bound
+/// \param[in] seed      generator seed
+template<typename T, int N, int rows_per_thread,
+         bool unroll = tdls_tests::test_unroll<N, rows_per_thread>>
+void anchor_case(const int count, const double bound, const double tolerance,
+                 const std::uint64_t seed) {
+    anchor_with<T, N,
+                tdls::CooperativeLUppConfig<T>{.rows_per_thread = rows_per_thread,
+                                               .unroll_loops    = unroll}>(count, bound, tolerance,
+                                                                        seed);
+}
+
+/// \brief Configuration with the given row interchanges and relative
+/// pivot threshold, 0.1 when relaxed and 1 otherwise, under the unroll
+/// policy of the test configurations.
+/// \tparam T               scalar type
+/// \tparam N               system dimension
+/// \tparam rows_per_thread rows held by each thread
+/// \tparam interchange     row interchanges
+/// \tparam relaxed         relative pivot threshold below 1
+template<typename T, int N, int rows_per_thread, tdls::RowInterchange interchange, bool relaxed>
+constexpr auto pivoting_config =
+    tdls::CooperativeLUppConfig<T>{.rows_per_thread          = rows_per_thread,
+                                   .row_interchange          = interchange,
+                                   .relative_pivot_threshold = relaxed ? 0.1 : 1.0,
+                                   .unroll_loops = tdls_tests::test_unroll<N, rows_per_thread>};
 
 } // namespace
 
@@ -140,5 +173,33 @@ TDLS_ANCHOR_CASES(float, 13, 5, 200, 1e-5, 711305)
 // Long double: the backward error accumulates in double, so the double
 // tolerance applies.
 TDLS_ANCHOR_CASES(long double, 12, 12, 1000, 1e-9, 801212)
+
+/// Emits the default and tiny-entry anchor cases of one (type, N,
+/// rows_per_thread) cell under the given pivoting.
+#define TDLS_PIVOTING_ANCHOR_CASES(T, N, ROWS, INTERCHANGE, RELAXED, NAME, COUNT, TOL, SEED)       \
+    TDLS_TEST_CASE("cooperativelupp/oracle/static/" #T "/N=" #N ",rows_per_thread=" #ROWS "," NAME \
+                   ",default") {                                                                   \
+        anchor_with<T, N,                                                                          \
+                    pivoting_config<T, N, ROWS, tdls::RowInterchange::INTERCHANGE, RELAXED>>(      \
+            COUNT, 0.5, TOL, SEED);                                                                \
+    }                                                                                              \
+    TDLS_TEST_CASE("cooperativelupp/oracle/static/" #T "/N=" #N ",rows_per_thread=" #ROWS "," NAME \
+                   ",tiny") {                                                                      \
+        anchor_with<T, N,                                                                          \
+                    pivoting_config<T, N, ROWS, tdls::RowInterchange::INTERCHANGE, RELAXED>>(      \
+            COUNT, 5e-10, TOL, SEED + 1);                                                          \
+    }
+
+// Physical row interchanges: the sequential path, a mixed slot and one
+// row per thread.
+TDLS_PIVOTING_ANCHOR_CASES(double, 12, 12, Physical, false, "physical", 1000, 1e-9, 621212)
+TDLS_PIVOTING_ANCHOR_CASES(double, 13, 5, Physical, false, "physical", 200, 1e-9, 621305)
+TDLS_PIVOTING_ANCHOR_CASES(double, 7, 1, Physical, false, "physical", 200, 1e-9, 620701)
+// Relative pivot threshold 0.1: the multipliers stay below 10, and the
+// backward error within the tolerance of the default pivoting.
+TDLS_PIVOTING_ANCHOR_CASES(double, 12, 12, Logical, true, "threshold", 1000, 1e-9, 631212)
+TDLS_PIVOTING_ANCHOR_CASES(double, 12, 3, Logical, true, "threshold", 200, 1e-9, 631203)
+TDLS_PIVOTING_ANCHOR_CASES(double, 13, 5, Physical, true, "physical,threshold", 200, 1e-9, 631305)
+TDLS_PIVOTING_ANCHOR_CASES(float, 13, 5, Physical, true, "physical,threshold", 200, 1e-5, 731305)
 
 TDLS_TEST_MAIN

@@ -21,16 +21,41 @@ thread finds the same pivot. The owner of the pivot row publishes it,
 and every thread eliminates its own rows below it. The substitutions
 work the same way, one entry per step.
 
-Pivoting is logical: rows never move. Each thread tracks the position
-of its rows in the pivoted order, and the pivot array records it. The
-mapping of rows to threads changes nothing in the arithmetic: every
-value of `rows_per_thread` produces bitwise identical results.
+By default, pivoting is logical: rows never move. Each thread tracks
+the position of its rows in the pivoted order, and the pivot array
+records it. The factored matrix keeps its physical row order, with L
+and U in place.
 
-The factored matrix keeps its physical row order, with L and U in
-place. Its diagonal holds the pivots themselves. The factors are
-consumed by the substitutions of the family. Below `singular_floor`, a
-pivot declares the matrix singular and the entry point returns
-`false`.
+With `row_interchange = Physical`, rows move between the threads, as
+in LAPACK. The row at position k always lives in the same slot of the
+same thread, so the owner of each pivot row is known in advance. Each
+thread publishes a single candidate of the column instead of one
+magnitude per row, and each step of the factorization takes two
+barriers instead of three. In exchange, a column whose pivot is not in
+place moves two whole rows through the workspace. Which scheme is
+faster depends on the device and on how often the matrices pivot. The
+factored rows end in the pivoted order, and the pivot array maps each
+position to the original index of its row. The workspace size differs.
+
+Both schemes choose the same pivots and run the same operations in the
+same order. On a matrix they do not declare singular, their solutions
+are bitwise identical when no multiply-add is fused. GPU compilers fuse
+them by default, possibly differently in the two schemes: the solutions
+may then differ in the last bits. The mapping of rows to threads
+changes nothing in the arithmetic either: every value of
+`rows_per_thread` produces bitwise identical results.
+
+By default, the pivot of a column is its largest magnitude, as in
+LAPACK. A `relative_pivot_threshold` below 1 keeps the row in place
+when it reaches that fraction of the largest magnitude. Rows then move
+less often, and the multipliers stay bounded by the inverse of the
+threshold. The threshold is relative to the column, unlike the
+absolute `oot_pivot_threshold` of TiledLUpp.
+
+The diagonal of the factored matrix holds the pivots themselves. The
+factors are consumed by the substitutions of the family, under the
+same configuration. Below `singular_floor`, a pivot declares the
+matrix singular and the entry point returns `false`.
 
 The arithmetic is the one of the MAGMA kernel: same operations, same
 order, same pivot choice. The header of the solver lists the changes:
@@ -65,8 +90,8 @@ The barrier is mandatory as soon as a group has several threads. The
 compile-time solver checks it at compile time.
 
 Every entry point runs a fixed sequence of barriers. It depends on the
-dimension, on `rows_per_thread` and on the entry point, never on the
-data. A singular matrix runs the whole sequence too, and the verdict
+dimension, on `rows_per_thread`, on the row interchanges and on the
+entry point, never on the data. A singular matrix runs the whole sequence too, and the verdict
 comes at the end. A barrier wider than the group, a whole warp or a
 work-group, is therefore valid as well, provided every thread of its
 scope makes the same calls.
@@ -102,7 +127,7 @@ arithmetic and produce bitwise identical results.
 
 ## Configuration
 
-`CooperativeLUppConfig<T>` is an aggregate of four knobs, passed to
+`CooperativeLUppConfig<T>` is an aggregate of six knobs, passed to
 the solvers as a constexpr value. Designated initializers override
 individual knobs; `CooperativeLUppConfig<double>{}` keeps the
 defaults.
@@ -110,6 +135,8 @@ defaults.
 | Knob | Default | Role |
 |---|---|---|
 | `rows_per_thread` | 1 | rows held by each thread, the main performance axis: a system of dimension N takes `ceil(N / rows_per_thread)` threads; from N on, one thread per system |
+| `row_interchange` | `Logical` | row interchanges, `Logical` (rows never move, as in MAGMA) or `Physical` (rows move between the threads, as in LAPACK); same pivots and operations, different factored formats and workspace sizes |
+| `relative_pivot_threshold` | 1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column; 1 is the partial pivoting of LAPACK; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular; positive |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: those indexing the register rows, whose unrolling keeps them in registers on GPU; the pivot search never carries a pragma; `false` is the choice on CPU; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; results are bitwise identical |

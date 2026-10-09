@@ -12,9 +12,9 @@
 /// licensing conditions.
 ///
 /// Knob types shared by the configuration of every solver family: the
-/// elimination schedule of a factorization and the memory layout of a
-/// dense matrix. Each family configuration carries its own members of
-/// these types.
+/// elimination schedule of a factorization, the row interchanges of its
+/// partial pivoting and the memory layout of a dense matrix. Each family
+/// configuration carries its own members of these types.
 ///
 /// The families also share one calling convention. Every operand is a
 /// raw pointer pre-offset by the caller plus one runtime element
@@ -37,6 +37,14 @@ namespace tdls {
 enum class Schedule {
     RightLooking, ///< Factor the diagonal block, push updates into the trailing matrix.
     LeftLooking   ///< Pull updates from prior blocks when a block is visited.
+};
+
+
+
+/// \brief Row interchanges of a factorization with partial pivoting.
+enum class RowInterchange {
+    Logical, ///< Rows never move: the position of each row in the pivoted order is tracked.
+    Physical ///< Rows are exchanged, as in LAPACK: the row at each position is stored there.
 };
 
 

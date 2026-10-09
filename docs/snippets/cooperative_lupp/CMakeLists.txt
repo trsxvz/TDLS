@@ -7,6 +7,8 @@ foreach(snippet
         config_one_thread
         config_phantom_rows
         config_rows_larger
+        config_row_interchange
+        config_pivot_threshold
         config_singular_floor
         config_unroll
         config_layout

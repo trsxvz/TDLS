@@ -17,9 +17,11 @@
 /// corner, even and odd dimensions, rows_per_thread above N, internal and
 /// external residencies, the column-major layout, every entry point and
 /// their equivalences, the no-pragma branches and the singular verdict of
-/// the factorization. It covers both the compile-time and the runtime
-/// CooperativeLUpp solvers, plus the static/dynamic bitwise bridge, itself
-/// evaluated at compile time. The certificates are also re-run at run
+/// the factorization, under both row interchanges and under a relative
+/// pivot threshold. It covers both the compile-time and the runtime
+/// CooperativeLUpp solvers, plus two bitwise bridges evaluated at compile
+/// time: static against dynamic, and physical against logical row
+/// interchanges. The certificates are also re-run at run
 /// time, so the suite reports like any other.
 
 #include <tdls/tdls.hpp>
@@ -45,6 +47,35 @@ template<typename T, int N, bool unroll = true,
          tdls::MatrixLayout layout = tdls::MatrixLayout::RowMajor>
 constexpr auto sequential_config =
     tdls::CooperativeLUppConfig<T>{.rows_per_thread = N, .unroll_loops = unroll, .layout = layout};
+
+/// \brief Configuration of the sequential path under physical row
+/// interchanges.
+/// \tparam T      scalar type
+/// \tparam N      system dimension
+/// \tparam unroll unroll policy
+template<typename T, int N, bool unroll = true>
+constexpr auto physical_config =
+    tdls::CooperativeLUppConfig<T>{.rows_per_thread = N,
+                                   .row_interchange = tdls::RowInterchange::Physical,
+                                   .unroll_loops    = unroll};
+
+/// \brief Configuration of the sequential path under a relative pivot
+/// threshold of 0.1, under logical row interchanges.
+/// \tparam T scalar type
+/// \tparam N system dimension
+template<typename T, int N>
+constexpr auto threshold_config =
+    tdls::CooperativeLUppConfig<T>{.rows_per_thread = N, .relative_pivot_threshold = 0.1};
+
+/// \brief The given configuration under physical row interchanges.
+/// \tparam T scalar type
+/// \param[in] config configuration under logical row interchanges
+/// \return the same configuration, with physical row interchanges
+template<typename T>
+constexpr tdls::CooperativeLUppConfig<T> physical(tdls::CooperativeLUppConfig<T> config) {
+    config.row_interchange = tdls::RowInterchange::Physical;
+    return config;
+}
 
 /// \brief Normwise backward error |A0 x - b| / (|A0| |x| + |b|),
 /// accumulated in double and computable during constant evaluation.
@@ -150,13 +181,14 @@ constexpr bool solve_external_certificate(const unsigned seed, const double tole
 
 /// \brief Certificate: solve, solve_inplace, factorize + substitute and
 /// factorize + substitute_inplace agree exactly on the factored rows, the
-/// row positions and the solution.
-/// \tparam N system dimension
+/// pivot entries and the solution.
+/// \tparam N      system dimension
+/// \tparam Config solver configuration (one thread per system)
 /// \param[in] seed generator seed
 /// \return true when every path agrees
-template<int N>
+template<int N, tdls::CooperativeLUppConfig<double> Config = sequential_config<double, N>>
 constexpr bool entry_points_certificate(const unsigned seed) {
-    using Solver     = tdls::CooperativeLUppSolverStatic<double, N, sequential_config<double, N>>;
+    using Solver     = tdls::CooperativeLUppSolverStatic<double, N, Config>;
     double A0[N * N] = {};
     double b[N]      = {};
     fill_system<double, N>(seed, A0, b);
@@ -192,17 +224,18 @@ constexpr bool entry_points_certificate(const unsigned seed) {
 
 /// \brief Certificate: substitute_canonical(col) reproduces substitute()
 /// on e_col for every column, and the column solves A x = e_col.
-/// \tparam N system dimension
+/// \tparam N      system dimension
+/// \tparam Config solver configuration (one thread per system)
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when every column agrees within the tolerance
-template<int N>
+template<int N, tdls::CooperativeLUppConfig<double> Config = sequential_config<double, N>>
 constexpr bool canonical_certificate(const unsigned seed, const double tolerance) {
-    using Solver     = tdls::CooperativeLUppSolverStatic<double, N, sequential_config<double, N>>;
-    double A0[N * N] = {};
-    double b[N]      = {};
-    double A[N * N]  = {};
-    int piv[N]       = {};
+    using Solver                        = tdls::CooperativeLUppSolverStatic<double, N, Config>;
+    double A0[N * N]                    = {};
+    double b[N]                         = {};
+    double A[N * N]                     = {};
+    int piv[N]                          = {};
     double work[Solver::workspace_size] = {};
     fill_system<double, N>(seed, A0, b);
     for (int e = 0; e < N * N; ++e)
@@ -272,14 +305,15 @@ constexpr bool layout_and_clamp_certificate(const unsigned seed) {
 /// \brief Certificate: a zero column makes factorize return false. The
 /// factorization alone divides by no zero pivot, unlike the substitution
 /// of a singular matrix, so the singular verdict is constant-evaluable.
-/// \tparam N system dimension
+/// \tparam N      system dimension
+/// \tparam Config solver configuration (one thread per system)
 /// \return true when the singular matrix is rejected
-template<int N>
+template<int N, tdls::CooperativeLUppConfig<double> Config = sequential_config<double, N>>
 constexpr bool singular_rejected_certificate() {
-    using Solver    = tdls::CooperativeLUppSolverStatic<double, N, sequential_config<double, N>>;
-    double A[N * N] = {};
-    double b[N]     = {};
-    int piv[N]      = {};
+    using Solver                        = tdls::CooperativeLUppSolverStatic<double, N, Config>;
+    double A[N * N]                     = {};
+    double b[N]                         = {};
+    int piv[N]                          = {};
     double work[Solver::workspace_size] = {};
     fill_system<double, N>(7, A, b);
     for (int r = 0; r < N; ++r)
@@ -293,27 +327,31 @@ constexpr bool singular_rejected_certificate() {
 ///         solver and sizing the local arrays
 /// \tparam rows_per_thread rows per thread of the configuration (at
 ///         least N: one thread per system)
+/// \tparam interchange     row interchanges
 /// \param[in] seed      generator seed
 /// \param[in] tolerance backward-error bound
 /// \return true when the solve succeeded within the tolerance
-template<int N, int rows_per_thread>
+template<int N, int rows_per_thread,
+         tdls::RowInterchange interchange = tdls::RowInterchange::Logical>
 constexpr bool dynamic_solve_certificate(const unsigned seed, const double tolerance) {
     using Solver =
         tdls::CooperativeLUppSolverDynamic<double, tdls::CooperativeLUppConfig<double>{
-                                                       .rows_per_thread = rows_per_thread}>;
+                                                       .rows_per_thread = rows_per_thread,
+                                                       .row_interchange = interchange}>;
     static_assert(rows_per_thread >= N);
-    double A[N * N]    = {};
-    double A0[N * N]   = {};
-    double b[N]        = {};
-    double y[N]        = {};
-    int piv[N]         = {};
-    double work[3 * N] = {};
+    constexpr int workspace = interchange == tdls::RowInterchange::Logical ? 3 * N : 2 * N + 7;
+    double A[N * N]         = {};
+    double A0[N * N]        = {};
+    double b[N]             = {};
+    double y[N]             = {};
+    int piv[N]              = {};
+    double work[workspace]  = {};
     fill_system<double, N>(seed, A0, b);
     for (int e = 0; e < N * N; ++e)
         A[e] = A0[e];
     for (int i = 0; i < N; ++i)
         y[i] = b[i];
-    if (Solver::threads_per_system(N) != 1 || Solver::workspace_size(N) != 3 * N) return false;
+    if (Solver::threads_per_system(N) != 1 || Solver::workspace_size(N) != workspace) return false;
     if (!Solver::solve_inplace(N, 0, A, 1, piv, 1, y, 1, work)) return false;
     return backward_error<double, N>(A0, y, b) <= tolerance;
 }
@@ -321,18 +359,20 @@ constexpr bool dynamic_solve_certificate(const unsigned seed, const double toler
 /// \brief Certificate: the runtime solver reproduces the compile-time one
 /// exactly, through solve_inplace, solve, factorize + substitute and
 /// substitute_canonical, on a stride-2 arena.
-/// \tparam N system dimension
+/// \tparam N      system dimension
+/// \tparam Config solver configuration (one thread per system)
 /// \param[in] seed generator seed
 /// \return true when every output agrees
-template<int N>
+template<int N, tdls::CooperativeLUppConfig<double> Config = sequential_config<double, N>>
 constexpr bool bridge_certificate(const unsigned seed) {
-    using Static     = tdls::CooperativeLUppSolverStatic<double, N, sequential_config<double, N>>;
-    using Dynamic    = tdls::CooperativeLUppSolverDynamic<double, sequential_config<double, N>>;
+    using Static     = tdls::CooperativeLUppSolverStatic<double, N, Config>;
+    using Dynamic    = tdls::CooperativeLUppSolverDynamic<double, Config>;
     double A0[N * N] = {};
     double b0[N]     = {};
     fill_system<double, N>(seed, A0, b0);
+    if (Dynamic::workspace_size(N) != Static::workspace_size) return false;
 
-    double work[3 * N]    = {};
+    double work[Static::workspace_size] = {};
     double A_s[2 * N * N] = {}, A_d[2 * N * N] = {};
     double b[2 * N] = {}, y_s[2 * N] = {}, y_d[2 * N] = {}, x_s[2 * N] = {}, x_d[2 * N] = {};
     int piv_s[2 * N] = {}, piv_d[2 * N] = {};
@@ -384,19 +424,94 @@ constexpr bool bridge_certificate(const unsigned seed) {
 
 /// \brief Certificate: a zero column makes the factorization of the
 /// runtime solver return false.
-/// \tparam N system dimension
+/// \tparam N      system dimension
+/// \tparam Config solver configuration (one thread per system)
 /// \return true when the singular matrix is rejected
-template<int N>
+template<int N, tdls::CooperativeLUppConfig<double> Config = sequential_config<double, N>>
 constexpr bool dynamic_singular_rejected_certificate() {
-    using Solver       = tdls::CooperativeLUppSolverDynamic<double, sequential_config<double, N>>;
-    double A[N * N]    = {};
-    double b[N]        = {};
-    int piv[N]         = {};
-    double work[3 * N] = {};
+    using Solver    = tdls::CooperativeLUppSolverDynamic<double, Config>;
+    double A[N * N] = {};
+    double b[N]     = {};
+    int piv[N]      = {};
+    double work[tdls::CooperativeLUppSolverStatic<double, N, Config>::workspace_size] = {};
     fill_system<double, N>(7, A, b);
     for (int r = 0; r < N; ++r)
         A[r * N + 1] = 0.0;
     return !Solver::factorize(N, 0, A, 1, piv, 1, work);
+}
+
+/// \brief Certificate: physical row interchanges reproduce the logical
+/// ones exactly, through solve, solve_inplace, factorize + substitute,
+/// factorize + substitute_inplace and substitute_canonical: the same
+/// solutions, and the same factored rows once placed (logical physical
+/// row r sits at position piv[r], the physical scheme stores the row at
+/// position k in row k and its original index in piv[k]).
+/// \tparam N      system dimension
+/// \tparam Config solver configuration under logical row interchanges
+///         (one thread per system)
+/// \param[in] seed generator seed
+/// \return true when every output agrees
+template<int N, tdls::CooperativeLUppConfig<double> Config>
+constexpr bool interchange_certificate(const unsigned seed) {
+    using Logical    = tdls::CooperativeLUppSolverStatic<double, N, Config>;
+    using Physical   = tdls::CooperativeLUppSolverStatic<double, N, physical(Config)>;
+    double A0[N * N] = {};
+    double b[N]      = {};
+    fill_system<double, N>(seed, A0, b);
+
+    double work[Physical::workspace_size] = {};
+    double A_l[N * N] = {}, A_p[N * N] = {};
+    double x_l[N] = {}, x_p[N] = {};
+    int piv_l[N] = {}, piv_p[N] = {};
+    const auto reset = [&] {
+        for (int e = 0; e < N * N; ++e) {
+            A_l[e] = A0[e];
+            A_p[e] = A0[e];
+        }
+        for (int i = 0; i < N; ++i) {
+            x_l[i] = b[i];
+            x_p[i] = b[i];
+        }
+    };
+    const auto agree = [&] {
+        for (int r = 0; r < N; ++r) {
+            const int position = piv_l[r];
+            if (position < 0 || position >= N || piv_p[position] != r) return false;
+            for (int c = 0; c < N; ++c)
+                if (A_l[r * N + c] != A_p[position * N + c]) return false;
+            if (x_l[r] != x_p[r]) return false;
+        }
+        return true;
+    };
+
+    reset();
+    if (!Logical::template solve<true, true, true>(0, A_l, 1, piv_l, 1, b, x_l, 1, work))
+        return false;
+    if (!Physical::template solve<true, true, true>(0, A_p, 1, piv_p, 1, b, x_p, 1, work))
+        return false;
+    if (!agree()) return false;
+
+    reset();
+    if (!Logical::template solve_inplace<true, true, true>(0, A_l, 1, piv_l, 1, x_l, 1, work))
+        return false;
+    if (!Physical::template solve_inplace<true, true, true>(0, A_p, 1, piv_p, 1, x_p, 1, work))
+        return false;
+    if (!agree()) return false;
+
+    reset();
+    if (!Logical::template factorize<true, true>(0, A_l, 1, piv_l, 1, work)) return false;
+    if (!Physical::template factorize<true, true>(0, A_p, 1, piv_p, 1, work)) return false;
+    Logical::template substitute_inplace<true, true, true>(0, A_l, 1, piv_l, 1, x_l, 1, work);
+    Physical::template substitute_inplace<true, true, true>(0, A_p, 1, piv_p, 1, x_p, 1, work);
+    if (!agree()) return false;
+    for (int col = 0; col < N; ++col) {
+        Logical::template substitute_canonical<true, true, true>(0, A_l, 1, piv_l, 1, col, x_l, 1,
+                                                                 work);
+        Physical::template substitute_canonical<true, true, true>(0, A_p, 1, piv_p, 1, col, x_p, 1,
+                                                                  work);
+        if (!agree()) return false;
+    }
+    return true;
 }
 
 // Internal storage: the scalar corner, even and odd dimensions.
@@ -428,6 +543,29 @@ static_assert(dynamic_singular_rejected_certificate<4>());
 // The static/dynamic bitwise bridge, at compile time.
 static_assert(bridge_certificate<5>(224));
 static_assert(bridge_certificate<4>(225));
+// Physical row interchanges: internal storage, the no-pragma branches,
+// the entry points, the tangent-operator path, the singular verdict, the
+// runtime solver and its bridge.
+static_assert(solve_inplace_internal_certificate<double, 1, physical_config<double, 1>>(230, 1e-9));
+static_assert(solve_inplace_internal_certificate<double, 5, physical_config<double, 5>>(231, 1e-9));
+static_assert(
+    solve_inplace_internal_certificate<double, 6, physical_config<double, 6, false>>(232, 1e-9));
+static_assert(solve_inplace_internal_certificate<float, 5, physical_config<float, 5>>(233, 1e-5));
+static_assert(entry_points_certificate<5, physical_config<double, 5>>(234));
+static_assert(canonical_certificate<4, physical_config<double, 4>>(235, 1e-9));
+static_assert(singular_rejected_certificate<4, physical_config<double, 4>>());
+static_assert(dynamic_solve_certificate<5, 5, tdls::RowInterchange::Physical>(236, 1e-9));
+static_assert(dynamic_solve_certificate<4, 7, tdls::RowInterchange::Physical>(237, 1e-9));
+static_assert(dynamic_singular_rejected_certificate<4, physical_config<double, 4>>());
+static_assert(bridge_certificate<5, physical_config<double, 5>>(238));
+// The physical/logical bitwise bridge, under the default threshold, the
+// no-pragma branches and a relative threshold of 0.1.
+static_assert(interchange_certificate<5, sequential_config<double, 5>>(240));
+static_assert(interchange_certificate<6, sequential_config<double, 6, false>>(241));
+static_assert(interchange_certificate<5, threshold_config<double, 5>>(242));
+static_assert(solve_inplace_internal_certificate<double, 5, threshold_config<double, 5>>(243,
+                                                                                         1e-9));
+static_assert(bridge_certificate<5, threshold_config<double, 5>>(244));
 
 } // namespace
 
@@ -451,6 +589,27 @@ TDLS_TEST_CASE("cooperativelupp/constexpr/certificates-also-hold-at-run-time") {
     TDLS_CHECK((dynamic_singular_rejected_certificate<4>()));
     TDLS_CHECK((bridge_certificate<5>(224)));
     TDLS_CHECK((bridge_certificate<4>(225)));
+    TDLS_CHECK(
+        (solve_inplace_internal_certificate<double, 1, physical_config<double, 1>>(230, 1e-9)));
+    TDLS_CHECK(
+        (solve_inplace_internal_certificate<double, 5, physical_config<double, 5>>(231, 1e-9)));
+    TDLS_CHECK((solve_inplace_internal_certificate<double, 6, physical_config<double, 6, false>>(
+        232, 1e-9)));
+    TDLS_CHECK(
+        (solve_inplace_internal_certificate<float, 5, physical_config<float, 5>>(233, 1e-5)));
+    TDLS_CHECK((entry_points_certificate<5, physical_config<double, 5>>(234)));
+    TDLS_CHECK((canonical_certificate<4, physical_config<double, 4>>(235, 1e-9)));
+    TDLS_CHECK((singular_rejected_certificate<4, physical_config<double, 4>>()));
+    TDLS_CHECK((dynamic_solve_certificate<5, 5, tdls::RowInterchange::Physical>(236, 1e-9)));
+    TDLS_CHECK((dynamic_solve_certificate<4, 7, tdls::RowInterchange::Physical>(237, 1e-9)));
+    TDLS_CHECK((dynamic_singular_rejected_certificate<4, physical_config<double, 4>>()));
+    TDLS_CHECK((bridge_certificate<5, physical_config<double, 5>>(238)));
+    TDLS_CHECK((interchange_certificate<5, sequential_config<double, 5>>(240)));
+    TDLS_CHECK((interchange_certificate<6, sequential_config<double, 6, false>>(241)));
+    TDLS_CHECK((interchange_certificate<5, threshold_config<double, 5>>(242)));
+    TDLS_CHECK(
+        (solve_inplace_internal_certificate<double, 5, threshold_config<double, 5>>(243, 1e-9)));
+    TDLS_CHECK((bridge_certificate<5, threshold_config<double, 5>>(244)));
 }
 
 TDLS_TEST_MAIN

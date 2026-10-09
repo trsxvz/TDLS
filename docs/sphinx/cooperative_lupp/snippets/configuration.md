@@ -130,6 +130,59 @@ $$
 :dedent: 4
 ```
 
+## Row interchanges
+
+The same system under logical and physical row interchanges. Row 1
+holds the pivot of column 0. The logical scheme leaves the rows in
+place and records their positions; the physical one moves them, as
+LAPACK does. The solutions are bitwise identical, and so are the
+factored rows once placed.
+
+$$
+A = \begin{pmatrix}
+1 & 2 & 0 & 1 \\
+\color{red}{4} & 1 & 1 & 0 \\
+0 & 1 & 3 & 1 \\
+2 & 0 & 1 & 5
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 9 \\ 9 \\ 15 \\ 25 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_row_interchange.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Relative pivot threshold
+
+The row in place holds 3 in column 0, below the 4 of row 1. The
+partial pivoting of LAPACK exchanges the two rows. A relative
+threshold of 0.5 keeps the row in place, since 3 reaches half of 4:
+no row moves at all.
+
+$$
+A = \begin{pmatrix}
+\color{red}{3} & 1 & 0 & 0 \\
+4 & 6 & 1 & 0 \\
+0 & 1 & 5 & 1 \\
+0 & 0 & 1 & 4
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 5 \\ 19 \\ 21 \\ 19 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_pivot_threshold.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## Singularity floor
 
 The last pivot is tiny. The default floor accepts it, a raised one

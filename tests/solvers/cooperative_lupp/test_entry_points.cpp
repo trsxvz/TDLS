@@ -12,7 +12,8 @@
 /// factorize() + substitute_inplace() against the same; substitute_canonical()
 /// against substitute() on the canonical vector; and the reuse of one
 /// factorization across several right-hand sides against fresh solves.
-/// Every case runs on the sequential path and on groups of CPU threads.
+/// Every case runs on the sequential path and on groups of CPU threads,
+/// under both row interchanges.
 /// The guarantees on return close the suite, on both solvers: every
 /// thread reads the whole results right after the call, the entries of
 /// the other threads included, then overwrites its share of the
@@ -39,12 +40,15 @@ namespace {
 /// \tparam T               scalar type
 /// \tparam N               system dimension
 /// \tparam rows_per_thread rows held by each thread
+/// \tparam interchange     row interchanges
 /// \param[in] count number of systems
 /// \param[in] seed  generator seed
-template<typename T, int N, int rows_per_thread>
+template<typename T, int N, int rows_per_thread,
+         tdls::RowInterchange interchange = tdls::RowInterchange::Logical>
 void entry_points_case(const int count, const std::uint64_t seed) {
     constexpr auto config =
         tdls::CooperativeLUppConfig<T>{.rows_per_thread = rows_per_thread,
+                                       .row_interchange = interchange,
                                        .unroll_loops = tdls_tests::test_unroll<N, rows_per_thread>};
     using Runner     = tdls_tests::GroupRunner<T, N, config, true, true, false>;
     using Solver     = typename Runner::Solver;
@@ -123,22 +127,23 @@ void entry_points_case(const int count, const std::uint64_t seed) {
 
 /// \brief Checks the guarantees on return on one reproducible batch: N =
 /// 13 on 3 threads of 5 rows, every operand external. Right after
-/// solve_inplace, each thread copies the whole factored matrix, the row
-/// positions and the solution, then overwrites its share of the
+/// solve_inplace, each thread copies the whole factored matrix, the
+/// pivot entries and the solution, then overwrites its share of the
 /// workspace with NaNs. Every copy must match the sequential solve
 /// bitwise, which holds only if every result is visible to the whole
 /// group on return and the workspace is no longer in use.
-/// \tparam dynamic exercise the runtime solver instead of the
+/// \tparam dynamic     exercise the runtime solver instead of the
 ///         compile-time one
+/// \tparam interchange row interchanges
 /// \param[in] count number of systems
 /// \param[in] seed  generator seed
-template<bool dynamic>
+template<bool dynamic, tdls::RowInterchange interchange = tdls::RowInterchange::Logical>
 void return_guarantees_case(const int count, const std::uint64_t seed) {
-    constexpr int N = 13;
-    static constexpr auto config =
-        tdls::CooperativeLUppConfig<double>{.rows_per_thread = 5, .unroll_loops = false};
-    static constexpr auto single =
-        tdls::CooperativeLUppConfig<double>{.rows_per_thread = N, .unroll_loops = false};
+    constexpr int N              = 13;
+    static constexpr auto config = tdls::CooperativeLUppConfig<double>{
+        .rows_per_thread = 5, .row_interchange = interchange, .unroll_loops = false};
+    static constexpr auto single = tdls::CooperativeLUppConfig<double>{
+        .rows_per_thread = N, .row_interchange = interchange, .unroll_loops = false};
     using Static          = tdls::CooperativeLUppSolverStatic<double, N, config>;
     using Dynamic         = tdls::CooperativeLUppSolverDynamic<double, config>;
     using Sequential      = tdls::CooperativeLUppSolverStatic<double, N, single>;
@@ -147,14 +152,15 @@ void return_guarantees_case(const int count, const std::uint64_t seed) {
     int checked           = 0;
     for (int s = 0; s < count; ++s) {
         std::vector<double> A_ref(batch.matrix(s), batch.matrix(s) + N * N);
-        std::vector<double> y_ref(batch.rhs(s), batch.rhs(s) + N), w_ref(3 * N);
+        std::vector<double> y_ref(batch.rhs(s), batch.rhs(s) + N),
+            w_ref(Sequential::workspace_size);
         std::vector<int> piv_ref(N);
-        if (!Sequential::solve_inplace<false, false, false>(0, A_ref.data(), 1, piv_ref.data(), 1,
-                                                            y_ref.data(), 1, w_ref.data()))
+        if (!Sequential::template solve_inplace<false, false, false>(
+                0, A_ref.data(), 1, piv_ref.data(), 1, y_ref.data(), 1, w_ref.data()))
             continue;
 
         std::vector<double> A(batch.matrix(s), batch.matrix(s) + N * N);
-        std::vector<double> y(batch.rhs(s), batch.rhs(s) + N), work(3 * N);
+        std::vector<double> y(batch.rhs(s), batch.rhs(s) + N), work(Static::workspace_size);
         std::vector<int> piv(N), verdicts(threads);
         std::vector<std::vector<double>> seen_A(threads), seen_y(threads);
         std::vector<std::vector<int>> seen_piv(threads);
@@ -164,8 +170,8 @@ void return_guarantees_case(const int count, const std::uint64_t seed) {
                 ok = Dynamic::solve_inplace(N, tx, A.data(), 1, piv.data(), 1, y.data(), 1,
                                             work.data(), sync);
             else
-                ok = Static::solve_inplace<false, false, false>(tx, A.data(), 1, piv.data(), 1,
-                                                                y.data(), 1, work.data(), sync);
+                ok = Static::template solve_inplace<false, false, false>(
+                    tx, A.data(), 1, piv.data(), 1, y.data(), 1, work.data(), sync);
             verdicts[tx] = ok ? 1 : 0;
             // Right after the call: every result, the entries written by
             // the other threads included...
@@ -173,7 +179,7 @@ void return_guarantees_case(const int count, const std::uint64_t seed) {
             seen_y[tx].assign(y.begin(), y.end());
             seen_piv[tx].assign(piv.begin(), piv.end());
             // ... and the workspace reused at once, each thread its share.
-            for (int i = tx; i < 3 * N; i += threads)
+            for (int i = tx; i < Static::workspace_size; i += threads)
                 work[i] = std::numeric_limits<double>::quiet_NaN();
         });
         for (int tx = 0; tx < threads; ++tx) {
@@ -195,13 +201,16 @@ void return_guarantees_case(const int count, const std::uint64_t seed) {
 /// runtime dimension snippet of substitute_inplace: factorize, then
 /// substitute_inplace, n = 5 on 3 threads of 2 rows, operands in
 /// vectors. The solution must match the sequential solve bitwise.
-/// \tparam dynamic exercise the runtime solver instead of the
+/// \tparam dynamic     exercise the runtime solver instead of the
 ///         compile-time one
-template<bool dynamic>
+/// \tparam interchange row interchanges
+template<bool dynamic, tdls::RowInterchange interchange = tdls::RowInterchange::Logical>
 void workspace_contract_case() {
-    constexpr int N              = 5;
-    static constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
-    static constexpr auto single = tdls::CooperativeLUppConfig<double>{.rows_per_thread = N};
+    constexpr int N = 5;
+    static constexpr auto config =
+        tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2, .row_interchange = interchange};
+    static constexpr auto single =
+        tdls::CooperativeLUppConfig<double>{.rows_per_thread = N, .row_interchange = interchange};
     using Static                 = tdls::CooperativeLUppSolverStatic<double, N, config>;
     using Dynamic                = tdls::CooperativeLUppSolverDynamic<double, config>;
     using Sequential             = tdls::CooperativeLUppSolverStatic<double, N, single>;
@@ -209,15 +218,15 @@ void workspace_contract_case() {
                                     1, 0, 0, 0, 1, 8, 1, 1, 0, 0, 1, 9};
     const std::vector<double> b0 = {12, 16, 27, 40, 50};
 
-    std::vector<double> A_ref(A0), x_ref(b0), w_ref(3 * N);
+    std::vector<double> A_ref(A0), x_ref(b0), w_ref(Sequential::workspace_size);
     std::vector<int> piv_ref(N);
-    const bool factored =
-        Sequential::factorize<false, false>(0, A_ref.data(), 1, piv_ref.data(), 1, w_ref.data());
+    const bool factored = Sequential::template factorize<false, false>(
+        0, A_ref.data(), 1, piv_ref.data(), 1, w_ref.data());
     TDLS_CHECK(factored);
-    Sequential::substitute_inplace<false, false, false>(0, A_ref.data(), 1, piv_ref.data(), 1,
-                                                        x_ref.data(), 1, w_ref.data());
+    Sequential::template substitute_inplace<false, false, false>(0, A_ref.data(), 1, piv_ref.data(),
+                                                                 1, x_ref.data(), 1, w_ref.data());
 
-    std::vector<double> A(A0), x(b0), work(3 * N);
+    std::vector<double> A(A0), x(b0), work(Static::workspace_size);
     std::vector<int> piv(N), verdicts(Static::threads_per_system, 0);
     // The runtime solver runs on the runtime form of run_group, as in the
     // snippet; the compile-time one needs the compile-time form, whose
@@ -231,12 +240,12 @@ void workspace_contract_case() {
         });
     } else {
         tdls_tests::run_group<Static::threads_per_system>([&](const int tx, auto&& sync) {
-            verdicts[tx] =
-                Static::factorize<false, false>(tx, A.data(), 1, piv.data(), 1, work.data(), sync)
-                    ? 1
-                    : 0;
-            Static::substitute_inplace<false, false, false>(tx, A.data(), 1, piv.data(), 1,
-                                                            x.data(), 1, work.data(), sync);
+            verdicts[tx] = Static::template factorize<false, false>(tx, A.data(), 1, piv.data(), 1,
+                                                                    work.data(), sync)
+                               ? 1
+                               : 0;
+            Static::template substitute_inplace<false, false, false>(
+                tx, A.data(), 1, piv.data(), 1, x.data(), 1, work.data(), sync);
         });
     }
     for (const int verdict : verdicts)
@@ -258,6 +267,22 @@ TDLS_TEST_CASE("cooperativelupp/group/return-guarantees/static/double/N=13,rows_
 TDLS_TEST_CASE("cooperativelupp/group/return-guarantees/dynamic/double/n=13,rows_per_thread=5") {
     return_guarantees_case<true>(300, 630523);
 }
+TDLS_TEST_CASE("cooperativelupp/group/workspace-contract/static/double/N=5,rows_per_thread=2,"
+               "physical") {
+    workspace_contract_case<false, tdls::RowInterchange::Physical>();
+}
+TDLS_TEST_CASE("cooperativelupp/group/workspace-contract/dynamic/double/n=5,rows_per_thread=2,"
+               "physical") {
+    workspace_contract_case<true, tdls::RowInterchange::Physical>();
+}
+TDLS_TEST_CASE("cooperativelupp/group/return-guarantees/static/double/N=13,rows_per_thread=5,"
+               "physical") {
+    return_guarantees_case<false, tdls::RowInterchange::Physical>(300, 630533);
+}
+TDLS_TEST_CASE("cooperativelupp/group/return-guarantees/dynamic/double/n=13,rows_per_thread=5,"
+               "physical") {
+    return_guarantees_case<true, tdls::RowInterchange::Physical>(300, 630543);
+}
 
 TDLS_TEST_CASE("cooperativelupp/bridge/entry-points/double/N=12,rows_per_thread=12") {
     entry_points_case<double, 12, 12>(100, 630112);
@@ -273,6 +298,15 @@ TDLS_TEST_CASE("cooperativelupp/bridge/entry-points/double/N=13,rows_per_thread=
 }
 TDLS_TEST_CASE("cooperativelupp/bridge/entry-points/float/N=12,rows_per_thread=4") {
     entry_points_case<float, 12, 4>(30, 630404);
+}
+TDLS_TEST_CASE("cooperativelupp/bridge/entry-points/double/N=12,rows_per_thread=12,physical") {
+    entry_points_case<double, 12, 12, tdls::RowInterchange::Physical>(100, 631112);
+}
+TDLS_TEST_CASE("cooperativelupp/bridge/entry-points/double/N=7,rows_per_thread=3,physical") {
+    entry_points_case<double, 7, 3, tdls::RowInterchange::Physical>(30, 631703);
+}
+TDLS_TEST_CASE("cooperativelupp/bridge/entry-points/double/N=13,rows_per_thread=5,physical") {
+    entry_points_case<double, 13, 5, tdls::RowInterchange::Physical>(30, 631305);
 }
 
 TDLS_TEST_MAIN

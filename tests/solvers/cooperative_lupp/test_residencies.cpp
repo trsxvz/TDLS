@@ -15,9 +15,10 @@
 /// column-major cell runs the four internal-matrix combinations). The
 /// external operands sit in the middle slot of a three-slot arena, so the
 /// strides differ from one. Cells: one thread per system, a full group, a
-/// group with a mixed slot, and a column-major group; the small systems
-/// run the forced unrolling, the larger ones the no-pragma branch (see
-/// tdls_tests::test_unroll).
+/// group with a mixed slot, and a column-major group, plus physical row
+/// interchanges, under which the moved rows return to the slices or to
+/// the whole objects; the small systems run the forced unrolling, the
+/// larger ones the no-pragma branch (see tdls_tests::test_unroll).
 
 #include <cstdint>
 #include <vector>
@@ -128,6 +129,19 @@ TDLS_TEST_CASE("cooperativelupp/bridge/residencies/double/N=13,rows_per_thread=5
 // threads of 3 rows), in both layouts.
 TDLS_TEST_CASE("cooperativelupp/bridge/residencies/double/N=7,rows_per_thread=3") {
     residency_case<7, tdls::CooperativeLUppConfig<double>{.rows_per_thread = 3}>(20, 640703);
+}
+// Physical row interchanges, on a mixed group under the forced unrolling
+// and on a larger mixed group.
+TDLS_TEST_CASE("cooperativelupp/bridge/residencies/double/N=7,rows_per_thread=3,physical") {
+    residency_case<7, tdls::CooperativeLUppConfig<double>{
+                          .rows_per_thread = 3,
+                          .row_interchange = tdls::RowInterchange::Physical}>(20, 640733);
+}
+TDLS_TEST_CASE("cooperativelupp/bridge/residencies/double/N=13,rows_per_thread=5,physical") {
+    residency_case<13, tdls::CooperativeLUppConfig<double>{
+                           .rows_per_thread = 5,
+                           .row_interchange = tdls::RowInterchange::Physical,
+                           .unroll_loops    = tdls_tests::test_unroll<13, 5>}>(10, 641335);
 }
 TDLS_TEST_CASE("cooperativelupp/bridge/residencies/double/N=7,rows_per_thread=3,colmajor") {
     residency_case<7,

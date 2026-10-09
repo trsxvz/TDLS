@@ -37,6 +37,16 @@ the API may change between minor versions.
   TFEL interoperability page, and the three example problems at every
   execution scale, from one thread per system on CPU to groups of
   lanes on GPU and groups of work-items in SYCL.
+- Two knobs of the new family. `row_interchange` selects the physical
+  row interchanges of LAPACK instead of the logical ones of MAGMA: the
+  rows move between the threads, the pivot search publishes one
+  candidate per thread, and each column takes two barriers instead of
+  three. Both schemes choose the same pivots and run the same
+  operations; the factored rows end in the pivoted order.
+  `relative_pivot_threshold` keeps the row in place when it reaches a
+  fraction of the largest magnitude of its column. Their defaults,
+  `Logical` and 1, compile to the same code as before. The enumeration
+  `tdls::RowInterchange` joins the shared vocabulary of the families.
 - A NOTICE file reproduces the license of the portions derived from
   MAGMA. The install rules now ship LICENSE and NOTICE under
   `share/doc/tdls`.

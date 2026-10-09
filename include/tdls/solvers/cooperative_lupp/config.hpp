@@ -22,7 +22,7 @@
 /// The aggregate is a structural type, as class-type non-type template
 /// parameters require: every member is public, and two configurations
 /// with equal members name the same solver instantiation. The
-/// floating-point knob is held as a tdls::StructuralReal value: exact,
+/// floating-point knobs are held as tdls::StructuralReal values: exact,
 /// built and read back implicitly, and admissible as a template argument
 /// on every compiler supporting class-type template parameters (a plain
 /// floating-point member would need P1907R1, absent from GCC 10 and from
@@ -60,6 +60,39 @@ struct CooperativeLUppConfig {
     /// CPU code, and a larger value acts as N. Requires
     /// rows_per_thread >= 1.
     int rows_per_thread = 1;
+
+    /// Row interchanges of the partial pivoting. Logical, the default, is
+    /// the scheme of MAGMA: rows never move, and each thread tracks the
+    /// position of its rows in the pivoted order. Physical is the scheme of
+    /// LAPACK: rows are exchanged between the threads, so that the row at
+    /// position k always lives in slot k / threads_per_system of thread
+    /// k % threads_per_system. The owner of every row of U is then known in
+    /// advance: the pivot search publishes one candidate per thread instead
+    /// of one magnitude per row, and each step of the factorization takes
+    /// two barriers instead of three. In exchange, a column whose pivot is
+    /// not in place moves two whole rows through the workspace. Which
+    /// scheme is faster depends on the device and on how often the
+    /// matrices pivot. Both choose the same pivots and run the same
+    /// operations. On a matrix they do not declare singular, their
+    /// solutions are bitwise identical when no multiply-add is fused. GPU
+    /// compilers fuse them by default, possibly differently in the two
+    /// schemes: the solutions may then differ in the last bits. The
+    /// factored matrix, the pivot array and the workspace size differ: see
+    /// the solvers.
+    RowInterchange row_interchange = RowInterchange::Logical;
+
+    /// Relative threshold of the pivot choice, in (0, 1]. At each column,
+    /// the row in place keeps the pivot when its magnitude reaches both
+    /// this fraction of the largest magnitude of the column and the
+    /// singularity floor. Otherwise the largest magnitude wins, the first
+    /// one on ties. The default 1 is the partial pivoting of LAPACK, and
+    /// the solvers then compile the test out. A smaller value saves row
+    /// interchanges, at the price of multipliers bounded by its inverse
+    /// instead of 1. The threshold is relative: unlike the absolute
+    /// oot_pivot_threshold of TiledLUpp, a value such as 1e-10 would
+    /// practically disable the pivoting. The solvers enforce the range at
+    /// compile time.
+    StructuralReal<T> relative_pivot_threshold = T(1);
 
     /// Singularity floor: the factorization is declared singular when the
     /// best pivot of a column falls below it. `numeric_limits<T>::min()`
