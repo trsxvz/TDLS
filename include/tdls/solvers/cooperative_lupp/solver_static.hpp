@@ -86,19 +86,23 @@
 /// workspace and its own rank tx in [0, threads_per_system). The solver
 /// never sees a global thread index: callers pre-offset every remote
 /// pointer with the system index and pass a runtime stride, as for the
-/// TiledLUpp solvers. The last argument, `sync`, is the barrier of the
-/// group. By default, tdls::AutoSync, the solver deduces it from the
-/// compilation target (see core/group.hpp): nothing with one thread per
-/// system; on GPU, the lanes of the group within their warp or wavefront,
+/// TiledLUpp solvers.
+///
+/// **Barrier.** The last argument, `sync`, is the barrier of the group,
+/// and most calls omit it. By default, tdls::AutoSync, the solver deduces
+/// it from the compilation target: nothing with one thread per system;
+/// on GPU, the lanes of the group within their warp or wavefront,
 /// checked on entry; on CPU, a barrier held in the workspace. A caller
-/// may pass its own barrier instead: any callable taking no argument,
-/// invoked by every thread of the group, that makes the memory writes of
-/// each thread visible to all of them, in the workspace and in the
-/// operands, such as a SYCL group barrier, a Kokkos team barrier or a
-/// CPU thread barrier. It is then used as is. make_sync returns the
-/// deduced barrier, for a caller that also needs it for its own
-/// exchanges. tdls::NoSync, no barrier at all, is refused at compile time
-/// for a group of several threads.
+/// passes its own barrier only where the compiler asks for one, or for a
+/// group that the deduced barrier does not know, such as a group larger
+/// than a warp. Any callable taking no argument serves, invoked by every
+/// thread of the group, that makes the memory writes of each thread
+/// visible to all of them, in the workspace and in the operands: a block,
+/// SYCL group, Kokkos team or CPU thread barrier. It is then used as is,
+/// without any check. make_sync returns the deduced barrier, for a caller
+/// that also needs it for its own exchanges. tdls::NoSync, no barrier at
+/// all, is refused at compile time for a group of several threads.
+/// core/group.hpp details these cases, and what the solver checks.
 ///
 /// **Fixed barrier sequence.** Every entry point executes a sequence of
 /// barriers set by N, rows_per_thread, the row interchanges and the entry
@@ -1374,7 +1378,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     piv_stride element stride of piv (external mode)
     /// \param[in]     work       workspace of workspace_size elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     /// \return false on a singular matrix (factorization unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_piv, bool internal_matrix, typename Sync = tdls::AutoSync>
@@ -1413,7 +1418,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  rhs_stride element stride of b and x (external mode)
     /// \param[in]  work       workspace of workspace_size elements, shared
     ///             by the group
-    /// \param[in]  sync       barrier of the group
+    /// \param[in]  sync       barrier of the group, deduced by default (see
+    ///                        tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
@@ -1453,7 +1459,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  rhs_stride element stride of x (external mode)
     /// \param[in]  work       workspace of workspace_size elements, shared
     ///             by the group
-    /// \param[in]  sync       barrier of the group
+    /// \param[in]  sync       barrier of the group, deduced by default (see
+    ///                        tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
@@ -1499,7 +1506,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     rhs_stride element stride of x (external mode)
     /// \param[in]     work       workspace of workspace_size elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
@@ -1546,7 +1554,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     rhs_stride element stride of b and x (external mode)
     /// \param[in]     work       workspace of workspace_size elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     /// \return false on a singular matrix (x unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
@@ -1600,7 +1609,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     rhs_stride element stride of y (external mode)
     /// \param[in]     work       workspace of workspace_size elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     /// \return false on a singular matrix (y unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,

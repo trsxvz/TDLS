@@ -16,9 +16,10 @@
 /// A cooperative solver takes the barrier of its group as its last
 /// argument, `sync`. Three kinds of value are accepted:
 ///   - tdls::AutoSync, the default: the solver deduces the barrier from
-///     the target the code is compiled for, as described below;
+///     the target the code is compiled for, as described below, so most
+///     calls pass nothing;
 ///   - tdls::NoSync: no barrier at all, valid only for a group of one
-///     thread, a contract checked at compile time;
+///     thread, a contract the compile-time solver checks;
 ///   - any other callable taking no argument: the barrier of the caller,
 ///     used as is, without any check and at no extra cost.
 ///
@@ -31,9 +32,8 @@
 ///     the address of their workspace, and the group must find all its
 ///     threads among them. An incomplete group stops the program with a
 ///     message, before any data is exchanged, and so does a workspace in
-///     the private memory of each thread: a wrong placement of the
-///     threads or of the workspace never yields a wrong result nor a
-///     deadlock. The barrier then involves exactly the lanes of the
+///     the private memory of each thread: neither yields a wrong result
+///     or a deadlock. The barrier then involves exactly the lanes of the
 ///     group.
 ///   - on a CPU, the threads of a group are any threads running
 ///     concurrently: OpenMP, std::thread, Kokkos team threads and so on.
@@ -68,6 +68,35 @@
 /// either. In all these passes the deduced barrier accepts only a group
 /// of one thread known at compile time, and the compiler asks for an
 /// explicit barrier otherwise.
+///
+/// **When to pass a barrier.** Never for speed: the deduced barrier is
+/// the one a caller would write by hand, and make_sync lets a caller run
+/// its check on entry once for several calls. A barrier is needed in two
+/// cases only:
+///   - the compiler asks for it, on the passes listed above;
+///   - the group is not one the deduced barrier knows: a group larger
+///     than a warp, which the compiler refuses, or threads that a
+///     runtime runs one after the other, such as the work-items of a
+///     SYCL kernel on CPU, where the deduced barrier waits and warns
+///     after a second. The barrier of the model then serves: a block,
+///     work-group or team barrier.
+///
+/// **What is checked.** Every misuse the solver can tell from a correct
+/// use is reported, at compile time when possible:
+///   - at compile time: a pass without the deduced barrier, tdls::NoSync
+///     for a group of several threads of the compile-time solver, a
+///     group larger than a warp;
+///   - on GPU, with the deduced barrier: an incomplete group and a
+///     private workspace stop the program with a message;
+///   - on CPU, with the deduced barrier: a workspace whose barrier
+///     elements hold no barrier state stops the program with a message,
+///     and a group that waits for more than a second prints one.
+/// Four misuses stay silent, since nothing tells them from a correct
+/// use: an explicit barrier that does not synchronize the group,
+/// tdls::NoSync with the runtime solver and n above rows_per_thread, two
+/// groups sharing one workspace (except on GPU when their lanes share a
+/// warp), and on CPU barrier elements left with values that look like a
+/// barrier state.
 ///
 /// The GPU checks follow the warp synchronous primitives of each vendor:
 /// __match_any_sync on the active lanes, __syncwarp on the lanes of the
@@ -213,11 +242,17 @@ namespace tdls {
 
 
 /// \brief Barrier argument of the cooperative solvers that asks them to
-/// deduce the barrier from the compilation target: the default.
+/// deduce the barrier from the compilation target: the default, so most
+/// calls pass nothing. A barrier is needed only where the compiler asks
+/// for one, or for a group that is not the lanes of one warp on GPU nor
+/// threads running concurrently on CPU (see core/group.hpp, which also
+/// lists what the solvers check).
 struct AutoSync {};
 
 /// \brief Barrier that does nothing, valid only when one thread solves a
-/// system.
+/// system. The compile-time solver refuses it for a group of several
+/// threads; the runtime solver cannot, so n must not exceed
+/// rows_per_thread there.
 struct NoSync {
     /// \brief Does nothing.
     TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void operator()() const noexcept {

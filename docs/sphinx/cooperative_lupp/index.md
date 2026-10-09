@@ -78,8 +78,9 @@ array on CPU.
 ### The deduced barrier
 
 The last argument, `sync`, is the barrier of the group. It is
-optional: by default, `tdls::AutoSync`, the solver deduces the barrier
-from the target the code is compiled for.
+optional, and most code passes nothing: by default, `tdls::AutoSync`,
+the solver deduces the barrier from the target the code is compiled
+for.
 
 | Target | Deduced barrier |
 |---|---|
@@ -105,8 +106,8 @@ group must find all its threads among them. A group that does not
 stops the program with a message, before any exchange. So does a
 workspace in the private memory of each thread, whose address is the
 same in every lane: the group shares its workspace, in shared or
-global memory. A wrong placement of the threads or of the workspace
-never gives a wrong result nor a deadlock.
+global memory. Neither a badly placed group nor a private workspace
+gives a wrong result or a deadlock.
 The threads of a group must therefore call the solver together, from
 the same path of the code, as they do when they solve the same system.
 The check runs once per call, and the barrier is the one a caller
@@ -124,8 +125,15 @@ the parallel algorithms on CPU. A barrier between CPU threads costs
 more than a step of the solve: one thread per system stays the fast
 choice on CPU.
 
-On a few targets, a group of several threads needs an explicit
-barrier, and the compiler says so:
+### When to pass a barrier
+
+Never for speed: the deduced barrier is the one a caller would write
+by hand, and `make_sync` lets a caller run its check on entry once for
+several calls (see below). A barrier is needed in two cases only.
+
+**The compiler asks for it.** On a few targets, a group of several
+threads has no deduced barrier, and the compilation stops with a
+message that says why:
 
 - nvc++ OpenMP or OpenACC offloading without `-cuda`, the OpenACC
   backend of nvc++ for the parallel algorithms, the generic mode of
@@ -144,26 +152,67 @@ On these targets, the runtime solver needs an explicit choice even for
 one thread per system: its group size depends on n, unknown to the
 compiler. `tdls::NoSync` states that choice.
 
-### An explicit barrier
+**The group is not one the deduced barrier knows.** The deduced
+barrier knows the lanes of one warp or wavefront on GPU, and threads
+running concurrently on CPU. Any other group needs the barrier of its
+model:
 
-A caller may pass its own barrier: any callable taking no argument
-that makes the memory writes of each thread visible to all of them.
-The solver uses it as is, without any check. `tdls::NoSync`, no
-barrier at all, serves a group of one thread; the compile-time solver
-refuses it for several threads.
+- a group larger than a warp, 32 lanes on NVIDIA or 64 on AMD, which
+  the compiler refuses: a block barrier (`__syncthreads`), a
+  work-group barrier or a team barrier;
+- threads that a runtime runs one after the other, such as the
+  work-items of a SYCL kernel on CPU: a work-group barrier. The
+  compiler cannot tell this case: the deduced barrier waits, and
+  prints a message after a second.
+
+A barrier is any callable taking no argument, called by every thread
+of the group, that makes the memory writes of each thread visible to
+all of them. A barrier wider than the group is valid too, as the
+sequence of barriers below explains. The solver uses it as is,
+without any check. `tdls::NoSync`, no barrier at all, serves a group
+of one thread; the compile-time solver refuses it for several
+threads.
 
 | Programming model | Group | Explicit barrier |
 |---|---|---|
 | CUDA | lanes of a warp | `__syncwarp` on the lanes of the group |
 | HIP | lanes of a wavefront | a wavefront fence and barrier |
+| CUDA, HIP | threads of a block | `__syncthreads` |
 | SYCL | work-items of a sub-group or a work-group | `sycl::group_barrier` |
 | Kokkos | threads of a team | `team.team_barrier()` |
 | CPU threads | threads | a thread barrier |
 
 `make_sync(work)`, or `make_sync(n, work)` for the runtime solver,
-returns the deduced barrier. A caller that also needs it for its own
-exchanges between the threads of the group builds it once, calls it,
-and passes it to the entry points.
+returns the deduced barrier, checked once. A caller that also needs it
+for its own exchanges between the threads of the group builds it once,
+calls it, and passes it to the entry points, which then use it as is.
+
+### What TDLS checks
+
+Every misuse that TDLS can tell from a correct use is reported, at
+compile time when possible:
+
+- at compile time: a target without a deduced barrier, `tdls::NoSync`
+  for a group of several threads of the compile-time solver, a group
+  larger than a warp;
+- on GPU, with the deduced barrier: a group whose threads are not
+  together in their warp, and a workspace in private memory, stop the
+  program with a message before any exchange;
+- on CPU, with the deduced barrier: a workspace whose first two
+  elements hold no barrier state stops the program with a message, and
+  a group that waits for more than a second prints one.
+
+Four misuses stay silent, since nothing tells them from a correct
+use, and may give wrong results or a deadlock:
+
+- an explicit barrier that does not synchronize the group, since the
+  solver uses it as is;
+- `tdls::NoSync` with the runtime solver and n above
+  `rows_per_thread`;
+- two groups that share one workspace, except on GPU when their lanes
+  share a warp;
+- on CPU, a workspace whose first two elements were left with values
+  that look like a barrier state.
 
 ### The sequence of barriers
 

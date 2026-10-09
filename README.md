@@ -18,8 +18,9 @@ pivoting:
 
 - TiledLUpp: one thread per system, logical pivoting on a tile grid.
 - CooperativeLUpp: a group of threads per system, each thread holding
-  some of its rows, synchronized by a barrier provided by the caller; a
-  single thread is a valid group. Derived from
+  some of its rows, synchronized by a barrier deduced from the
+  compilation target or provided by the caller; a single thread is a
+  valid group. Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
 
 ```cpp

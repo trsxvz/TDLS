@@ -79,8 +79,9 @@
 ///     reachable by every thread of the group.
 ///   - The size of the group depends on n, so the deduced barrier checks
 ///     it at run time, and a pass that offers no deduced barrier refuses
-///     tdls::AutoSync at compile time. With tdls::NoSync, the caller must
-///     keep n <= Config.rows_per_thread (one thread per system).
+///     tdls::AutoSync at compile time. tdls::NoSync is not checked: the
+///     caller must keep n <= Config.rows_per_thread (one thread per
+///     system), or the results are wrong.
 ///
 /// For equal shapes (n = N, same configuration), results are bitwise
 /// identical to the compile-time solver: factored rows, pivot entries and
@@ -836,7 +837,8 @@ struct CooperativeLUppSolverDynamic {
     /// \param[in]     piv_stride element stride of piv
     /// \param[in]     work       workspace of workspace_size(n) elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     /// \return false on a singular matrix (factorization unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync = tdls::AutoSync>
@@ -870,7 +872,8 @@ struct CooperativeLUppSolverDynamic {
     /// \param[in]  rhs_stride element stride of b and x
     /// \param[in]  work       workspace of workspace_size(n) elements,
     ///             shared by the group
-    /// \param[in]  sync       barrier of the group
+    /// \param[in]  sync       barrier of the group, deduced by default (see
+    ///                        tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync = tdls::AutoSync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
@@ -905,7 +908,8 @@ struct CooperativeLUppSolverDynamic {
     /// \param[in]  rhs_stride element stride of x
     /// \param[in]  work       workspace of workspace_size(n) elements,
     ///             shared by the group
-    /// \param[in]  sync       barrier of the group
+    /// \param[in]  sync       barrier of the group, deduced by default (see
+    ///                        tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync = tdls::AutoSync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
@@ -944,7 +948,8 @@ struct CooperativeLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of x
     /// \param[in]     work       workspace of workspace_size(n) elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync = tdls::AutoSync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
@@ -984,7 +989,8 @@ struct CooperativeLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of b and x
     /// \param[in]     work       workspace of workspace_size(n) elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     /// \return false on a singular matrix (x unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync = tdls::AutoSync>
@@ -1028,7 +1034,8 @@ struct CooperativeLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \param[in]     work       workspace of workspace_size(n) elements,
     ///                shared by the group
-    /// \param[in]     sync       barrier of the group
+    /// \param[in]     sync       barrier of the group, deduced by default (see
+    ///                           tdls::AutoSync)
     /// \return false on a singular matrix (y unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync = tdls::AutoSync>
