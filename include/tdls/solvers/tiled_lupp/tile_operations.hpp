@@ -14,7 +14,7 @@
 /// TiledLUppTileOperations extends the shared TileOperations of solvers/tile_operations.hpp
 /// with the elimination kernel of the family, whose factored format
 /// stores the RECIPROCAL of each pivot on the diagonal. Tile storage,
-/// extent bounding and the `unroll_inner` knob follow the shared
+/// extent bounding and the `unroll_loops` knob follow the shared
 /// header.
 
 
@@ -41,9 +41,9 @@ namespace tdls {
 /// solvers: the shared kernels plus the LU column elimination.
 /// \tparam T            scalar type
 /// \tparam tile_size    tile size (int, row stride of the register tiles)
-/// \tparam unroll_inner unroll knob, forwarded from the TiledLUpp solver configuration
-template<typename T, int tile_size, bool unroll_inner>
-struct TiledLUppTileOperations : TileOperations<T, tile_size, unroll_inner> {
+/// \tparam unroll_loops unroll knob, forwarded from the TiledLUpp solver configuration
+template<typename T, int tile_size, bool unroll_loops>
+struct TiledLUppTileOperations : TileOperations<T, tile_size, unroll_loops> {
 
     /// \brief Gaussian elimination of column k inside the diagonal tile.
     ///
@@ -62,7 +62,7 @@ struct TiledLUppTileOperations : TileOperations<T, tile_size, unroll_inner> {
                                                                              int k) noexcept {
         const T inv_pivot    = T(1) / t[k * tile_size + k];
         t[k * tile_size + k] = inv_pivot;
-        if constexpr (unroll_inner) {
+        if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = k + 1; i < row_extent; ++i) {
                 t[i * tile_size + k] *= inv_pivot;

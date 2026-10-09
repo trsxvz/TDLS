@@ -22,7 +22,7 @@
 ///
 /// Deliberate differences with the compile-time solver:
 ///   - No unroll pragma anywhere: with runtime bounds nothing can be
-///     register-resident by full unrolling, so the unroll_inner knob of
+///     register-resident by full unrolling, so the unroll_loops knob of
 ///     TiledLUppConfig is ignored.
 ///   - No internal_rhs / internal_piv / internal_matrix booleans: without
 ///     unrolling, the internal residency mode degenerates into "external
@@ -154,7 +154,7 @@ namespace tdls {
 /// \tparam T      scalar type (float, double or long double)
 /// \tparam Config compile-time knobs, passed as a constexpr value: tile
 ///         size (may exceed n), schedule, pivoting thresholds; see
-///         TiledLUppConfig (unroll_inner is ignored by this variant)
+///         TiledLUppConfig (unroll_loops is ignored by this variant)
 template<typename T, TiledLUppConfig<T> Config = TiledLUppConfig<T>{}>
 struct TiledLUppSolverDynamic {
 

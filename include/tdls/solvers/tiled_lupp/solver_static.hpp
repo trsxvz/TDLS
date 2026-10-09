@@ -228,7 +228,7 @@ struct TiledLUppSolverStatic {
     static constexpr int num_tiles = full_tiles + (last_tile_tail > 0 ? 1 : 0);
 
     /// \brief Tile micro-kernels instantiated for this configuration.
-    using Operations = TiledLUppTileOperations<T, tile_size, Config.unroll_inner>;
+    using Operations = TiledLUppTileOperations<T, tile_size, Config.unroll_loops>;
 
     /* =====================================================================
        Remote <-> register tile movement.
@@ -251,7 +251,7 @@ struct TiledLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     load_tile(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT prow,
               const int col0, T* TDLS_RESTRICT t) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < row_extent; ++i) {
                 TDLS_UNROLL_FORCE
@@ -279,7 +279,7 @@ struct TiledLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     store_tile(T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT prow,
                const int col0, const T* TDLS_RESTRICT t) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < row_extent; ++i) {
                 TDLS_UNROLL_FORCE
@@ -312,7 +312,7 @@ struct TiledLUppSolverStatic {
     load_tile_piv(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                   const int piv_stride, const int row0, const int col0,
                   T* TDLS_RESTRICT t) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < row_extent; ++i) {
                 const int phys = TDLS_LUPP_PIV(row0 + i);
@@ -347,7 +347,7 @@ struct TiledLUppSolverStatic {
     store_tile_piv(T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                    const int piv_stride, const int row0, const int col0,
                    const T* TDLS_RESTRICT t) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < row_extent; ++i) {
                 const int phys = TDLS_LUPP_PIV(row0 + i);
@@ -384,7 +384,7 @@ struct TiledLUppSolverStatic {
     load_tile_piv_lower(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                         const int piv_stride, const int row0, const int col0,
                         T* TDLS_RESTRICT t) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 1; i < row_extent; ++i) {
                 const int phys = TDLS_LUPP_PIV(row0 + i);
@@ -418,7 +418,7 @@ struct TiledLUppSolverStatic {
     load_tile_piv_upper(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                         const int piv_stride, const int row0, const int col0,
                         T* TDLS_RESTRICT t) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < row_extent; ++i) {
                 const int phys = TDLS_LUPP_PIV(row0 + i);
@@ -480,7 +480,7 @@ struct TiledLUppSolverStatic {
         // In-tile pivot search (rows c..k_extent of the register tile)
         int best_r = c;
         T best     = detail::abs(tile[c * tile_size + c]);
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int r = c + 1; r < k_extent; ++r) {
                 const T v = detail::abs(tile[r * tile_size + c]);
@@ -582,7 +582,7 @@ struct TiledLUppSolverStatic {
                 // range: y must never be dynamically indexed or it is
                 // demoted to local memory.
                 if constexpr (internal_rhs) {
-                    if constexpr (Config.unroll_inner) {
+                    if constexpr (Config.unroll_loops) {
                         TDLS_UNROLL_FORCE
                         for (int r = 0; r < N; ++r) {
                             if (r == piv_row) {
@@ -614,7 +614,7 @@ struct TiledLUppSolverStatic {
                 // replay everything it missed: prior tiles (LL), then
                 // the current tile's factored columns, on the FULL row.
                 const int phys = TDLS_LUPP_PIV(gc);
-                if constexpr (Config.unroll_inner) {
+                if constexpr (Config.unroll_loops) {
                     TDLS_UNROLL_FORCE
                     for (int j = 0; j < k_extent; ++j) {
                         tile[c * tile_size + j] = TDLS_LUPP_A(phys, k0 + j);
@@ -686,7 +686,7 @@ struct TiledLUppSolverStatic {
     factor_diag_tile(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                      const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                      T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int c = 0; c < k_extent; ++c) {
                 if (!factor_diag_column<k_extent, internal_piv, internal_matrix, oot_diagnostics,
@@ -752,7 +752,7 @@ struct TiledLUppSolverStatic {
         T Aij[tile_size * tile_size];
         load_tile<i_extent, j_extent, internal_matrix>(A, A_stride, pi, j0, Aij);
 
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int p = 0; p < k_extent; ++p) {
                 T Akj_row[tile_size];
@@ -811,7 +811,7 @@ struct TiledLUppSolverStatic {
         const int k0 = k * tile_size;
 
         int pi[tile_size];
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < i_extent; ++i)
                 pi[i] = TDLS_LUPP_PIV(i0 + i);
@@ -830,7 +830,7 @@ struct TiledLUppSolverStatic {
         // row block while its L panel sits in registers (this is the whole
         // point of solve_inplace: the separate forward pass reloads vanish).
         if constexpr (fuse_rhs) {
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int r = 0; r < i_extent; ++r) {
                     T sum = T(0);
@@ -894,7 +894,7 @@ struct TiledLUppSolverStatic {
 
         // Physical rows of the tile after the swaps of this step
         int pk[tile_size];
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < k_extent; ++i)
                 pk[i] = TDLS_LUPP_PIV(k0 + i);
@@ -908,7 +908,7 @@ struct TiledLUppSolverStatic {
         // Fused forward substitution: this tile's y segment is final from
         // here on: unit-lower-solve it while the tile is in registers.
         if constexpr (fuse_rhs) {
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int kk = 0; kk < k_extent; ++kk) {
                     TDLS_UNROLL_FORCE
@@ -1019,7 +1019,7 @@ struct TiledLUppSolverStatic {
         // Fused forward substitution: B is the final L(i,k) panel, so push the
         // solved y_k segment into this row block while it is in registers.
         if constexpr (fuse_rhs) {
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int r = 0; r < i_extent; ++r) {
                     T sum = T(0);
@@ -1108,7 +1108,7 @@ struct TiledLUppSolverStatic {
         // Fused forward substitution: this tile's y segment is final from
         // here on: unit-lower-solve it while the tile is in registers.
         if constexpr (fuse_rhs) {
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int kk = 0; kk < k_extent; ++kk) {
                     TDLS_UNROLL_FORCE
@@ -1182,7 +1182,7 @@ struct TiledLUppSolverStatic {
 
         if constexpr (oot_diagnostics) oot_count = 0;
 
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < N; ++i)
                 TDLS_LUPP_PIV(i) = i;
@@ -1269,7 +1269,7 @@ struct TiledLUppSolverStatic {
         T Lmk[tile_size * tile_size];
         load_tile_piv<m_extent, k_extent, internal_piv, internal_matrix>(A, A_stride, piv,
                                                                          piv_stride, m0, k0, Lmk);
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < m_extent; ++i) {
                 TDLS_UNROLL_FORCE
@@ -1321,7 +1321,7 @@ struct TiledLUppSolverStatic {
                                                                      k0, k0, Lkk);
 
         // In-tile unit-lower solve
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int kk = 0; kk < k_extent; ++kk) {
                 TDLS_UNROLL_FORCE
@@ -1379,7 +1379,7 @@ struct TiledLUppSolverStatic {
         T Ukm[tile_size * tile_size];
         load_tile_piv<k_extent, m_extent, internal_piv, internal_matrix>(A, A_stride, piv,
                                                                          piv_stride, k0, m0, Ukm);
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < k_extent; ++i) {
                 TDLS_UNROLL_FORCE
@@ -1441,7 +1441,7 @@ struct TiledLUppSolverStatic {
         load_tile_piv_upper<k_extent, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride,
                                                                      k0, k0, Ukk);
 
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int kk = k_extent - 1; kk >= 0; --kk) {
                 TDLS_UNROLL_FORCE
@@ -1554,7 +1554,7 @@ struct TiledLUppSolverStatic {
             // a runtime value and demote it to local memory. The equality
             // sweep keeps every index compile-time (measured: local memory
             // eliminated, identical values).
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int i = 0; i < N; ++i) {
                     const int p = TDLS_LUPP_PIV(i);
@@ -1574,7 +1574,7 @@ struct TiledLUppSolverStatic {
                 }
             }
         } else {
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int i = 0; i < N; ++i)
                     TDLS_LUPP_X(i) = TDLS_LUPP_B(TDLS_LUPP_PIV(i));
@@ -1636,7 +1636,7 @@ struct TiledLUppSolverStatic {
                                        const int* TDLS_RESTRICT piv, const int piv_stride,
                                        const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
                                        const int xcol_stride) noexcept {
-        if constexpr (Config.unroll_inner) {
+        if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < N; ++i) {
                 const int p = TDLS_LUPP_PIV(i);
@@ -1738,7 +1738,7 @@ struct TiledLUppSolverStatic {
             // Predicated gather, exactly as in substitute: b[piv[i]] would
             // index the internal block with a runtime value and demote it
             // to local memory.
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int i = 0; i < N; ++i) {
                     const int p = TDLS_LUPP_PIV(i);
@@ -1763,7 +1763,7 @@ struct TiledLUppSolverStatic {
                 }
             }
         } else {
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int i = 0; i < N; ++i) {
                     const int p = TDLS_LUPP_PIV(i);
@@ -1866,7 +1866,7 @@ struct TiledLUppSolverStatic {
             // whole state in a single 32- or 64-bit register.
             using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
             mask_t visited = mask_t(0);
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int s = 0; s < N; ++s) {
                     if ((visited >> s) & mask_t(1)) continue;
@@ -1952,7 +1952,7 @@ struct TiledLUppSolverStatic {
             // widens to one entry per column.
             using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
             mask_t visited = mask_t(0);
-            if constexpr (Config.unroll_inner) {
+            if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int s = 0; s < N; ++s) {
                     if ((visited >> s) & mask_t(1)) continue;

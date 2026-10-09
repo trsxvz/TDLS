@@ -7,7 +7,7 @@
 /// licensing conditions.
 ///
 /// Each compile-time knob is checked through its observable contract:
-/// unroll_inner never changes any value (bitwise equivalence of both
+/// unroll_loops never changes any value (bitwise equivalence of both
 /// settings); oot_first_acceptable changes which acceptable pivot wins
 /// but keeps both settings anchored on the backward error;
 /// the out-of-tile counter stays at zero in the default regime, fires in
@@ -28,10 +28,10 @@
 
 namespace {
 
-/// \brief Configuration flipping only unroll_inner.
+/// \brief Configuration flipping only unroll_loops.
 template<typename T, int tile_size, tdls::Schedule Schedule>
 constexpr auto no_unroll_config =
-    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule, .unroll_inner = false};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule, .unroll_loops = false};
 
 /// \brief Configuration restoring the full-panel out-of-tile scan.
 template<typename T, int tile_size>
@@ -52,7 +52,7 @@ template<typename T, int tile_size>
 constexpr auto strict_floor_config = tdls::TiledLUppConfig<T>{
     .tile_size = tile_size, .oot_threshold = T(1e-3), .singular_floor = T(1e-3)};
 
-/// \brief Checks that unroll_inner = false reproduces the default
+/// \brief Checks that unroll_loops = false reproduces the default
 /// bitwise: the knob moves pragmas, never values.
 /// \tparam T         scalar type
 /// \tparam N         system dimension
@@ -91,10 +91,10 @@ void unroll_case(const int count, const double bound, const std::uint64_t seed) 
 
 } // namespace
 
-TDLS_TEST_CASE("tiledlupp/config/unroll_inner-off-is-bitwise/N=12,tile_size=3,RL,default") {
+TDLS_TEST_CASE("tiledlupp/config/unroll_loops-off-is-bitwise/N=12,tile_size=3,RL,default") {
     unroll_case<double, 12, 3, tdls::Schedule::RightLooking>(200, 0.5, 190100);
 }
-TDLS_TEST_CASE("tiledlupp/config/unroll_inner-off-is-bitwise/N=13,tile_size=6,LL,stress") {
+TDLS_TEST_CASE("tiledlupp/config/unroll_loops-off-is-bitwise/N=13,tile_size=6,LL,stress") {
     unroll_case<double, 13, 6, tdls::Schedule::LeftLooking>(200, 5e-10, 190200);
 }
 

@@ -97,15 +97,18 @@ struct TiledLUppConfig {
     /// Set false to restore the full-panel partial-pivoting scan.
     bool oot_first_acceptable = true;
 
-    /// Unroll policy of the in-tile scalar loops, applied through a
-    /// two-branch `if constexpr` (the pragma dialect itself lives in
-    /// core/macros.hpp). true: loops indexing register tiles carry a
+    /// Unroll policy, applied through a two-branch `if constexpr` (the
+    /// pragma dialect itself lives in core/macros.hpp). The knob does not
+    /// govern every loop on purpose: only the loops where offering the
+    /// choice can noticeably change the performance, those indexing the
+    /// register tiles (the in-tile scalar loops). true: they carry a
     /// forced-unroll pragma, the guard that keeps tiles in registers on
     /// GPU backends, where a rolled loop indexes the tile dynamically and
     /// demotes it to slow local memory. false: no unroll pragma anywhere,
-    /// for faster compiles, GPU performance not guaranteed. Outer tile-sweep
-    /// loops never carry a pragma in either branch.
-    bool unroll_inner = true;
+    /// for faster compiles, GPU performance not guaranteed. The tile
+    /// sweeps walk memory, not registers, and carry no pragma in either
+    /// branch. Every TDLS family names this knob unroll_loops.
+    bool unroll_loops = true;
 
     /// Memory layout of the factor matrix, in both solvers and both
     /// residency modes. The knob only remaps the flat element index that

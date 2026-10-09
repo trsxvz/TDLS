@@ -19,7 +19,7 @@ int main() {
 
     // snippet begin
     constexpr auto unrolled = tdls::TiledLUppConfig<double>{.tile_size = 2};
-    constexpr auto rolled   = tdls::TiledLUppConfig<double>{.tile_size = 2, .unroll_inner = false};
+    constexpr auto rolled   = tdls::TiledLUppConfig<double>{.tile_size = 2, .unroll_loops = false};
 
     using Unrolled = tdls::TiledLUppSolverStatic<double, 4, unrolled>;
     using Rolled   = tdls::TiledLUppSolverStatic<double, 4, rolled>;

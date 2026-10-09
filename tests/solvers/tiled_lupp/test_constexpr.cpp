@@ -21,7 +21,7 @@
 /// static/dynamic bitwise bridge, itself evaluated at compile time.
 /// The certificates are also re-run at run time, so the suite reports
 /// like any other. The default configuration certifies the
-/// unroll_inner branches; one no-unroll cell certifies the others.
+/// unroll_loops branches; one no-unroll cell certifies the others.
 
 #include <tdls/tdls.hpp>
 
@@ -37,13 +37,13 @@ constexpr double lcg(unsigned& state) {
     return static_cast<double>(state >> 16) / 65536.0 - 0.5;
 }
 
-/// \brief Configuration flipping only unroll_inner, so the no-pragma
+/// \brief Configuration flipping only unroll_loops, so the no-pragma
 /// branches of the two-branch unroll trick get their certificate too.
 /// \tparam T         scalar type
 /// \tparam tile_size tile size
 template<typename T, int tile_size>
 constexpr auto no_unroll_config =
-    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .unroll_inner = false};
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .unroll_loops = false};
 
 /// \brief Normwise backward error |A0 x - b| / (|A0| |x| + |b|),
 /// accumulated in double and computable during constant evaluation.
@@ -481,7 +481,7 @@ static_assert(oot_certificate<double, 6, 3>(111, 1e-9));
 // Entry-point equivalence and the tangent-operator path.
 static_assert(fused_matches_solve_certificate<double, 5, 3, RightLooking>(112));
 static_assert(canonical_certificate<double, 4, 2>(113, 1e-9));
-// The no-pragma loop branches (unroll_inner = false).
+// The no-pragma loop branches (unroll_loops = false).
 static_assert(no_unroll_certificate<double, 5, 3>(114, 1e-9));
 // Singular verdict.
 static_assert(singular_rejected_certificate<double, 4, 2>());

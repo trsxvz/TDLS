@@ -42,8 +42,8 @@ constexpr tdls::TiledLUppConfig<double> config{
     .singular_floor = std::numeric_limits<double>::min(),
     // bool: the out-of-tile search stops at the first acceptable pivot
     .oot_first_acceptable = true,
-    // bool: forced unrolling of the in-tile loops
-    .unroll_inner = true,
+    // bool: forced unrolling of the in-tile loops, the ones where it pays
+    .unroll_loops = true,
     // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor
     .layout = tdls::MatrixLayout::RowMajor};
 

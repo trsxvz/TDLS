@@ -20,7 +20,7 @@
 /// in the solvers, next to the addressing macros. Family-specific
 /// kernels extend this struct in their own header.
 ///
-/// Every loop is subject to the `unroll_inner` knob of the family
+/// Every loop is subject to the `unroll_loops` knob of the family
 /// configuration: with it, the loops must effectively unroll or the
 /// tiles are demoted to local memory on GPU backends; without it, no
 /// pragma is emitted at all.
@@ -48,8 +48,8 @@ namespace tdls {
 /// solver families.
 /// \tparam T            scalar type
 /// \tparam tile_size    tile size (int, row stride of the register tiles)
-/// \tparam unroll_inner unroll knob, forwarded from the solver configuration
-template<typename T, int tile_size, bool unroll_inner>
+/// \tparam unroll_loops unroll knob, forwarded from the solver configuration
+template<typename T, int tile_size, bool unroll_loops>
 struct TileOperations {
 
     /// \brief Row swap k <-> r inside the KExKE active part of the tile,
@@ -66,7 +66,7 @@ struct TileOperations {
     template<int k_extent>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void swap_rows(T* TDLS_RESTRICT t, int k,
                                                                       int r) noexcept {
-        if constexpr (unroll_inner) {
+        if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int row = 0; row < k_extent; ++row) {
                 if (row == r) {
@@ -100,7 +100,7 @@ struct TileOperations {
     template<int diag_extent, int col_extent>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     trsm_left_unit(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B) noexcept {
-        if constexpr (unroll_inner) {
+        if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int k = 0; k < diag_extent; ++k) {
                 TDLS_UNROLL_FORCE
@@ -134,7 +134,7 @@ struct TileOperations {
     template<int diag_extent, int row_extent>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     trsm_right(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B) noexcept {
-        if constexpr (unroll_inner) {
+        if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int k = 0; k < diag_extent; ++k) {
                 const T U_kk_inv = lu[k * tile_size + k];
@@ -174,7 +174,7 @@ struct TileOperations {
     template<int row_extent, int col_extent, int k_extent>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
     gemm_sub(T* TDLS_RESTRICT Ct, const T* TDLS_RESTRICT At, const T* TDLS_RESTRICT Bt) noexcept {
-        if constexpr (unroll_inner) {
+        if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int i = 0; i < row_extent; ++i) {
                 TDLS_UNROLL_FORCE
