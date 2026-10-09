@@ -142,10 +142,9 @@ TDLS_TEST_CASE("cooperativelupp/bridge/rows-per-thread/traits") {
     TDLS_CHECK(S12_12::rows_per_thread == 12 && S12_12::threads_per_system == 1);
     TDLS_CHECK(S12_20::rows_per_thread == 12 && S12_20::threads_per_system == 1);
     TDLS_CHECK(S13_5::rows_per_thread == 5 && S13_5::threads_per_system == 3);
-    // Logical row interchanges: 3 N, plus 2 for the barrier of a group of
-    // several threads.
+    // Logical row interchanges: 2 for the barrier, then 3 N.
     TDLS_CHECK(S12_1::workspace_size == 38 && S13_5::workspace_size == 41);
-    TDLS_CHECK(S12_12::workspace_size == 36);
+    TDLS_CHECK(S12_12::workspace_size == 38);
     // Physical row interchanges: 2 N + 2 threads_per_system + 5, plus 2.
     using P12_1 = tdls::CooperativeLUppSolverStatic<double, 12,
                                                     rows_config<1, tdls::RowInterchange::Physical>>;

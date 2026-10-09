@@ -203,7 +203,7 @@ $$
 
 The system of the first snippet, on 2 CPU threads, without a barrier
 argument: the solver deduces the barrier of the group, held in the
-last two elements of the workspace. `make_sync` returns the same
+first two elements of the workspace. `make_sync` returns the same
 barrier, for an exchange of the threads between two substitutions:
 each thread writes the right-hand side of the rows of the other one.
 

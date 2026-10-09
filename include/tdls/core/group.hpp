@@ -35,9 +35,9 @@
 ///     then involves exactly the lanes of the group.
 ///   - on a CPU, the threads of a group are any threads running
 ///     concurrently: OpenMP, std::thread, Kokkos team threads and so on.
-///     The barrier is a counter and a flag held in the last two elements
-///     of the workspace, which must be zero before the first call and
-///     stay zero between calls. A group waiting for more than a second
+///     The barrier is a counter and a flag held in the first two elements
+///     of the workspace, which must be zero before the first call; the
+///     barrier keeps them in that state between calls. A group waiting for more than a second
 ///     prints a diagnostic once and keeps waiting: a thread may be late
 ///     for a legitimate reason, so the wait is never cut short.
 ///
@@ -244,6 +244,12 @@ inline constexpr bool group_barrier_available = true;
 #define TDLS_DETAIL_GROUP_NONE ""
 #endif
 
+/// \brief Elements at the start of the workspace that hold the deduced
+/// CPU barrier: a counter and a flag. They keep their place whatever the
+/// dimension and the configuration, so that the barrier state survives a
+/// workspace reused by other solves; the solves work on the rest.
+inline constexpr int barrier_elements = 2;
+
 /// \brief Largest group the warp of the pass can hold, checked at compile
 /// time when the size of the group is (0: no compile-time bound).
 #if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVPTX)
@@ -416,7 +422,7 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(unsigned long long) noexcept {
 #endif
 
 /* =========================================================================
-   Host: a counter and a flag in the last two elements of the workspace.
+   Host: a counter and a flag in the first two elements of the workspace.
    The flag alternates between 0 and 1. A thread reads it before
    arriving, so it cannot miss the flip of its own barrier; the last
    thread to arrive resets the counter, then flips the flag.

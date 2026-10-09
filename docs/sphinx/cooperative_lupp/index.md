@@ -86,7 +86,7 @@ from the target the code is compiled for.
 | any target, one thread per system | none |
 | NVIDIA GPU, sm_70 or newer | `__syncwarp` on the lanes of the group |
 | AMD GPU | a wavefront fence: the lanes of a wavefront run in lockstep |
-| CPU threads | a counter in the last two elements of the workspace |
+| CPU threads | a counter in the first two elements of the workspace |
 
 On GPU, this covers every model whose kernels the compiler builds as
 GPU code: CUDA, HIP (ROCm 7.0, or 6.2 with
@@ -104,9 +104,11 @@ when they solve the same system. The check runs once per call, and the
 barrier is the one a caller would write by hand.
 
 On CPU, the threads of a group are any threads that run concurrently:
-OpenMP, `std::thread`, Kokkos team threads. The last two elements of
+OpenMP, `std::thread`, Kokkos team threads. The first two elements of
 the workspace must be zero before the first call, as in a
-`std::vector`, and the barrier keeps them so between calls. A group
+`std::vector`, and the barrier keeps them so between calls. They keep
+their place whatever the dimension and the configuration, so a
+workspace may serve other solves. A group
 that waits for more than a second prints a diagnostic once and keeps
 waiting: the threads of a group must not run one after the other, as
 in a worksharing loop or in the parallel algorithms on CPU. A barrier

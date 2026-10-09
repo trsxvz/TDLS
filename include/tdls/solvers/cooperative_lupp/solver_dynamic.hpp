@@ -225,27 +225,15 @@ struct CooperativeLUppSolverDynamic {
     }
 
     /// \brief Elements of the workspace shared by the threads of a group:
-    /// 3 * n under logical row interchanges, 2 * n + 2 *
-    /// threads_per_system(n) + 5 under physical ones, plus the two elements
-    /// of the deduced CPU barrier when the group has several threads.
+    /// the two elements of the deduced CPU barrier, then 3 * n under
+    /// logical row interchanges, 2 * n + 2 * threads_per_system(n) + 5
+    /// under physical ones.
     /// \param[in] n system dimension
     /// \return the number of elements of the workspace
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int workspace_size(const int n) noexcept {
-        return (Config.row_interchange == RowInterchange::Logical
-                    ? 3 * n
-                    : 2 * n + 2 * threads_per_system(n) + 5) +
-               (threads_per_system(n) > 1 ? 2 : 0);
-    }
-
-    /// \brief The two elements of the workspace that hold the deduced CPU
-    /// barrier, the last ones; their address also identifies the group on
-    /// GPU. A group of one thread has none and never reads them.
-    /// \param[in] n    system dimension
-    /// \param[in] work workspace of the group
-    /// \return the barrier elements of the workspace
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr T* barrier_slots(const int n,
-                                                                        T* work) noexcept {
-        return threads_per_system(n) > 1 ? work + workspace_size(n) - 2 : work;
+        return detail::barrier_elements + (Config.row_interchange == RowInterchange::Logical
+                                               ? 3 * n
+                                               : 2 * n + 2 * threads_per_system(n) + 5);
     }
 
     /* =====================================================================
@@ -834,7 +822,7 @@ struct CooperativeLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr auto make_sync(const int n,
                                                                       T* work) noexcept {
         AutoSync deduce;
-        return detail::resolve_sync<0>(deduce, barrier_slots(n, work), threads_per_system(n));
+        return detail::resolve_sync<0>(deduce, work, threads_per_system(n));
     }
 
     /// \brief In-place LU factorization with partial pivoting.
@@ -857,11 +845,12 @@ struct CooperativeLUppSolverDynamic {
               int* TDLS_RESTRICT piv, const int piv_stride, T* work,
               Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
-        auto&& group      = detail::resolve_sync<0>(sync, barrier_slots(n, work), threads);
+        auto&& group      = detail::resolve_sync<0>(sync, work, threads);
+        T* const exchange = work + detail::barrier_elements;
         T rB[rows_per_thread];
         int rpiv[rows_per_thread];
         init_piv(tx, threads, rpiv);
-        const int linfo = eliminate<false>(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        const int linfo = eliminate<false>(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_piv(n, tx, threads, piv, piv_stride, rpiv);
         group(); // every output visible to the whole group on return
         return linfo == 0;
@@ -890,13 +879,14 @@ struct CooperativeLUppSolverDynamic {
                T* TDLS_RESTRICT x, const int rhs_stride, T* work,
                Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
-        auto&& group      = detail::resolve_sync<0>(sync, barrier_slots(n, work), threads);
+        auto&& group      = detail::resolve_sync<0>(sync, work, threads);
+        T* const exchange = work + detail::barrier_elements;
         T rB[rows_per_thread];
         int rpiv[rows_per_thread];
         load_piv(n, tx, threads, piv, piv_stride, rpiv);
         load_rhs(n, tx, threads, b, rhs_stride, rB);
-        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
-        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
+        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_solution(n, tx, threads, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
     }
@@ -924,14 +914,15 @@ struct CooperativeLUppSolverDynamic {
                          T* TDLS_RESTRICT x, const int rhs_stride, T* work,
                          Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
-        auto&& group      = detail::resolve_sync<0>(sync, barrier_slots(n, work), threads);
+        auto&& group      = detail::resolve_sync<0>(sync, work, threads);
+        T* const exchange = work + detail::barrier_elements;
         T rB[rows_per_thread];
         int rpiv[rows_per_thread];
         load_piv(n, tx, threads, piv, piv_stride, rpiv);
         for (int K = 0; K < rows_per_thread; ++K)
             rB[K] = (tx + K * threads == col) ? T(1) : T(0);
-        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
-        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
+        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_solution(n, tx, threads, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
     }
@@ -962,13 +953,14 @@ struct CooperativeLUppSolverDynamic {
                        const int rhs_stride, T* work,
                        Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
-        auto&& group      = detail::resolve_sync<0>(sync, barrier_slots(n, work), threads);
+        auto&& group      = detail::resolve_sync<0>(sync, work, threads);
+        T* const exchange = work + detail::barrier_elements;
         T rB[rows_per_thread];
         int rpiv[rows_per_thread];
         load_piv(n, tx, threads, piv, piv_stride, rpiv);
         load_rhs(n, tx, threads, x, rhs_stride, rB);
-        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
-        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
+        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_solution(n, tx, threads, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
     }
@@ -1001,15 +993,16 @@ struct CooperativeLUppSolverDynamic {
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           T* work, Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
-        auto&& group      = detail::resolve_sync<0>(sync, barrier_slots(n, work), threads);
+        auto&& group      = detail::resolve_sync<0>(sync, work, threads);
+        T* const exchange = work + detail::barrier_elements;
         T rB[rows_per_thread];
         int rpiv[rows_per_thread];
         init_piv(tx, threads, rpiv);
-        const int linfo = eliminate<false>(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        const int linfo = eliminate<false>(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_piv(n, tx, threads, piv, piv_stride, rpiv);
         load_rhs(n, tx, threads, b, rhs_stride, rB);
-        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
-        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        forward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
+        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_solution(n, tx, threads, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
         return linfo == 0;
@@ -1045,14 +1038,15 @@ struct CooperativeLUppSolverDynamic {
                   const int rhs_stride, T* work,
                   Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
         const int threads = threads_per_system(n);
-        auto&& group      = detail::resolve_sync<0>(sync, barrier_slots(n, work), threads);
+        auto&& group      = detail::resolve_sync<0>(sync, work, threads);
+        T* const exchange = work + detail::barrier_elements;
         T rB[rows_per_thread];
         int rpiv[rows_per_thread];
         init_piv(tx, threads, rpiv);
         load_rhs(n, tx, threads, y, rhs_stride, rB);
-        const int linfo = eliminate<true>(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        const int linfo = eliminate<true>(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         store_piv(n, tx, threads, piv, piv_stride, rpiv);
-        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, work, group);
+        backward_substitution(n, tx, threads, A, A_stride, rB, rpiv, exchange, group);
         for (int K = 0; K < rows_per_thread; ++K) {
             const int r = tx + K * threads;
             if (r >= n) break;

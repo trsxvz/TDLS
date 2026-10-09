@@ -32,8 +32,8 @@ int main() {
     using Logical  = tdls::CooperativeLUppSolverStatic<double, 4, logical>;
     using Physical = tdls::CooperativeLUppSolverStatic<double, 4, physical>;
 
-    // 3 N elements under logical row interchanges, 2 N + 2 threads_per_system + 5 under
-    // physical ones, and 2 more for the deduced barrier of a group of several threads
+    // 2 elements for the deduced barrier, then 3 N under logical row interchanges,
+    // 2 N + 2 threads_per_system + 5 under physical ones
     static_assert(Logical::workspace_size == 14 && Physical::workspace_size == 19);
     double work[Physical::workspace_size];
     int piv1[4], piv2[4];

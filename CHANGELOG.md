@@ -26,7 +26,7 @@ the API may change between minor versions.
   target when the caller passes none, `tdls::AutoSync`: nothing for
   one thread per system; `__syncwarp` on the lanes of the group on
   NVIDIA GPUs, sm_70 or newer; a wavefront fence on AMD GPUs; a counter
-  in the last two elements of the workspace for CPU threads. On GPU,
+  in the first two elements of the workspace for CPU threads. On GPU,
   the group is identified by its workspace and checked on entry: a
   group whose threads are not together in their warp stops the program
   with a message, instead of a wrong result or a deadlock. The kernels

@@ -25,8 +25,8 @@ int main() {
     int ok[2] = {};
 
     // snippet begin
-    // the workspace of the group, zero before the first call: its last 2 elements hold the
-    // barrier the solver deduces for 2 CPU threads
+    // the workspace of the group, zero before the first call: its first 2 elements hold
+    // the barrier the solver deduces for 2 CPU threads
     double work[Solver::workspace_size] = {};
     int piv[4];
     std::thread group[2];

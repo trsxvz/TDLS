@@ -273,7 +273,7 @@ constexpr bool layout_and_clamp_certificate(const unsigned seed) {
     double b[N]      = {};
     fill_system<double, N>(seed, A0, b);
 
-    double work[3 * N] = {};
+    double work[Row::workspace_size] = {};
     double A_r[N * N] = {}, A_c[N * N] = {}, A_k[N * N] = {};
     double y_r[N] = {}, y_c[N] = {}, y_k[N] = {};
     int piv_r[N] = {}, piv_c[N] = {}, piv_k[N] = {};
@@ -339,13 +339,15 @@ constexpr bool dynamic_solve_certificate(const unsigned seed, const double toler
                                                        .rows_per_thread = rows_per_thread,
                                                        .row_interchange = interchange}>;
     static_assert(rows_per_thread >= N);
-    constexpr int workspace = interchange == tdls::RowInterchange::Logical ? 3 * N : 2 * N + 7;
-    double A[N * N]         = {};
-    double A0[N * N]        = {};
-    double b[N]             = {};
-    double y[N]             = {};
-    int piv[N]              = {};
-    double work[workspace]  = {};
+    // The 2 elements of the barrier, then those of the exchanges.
+    constexpr int workspace =
+        2 + (interchange == tdls::RowInterchange::Logical ? 3 * N : 2 * N + 7);
+    double A[N * N]        = {};
+    double A0[N * N]       = {};
+    double b[N]            = {};
+    double y[N]            = {};
+    int piv[N]             = {};
+    double work[workspace] = {};
     fill_system<double, N>(seed, A0, b);
     for (int e = 0; e < N * N; ++e)
         A[e] = A0[e];

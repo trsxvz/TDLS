@@ -24,7 +24,7 @@ constexpr auto config =
 int main() {
     double M[81];
     double y[9];
-    double work[27];
+    double work[29];
     int piv[9];
     using Solver = tdls::CooperativeLUppSolverStatic<double, 9, config>;
     return Solver::solve_inplace<true, true, true>(0, M, 1, piv, 1, y, 1, work) ? 0 : 1;

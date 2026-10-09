@@ -9,7 +9,7 @@
 /// Every case solves a reproducible batch through every entry path twice:
 /// once with the GroupBarrier of the runner, once with tdls::AutoSync, the
 /// solver then deducing its barrier. On the host, that is the CPU barrier
-/// held in the last two elements of the workspace for a group of several
+/// held in the first two elements of the workspace for a group of several
 /// threads, and nothing for a group of one. The barrier changes no
 /// arithmetic: the verdicts, the factored rows, the pivot entries and the
 /// solutions must be bitwise identical. One structurally singular system
@@ -18,6 +18,10 @@
 /// one row per thread, the unrolled branch, both row interchanges, the
 /// float type, the column-major layout, the internal residencies, and
 /// the runtime solver over a range of dimensions, hence of group sizes.
+///
+/// A reuse case solves systems of several dimensions, hence several
+/// group sizes, in one workspace zeroed once: the barrier keeps its two
+/// elements in place and in their state between calls.
 ///
 /// A last case builds the barrier with make_sync, as a caller exchanging
 /// data between the threads of its group: each thread writes a
@@ -178,8 +182,8 @@ void exchange(const double* A0, const double* b0, double* x1, double* x2, bool& 
     ok = true;
     for (const char verdict : verdicts)
         ok = ok && verdict != 0;
-    const double count = work[Solver::workspace_size - 2];
-    const double flag  = work[Solver::workspace_size - 1];
+    const double count = work[0];
+    const double flag  = work[1];
     rest               = !deduced || (count == 0.0 && (flag == 0.0 || flag == 1.0));
 }
 
@@ -249,6 +253,39 @@ TDLS_TEST_CASE("cooperativelupp/bridge/auto-sync/dynamic/double,rows_per_thread=
 TDLS_TEST_CASE("cooperativelupp/bridge/auto-sync/dynamic/double,rows_per_thread=2,physical") {
     dynamic_case<double, tdls::CooperativeLUppConfig<double>{
                              .rows_per_thread = 2, .row_interchange = physical}>(9, 6, 913000);
+}
+
+// One workspace, zeroed once, for dimensions 12, 6, 9, 1 and 13: groups
+// of 4, 2, 3, 1 and 5 threads in turn.
+TDLS_TEST_CASE("cooperativelupp/bridge/auto-sync/dynamic/workspace-reuse") {
+    constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 3};
+    using Solver          = tdls::CooperativeLUppSolverDynamic<double, config>;
+    using Explicit        = tdls_tests::DynamicGroupRunner<double, config, false>;
+    std::vector<double> work(Solver::workspace_size(13), 0.0);
+    int solved = 0;
+    for (const int n : {12, 6, 9, 1, 13}) {
+        const auto batch = tdls_tests::make_batch<double>(n, 1, 915000 + n, 0.5);
+        std::vector<double> A(batch.matrix(0), batch.matrix(0) + n * n), x(n), A_e(n * n), x_e(n);
+        std::vector<int> piv(n), piv_e(n);
+        bool uniform = false;
+        TDLS_CHECK(Explicit::template run<tdls_tests::Path::combined>(
+            n, batch.matrix(0), batch.rhs(0), A_e.data(), piv_e.data(), x_e.data(), uniform));
+        const int threads = Solver::threads_per_system(n);
+        std::vector<char> verdicts(threads, 0);
+        tdls_tests::run_group<true>(threads, [&](const int tx, auto&& sync) {
+            verdicts[tx] = Solver::solve(n, tx, A.data(), 1, piv.data(), 1, batch.rhs(0), x.data(),
+                                         1, work.data(), sync);
+        });
+        bool ok = true;
+        for (const char verdict : verdicts)
+            ok = ok && verdict != 0;
+        TDLS_CHECK(ok);
+        if (!ok) continue;
+        ++solved;
+        TDLS_CHECK_BITWISE(x.data(), x_e.data(), static_cast<std::size_t>(n));
+        TDLS_CHECK(work[0] == 0.0 && (work[1] == 0.0 || work[1] == 1.0));
+    }
+    TDLS_CHECK(solved == 5);
 }
 
 // make_sync: the caller's exchange between two solves.
