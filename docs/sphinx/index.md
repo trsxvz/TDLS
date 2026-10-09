@@ -2,22 +2,27 @@
 
 TDLS is a header-only C++20 library of direct solvers for small
 general linear systems. It is written to be callable from device code:
-one thread solves one system, on CPU as well as inside a CUDA, HIP,
-SYCL, Kokkos, RAJA, OpenMP, OpenACC or parallel STL kernel. The
-solvers are designed for maximum GPU performance. The library has no
-dependency.
+one thread, or a group of threads, solves one system, on CPU as well as
+inside a CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP, OpenACC or parallel STL
+kernel. The solvers are designed for maximum GPU performance. The
+library has no dependency.
 
 TDLS is designed to be embedded in
-[TFEL/MFront](https://github.com/thelfer/tfel). Its solvers accept the
-`tfel::math` objects directly, without including TFEL.
+[TFEL/MFront](https://github.com/thelfer/tfel). The TiledLUpp solvers
+accept the `tfel::math` objects directly, without including TFEL.
 
 ## Solvers
 
-As of today, TDLS implements one solver family:
+TDLS implements two solver families, both LU factorizations with
+partial pivoting, each in a compile-time dimension and a runtime
+dimension variant:
 
-- {doc}`TiledLUpp <tiled_lupp/index>`: LU factorization with logical
-  partial pivoting on a tile grid, in a compile-time dimension and a
-  runtime dimension variant.
+- {doc}`TiledLUpp <tiled_lupp/index>`: one thread per system, logical
+  pivoting on a tile grid.
+- {doc}`CooperativeLUpp <cooperative_lupp/index>`: a group of threads
+  per system, each thread holding some of its rows, synchronized by a
+  barrier provided by the caller. Derived from
+  [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
 
 ## Documentation map
 
@@ -27,6 +32,8 @@ As of today, TDLS implements one solver family:
 - {doc}`TiledLUpp <tiled_lupp/index>`: how the solvers work, their
   configuration, and their snippets: one entry point per snippet, on a
   small system.
+- {doc}`CooperativeLUpp <cooperative_lupp/index>`: the same for the
+  family of the groups of threads.
 - {doc}`TFEL interoperability <tfel/index>`: how the `tfel::math`
   objects are accepted, with snippets per solver family.
 - {doc}`tests`: the method, the generic suites, then the suites and
@@ -42,6 +49,7 @@ As of today, TDLS implements one solver family:
 Overview <self>
 getting_started
 tiled_lupp/index
+cooperative_lupp/index
 tfel/index
 tests
 api_reference

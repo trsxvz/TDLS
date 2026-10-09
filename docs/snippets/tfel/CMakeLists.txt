@@ -30,6 +30,14 @@ foreach(snippet
     target_link_libraries(tdls_snippet_tfel_${snippet} PRIVATE tfel::TFELMath)
 endforeach()
 
+# The TFEL objects passed to the CooperativeLUpp solvers through the raw
+# interface: no adaptors there. The groups of threads are CPU threads.
+find_package(Threads REQUIRED)
+foreach(snippet cooperative_fixed_one_thread cooperative_fixed_group cooperative_runtime_group)
+    tdls_add_snippet(tfel ${snippet})
+    target_link_libraries(tdls_snippet_tfel_${snippet} PRIVATE tfel::TFELMath Threads::Threads)
+endforeach()
+
 # Rejected shapes: translation units that must not compile, built on
 # demand by ctest and passing only when the diagnostic of the contract
 # appears, as the reject tests of tests/solvers.

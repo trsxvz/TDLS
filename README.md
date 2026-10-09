@@ -8,18 +8,19 @@
 
 TDLS is a header-only C++20 library of direct solvers for small
 general linear systems. It is written to be callable from device code:
-one thread solves one system, on CPU as well as inside a CUDA, HIP,
-SYCL, Kokkos, RAJA, OpenMP, OpenACC or parallel STL kernel. The
-solvers are designed for maximum GPU performance. The library has no
-dependency.
+one thread, or a group of threads, solves one system, on CPU as well
+as inside a CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP, OpenACC or parallel
+STL kernel. The solvers are designed for maximum GPU performance. The
+library has no dependency.
 
-The only solver family available today is TiledLUpp, an LU
-factorization with logical partial pivoting on a tile grid. It comes
-in two variants.
-`TiledLUppSolverStatic` takes the dimension at compile time; residency
-booleans let whole systems live in registers. `TiledLUppSolverDynamic`
-takes the dimension at run time; the placement of the operands is
-expressed through element strides.
+Two solver families are available, both LU factorizations with partial
+pivoting:
+
+- TiledLUpp: one thread per system, logical pivoting on a tile grid.
+- CooperativeLUpp: a group of threads per system, each thread holding
+  some of its rows, synchronized by a barrier provided by the caller; a
+  single thread is a valid group. Derived from
+  [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
 
 ```cpp
 #include <limits>
@@ -57,10 +58,44 @@ using Solver = tdls::TiledLUppSolverStatic<double, 9, config>;
 const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 ```
 
+```cpp
+#include <limits>
+
+#include <tdls/tdls.hpp>
+
+// Solver configuration, a constexpr value, every knob spelled out.
+// Designated initializers override individual knobs;
+// tdls::CooperativeLUppConfig<double>{} alone keeps the defaults.
+constexpr tdls::CooperativeLUppConfig<double> config{
+    // int: rows of the system held by each thread of the group
+    .rows_per_thread = 3,
+    // double (the scalar type T): the factorization is declared singular
+    // when the best pivot falls below this floor
+    .singular_floor = std::numeric_limits<double>::min(),
+    // bool: forced unrolling of the loops over the rows of the thread,
+    // the ones where it pays
+    .unroll_loops = true,
+    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor
+    .layout = tdls::MatrixLayout::RowMajor};
+
+// LU solver for systems of dimension 9, shared by a group of 3 threads
+// holding 3 rows each. Every thread of the group makes the same call
+// with its rank tx in the group, the workspace of the group
+// (Solver::workspace_size elements in memory shared by the group) and
+// the barrier of the group, any callable: __syncwarp(mask) in CUDA, a
+// group barrier in SYCL, a thread barrier on CPU. The residency
+// booleans declare every operand external: the whole matrix, pivot and
+// right-hand side, reached by the group with an element stride (the
+// 1s). A single thread holding every row needs neither tx nor sync.
+using Solver = tdls::CooperativeLUppSolverStatic<double, 9, config>;
+const bool ok =
+    Solver::solve_inplace<false, false, false>(tx, M, 1, piv, 1, y, 1, work, sync);
+```
+
 The `tfel::math` objects (matrices, vectors, strided views) can also
-be passed directly: the adaptors of `tdls/tfel/adaptors.hpp` are
-designed for them and recognize them structurally, without including
-`TFEL`.
+be passed directly to the TiledLUpp solvers: the adaptors of
+`tdls/tfel/adaptors.hpp` are designed for them and recognize them
+structurally, without including `TFEL`.
 
 ## Using the library
 
@@ -90,10 +125,10 @@ ctest --test-dir build -L snippets   # rerun the documentation snippets
 Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
 
-The examples cover three scientific problems at four execution scales:
-sequential, OpenMP, and two GPU placements, plus SYCL and the
-parallel STL. The GPU and SYCL examples are opt-in through
-`TDLS_BUILD_CUDA_EXAMPLES`, `TDLS_BUILD_HIP_EXAMPLES`,
+The examples cover three scientific problems for each solver family,
+at four execution scales: sequential, OpenMP, and two GPU placements,
+plus SYCL and the parallel STL. The GPU and SYCL examples are opt-in
+through `TDLS_BUILD_CUDA_EXAMPLES`, `TDLS_BUILD_HIP_EXAMPLES`,
 `TDLS_BUILD_SYCL_EXAMPLES` or `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES`;
 nothing probes for a GPU toolchain otherwise.
 

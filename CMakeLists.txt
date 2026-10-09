@@ -59,12 +59,12 @@ endif()
 option(TDLS_BUILD_CUDA_EXAMPLES "Build the GPU examples with the CUDA toolchain" OFF)
 option(TDLS_BUILD_HIP_EXAMPLES "Build the GPU examples with the HIP toolchain" OFF)
 # The SYCL examples are single sources compiled by a SYCL C++ compiler
-# such as icpx (see examples/tiled_lupp/sycl); they are opt-in on the
+# such as icpx (see examples/*/sycl); they are opt-in on the
 # same terms.
 option(TDLS_BUILD_SYCL_EXAMPLES "Build the SYCL examples" OFF)
 # The parallel STL examples build for the CPU cores whenever the host
 # compiler offers a backend; their device targets need an offloading
-# compiler and its flags (see examples/tiled_lupp/stdpar) and are
+# compiler and its flags (see examples/*/stdpar) and are
 # opt-in on the same terms.
 option(TDLS_BUILD_STDPAR_DEVICE_EXAMPLES "Build the parallel STL examples for a GPU" OFF)
 # The TFEL snippets of the documentation call the adaptors on real

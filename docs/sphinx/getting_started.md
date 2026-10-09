@@ -47,7 +47,10 @@ In every case, include the umbrella header:
 
 Finer-grained headers exist for the individual pieces
 (`tdls/solvers/tiled_lupp/solver_static.hpp`,
-`tdls/solvers/tiled_lupp/solver_dynamic.hpp`, `tdls/tfel/adaptors.hpp`).
+`tdls/solvers/tiled_lupp/solver_dynamic.hpp`,
+`tdls/solvers/cooperative_lupp/solver_static.hpp`,
+`tdls/solvers/cooperative_lupp/solver_dynamic.hpp`,
+`tdls/tfel/adaptors.hpp`).
 
 The headers compile as plain C++ under every programming model. Under
 CUDA and HIP the entry points decorate themselves: nothing has to be
@@ -100,8 +103,8 @@ The TFEL snippets of the documentation are opt-in through
 
 ## A first solve
 
-TiledLUpp is the most general factorization available today, so it
-makes the first call. The configuration is the default one.
+TiledLUpp makes the first call: one thread solves the system, with no
+setup. The configuration is the default one.
 
 ```cpp
 #include <tdls/tdls.hpp>
@@ -120,17 +123,20 @@ const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 ```
 
 The {doc}`TiledLUpp <tiled_lupp/index>` page explains the
-configuration and the entry points.
+configuration and the entry points. The
+{doc}`CooperativeLUpp <cooperative_lupp/index>` page does the same for
+the groups of threads.
 
 ## Calling convention
 
 One call solves one system. Every operand is a raw pointer pre-offset
 by the caller plus one runtime element stride: the solvers never see a
-thread index or a batch layout. The same (pointer, stride) pair covers
-the three batch layouts. The table gives it for system b of a batch of
-B systems. g is the base pointer of the batch buffer. M is the element
-count of one object: N * N for a matrix, N for a right-hand side or a
-pivot.
+global thread index or a batch layout. A CooperativeLUpp call is made
+by every thread of a group, and only sees the rank of the thread in
+its group. The same (pointer, stride) pair covers the three batch
+layouts. The table gives it for system b of a batch of B systems. g is
+the base pointer of the batch buffer. M is the element count of one
+object: N * N for a matrix, N for a right-hand side or a pivot.
 
 | layout           | pointer of system b   | element stride |
 |------------------|-----------------------|----------------|

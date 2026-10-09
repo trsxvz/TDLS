@@ -106,4 +106,27 @@
 
 
 
+/// \def TDLS_EXEC_CHECK_DISABLE
+/// \brief Lifts the execution-space check of nvcc on the next function
+/// template; empty elsewhere.
+///
+/// The CooperativeLUpp solvers call the barrier of the caller, a device
+/// function on GPU, from host-device function templates. nvcc checks the
+/// execution space of that call in the template itself and rejects it
+/// when the instantiation starts from a non-template kernel, although
+/// every instantiation actually used runs on the device. The pragma lifts
+/// the check for that one function, the practice of Thrust and CUB for
+/// user functors. clang, for CUDA and HIP alike, only checks the
+/// functions it emits and needs nothing.
+
+#ifndef TDLS_EXEC_CHECK_DISABLE
+#if defined(__CUDACC__) && !defined(__clang__) && !defined(__NVCOMPILER)
+#define TDLS_EXEC_CHECK_DISABLE _Pragma("nv_exec_check_disable")
+#else
+#define TDLS_EXEC_CHECK_DISABLE
+#endif
+#endif
+
+
+
 #endif // TDLS_CORE_MACROS_HPP

@@ -66,8 +66,8 @@ on the solver.
   operator from a factorization of the converged one.
 
 Each problem is declined on every execution scale: sequential, OpenMP,
-parallel STL, SYCL, and CUDA or HIP with the systems in registers or
-in device memory. Moving from one scale to the next changes the
+parallel STL, SYCL, and CUDA or HIP with the systems on chip or in
+device memory. Moving from one scale to the next changes the
 parallel harness and the placement of the operands, never the
 physics. The build options are in {doc}`getting_started`.
 
@@ -183,3 +183,104 @@ self-checks rest on two independent references. The radial return, the
 closed-form solution of the isotropic case, is checked on every point.
 Central differences of the integration are checked against the tangent
 operator on a sample of points.
+
+## CooperativeLUpp tests
+
+### Suites
+
+The oracle of the family is the naive LU of the TiledLUpp suites
+(`tests/common/reference_lu.hpp`). The groups of threads are CPU
+threads synchronized by a barrier. They do not run in lockstep, so a
+data race of the solver turns into wrong values, which the bridges
+catch. The forced unrolling runs on groups of small systems; larger
+systems and one thread per system run the no-pragma branch, which
+keeps the instrumented builds short.
+
+| Suite | What it locks |
+|---|---|
+| `oracle_static`, `oracle_dynamic` | backward error of `solve_inplace` against the naive LU, on one thread per system and on groups of threads, in float, double and long double |
+| `static_vs_dynamic` | bitwise equality of the two variants, on every entry point |
+| `rows_per_thread` | every mapping of rows to threads against one thread per system, bitwise, from one row per thread to more rows than the dimension |
+| `entry_points` | the documented entry point equivalences, bitwise, and the guarantees on return: every result visible to the whole group, the workspace free; a regression case guards the workspace, which no solver may declare `restrict` |
+| `residencies` | every residency combination against the external one, bitwise |
+| `layouts` | the two matrix layouts and the AoS, SoA and AoSoA addressing, bitwise, on both solvers |
+| `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case, with a verdict uniform across the group |
+| `config_knobs` | each configuration knob changes what it should and nothing else |
+| `constexpr` | compile-time certificates on both solvers, one thread per system |
+| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a barrier for a group of several threads |
+
+For the detail of any suite, the authoritative description is the
+`\file` documentation at the top of its source in
+`tests/solvers/cooperative_lupp/`.
+
+### Example programs
+
+| | CPU, sequential | CPU, OpenMP | parallel STL | SYCL | CUDA or HIP, registers or shared memory | CUDA or HIP, device memory |
+|---|---|---|---|---|---|---|
+| **Compile-time dimension** (stiff chemistry, Radau IIA, N = 9) | `implicit_ode` | `implicit_ode_batch_omp` | `implicit_ode_batch_stdpar` | `implicit_ode_batch_sycl` | `implicit_ode_batch_gpu` | `implicit_ode_batch_gpu_soa` |
+| **Runtime dimension** (Love integral equation, Nystroem, n chosen at launch) | `integral_equation` | `integral_equation_batch_omp` | `integral_equation_batch_stdpar` | `integral_equation_batch_sycl` | `integral_equation_batch_gpu` | `integral_equation_batch_gpu_soa` |
+| **Compile-time dimension, MFront pattern** (Norton viscoplasticity, N = 7) | `norton_law` | `norton_law_batch_omp` | `norton_law_batch_stdpar` | `norton_law_batch_sycl` | `norton_law_batch_gpu` | `norton_law_batch_gpu_soa` |
+
+The sources live under `examples/cooperative_lupp/`, with the layout
+and the build options of the TiledLUpp examples. The problems, the
+batches and the self-checks are the same. Only the solver and the
+mapping of the systems to threads change.
+
+Each scale picks its group of threads:
+
+- sequential, OpenMP and parallel STL: one thread per system, with no
+  barrier. `rows_per_thread` covers the dimension. A barrier between
+  CPU threads would cost more than a step of the elimination, and
+  `par_unseq` forbids any synchronization;
+- SYCL: a group of work-items per system and several systems per
+  work-group, with the barrier of the work-group. Every SYCL device
+  provides it, whatever the size of its sub-groups;
+- CUDA or HIP: a group of lanes per system and several groups per
+  warp, with a warp barrier on the lanes of the group.
+
+In a group, every thread keeps its own copy of the state of the
+problem and computes the whole residual. It builds only the rows it
+holds, so the solver reads them without a barrier. On return, the
+solution is visible to the whole group.
+
+Groups that share a barrier wider than themselves, as in a SYCL
+work-group, make the same calls. Their Newton loops and their time
+loop run while one of them still iterates. A group that has converged
+or failed keeps pace without updating its state.
+
+#### Compile-time dimension
+
+The Radau IIA integration of the TiledLUpp examples runs on
+`CooperativeLUppSolverStatic`. On GPU and SYCL, three rows per thread
+give groups of three threads. On GPU, the two residency choices:
+
+- `implicit_ode_batch_gpu`: residency booleans set to true, each lane
+  holds its three rows in registers, the workspaces live in shared
+  memory;
+- `implicit_ode_batch_gpu_soa`: residency booleans set to false, the
+  batch of systems is materialized in device memory
+  structure-of-arrays and walked with the batch stride.
+
+#### Runtime dimension
+
+The Love sweep runs on `CooperativeLUppSolverDynamic`, with four rows
+per thread: an instance takes ceil(n / 4) threads. The two GPU
+variants express the placement through the pointers handed to the
+solver:
+
+- `integral_equation_batch_gpu`: each group assembles its system in
+  shared memory and solves it at unit stride, one warp per block;
+- `integral_equation_batch_gpu_soa`: an assembly kernel writes the
+  batch structure-of-arrays, one thread per instance, and a solve
+  kernel walks it with the batch stride, one group per instance.
+
+A barrier separates the two substitutions: every thread reads the
+manufactured solution before the second one overwrites it.
+
+#### Compile-time dimension, MFront pattern
+
+The Norton integration runs on `CooperativeLUppSolverStatic`. On GPU
+and SYCL, two rows per thread give groups of four threads, the last
+of which holds a phantom slot. `solve_inplace` serves the Newton
+corrections. `factorize` then `substitute_canonical`, once per
+column, give the consistent tangent operator, as MFront does.

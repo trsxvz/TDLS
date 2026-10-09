@@ -135,9 +135,30 @@ TDLS_HOST_DEVICE inline void flow(const double* sig, double* n, double& f, doubl
     df = m * f * iseq;
 }
 
-/// \brief Jacobian of the residual, the one of the MFront tutorial. The
-/// deviatoric projector K and the dyad n (x) n are written out in the
-/// 6-vector basis.
+/// \brief Entry (i, j) of the jacobian of the residual, the one of the
+/// MFront tutorial. The deviatoric projector K and the dyad n (x) n are
+/// written out in the 6-vector basis.
+/// \param[in] i    row
+/// \param[in] j    column
+/// \param[in] n    flow direction
+/// \param[in] dp   increment of the viscoplastic multiplier
+/// \param[in] iseq 1 / seq, clamped
+/// \param[in] df   derivative of the creep rate with respect to seq
+/// \param[in] dt   time step
+/// \return the entry
+TDLS_HOST_DEVICE inline double jacobian_entry(const int i, const int j, const double* n,
+                                              const double dp, const double iseq, const double df,
+                                              const double dt) {
+    if (i < stensor_size && j < stensor_size) {
+        const double K = (i == j ? 1 : 0) - (i < 3 && j < 3 ? 1.0 / 3 : 0);
+        return (i == j ? 1 : 0) + 2 * mu * dp * iseq * (1.5 * K - n[i] * n[j]);
+    }
+    if (i < stensor_size) return n[i];                     // column of dp
+    if (j < stensor_size) return -2 * mu * dt * df * n[j]; // row of f_p
+    return 1;
+}
+
+/// \brief Jacobian of the residual, every entry from jacobian_entry.
 /// \tparam internal_matrix residency of J
 /// \param[out] J        jacobian storage, N x N elements
 /// \param[in]  J_stride element stride of J (external mode)
@@ -150,19 +171,10 @@ template<bool internal_matrix>
 TDLS_HOST_DEVICE inline void jacobian(double* J, const int J_stride, const double* n,
                                       const double dp, const double iseq, const double df,
                                       const double dt) {
-    // The ternary on a template bool folds, exactly as in the solver.
-    auto J_at = [=](const int row, const int col) -> double& {
-        return J[internal_matrix ? row * N + col : (row * N + col) * J_stride];
-    };
-    for (int i = 0; i < stensor_size; ++i) {
-        for (int j = 0; j < stensor_size; ++j) {
-            const double K = (i == j ? 1 : 0) - (i < 3 && j < 3 ? 1.0 / 3 : 0);
-            J_at(i, j)     = (i == j ? 1 : 0) + 2 * mu * dp * iseq * (1.5 * K - n[i] * n[j]);
-        }
-        J_at(i, 6) = n[i];
-        J_at(6, i) = -2 * mu * dt * df * n[i];
-    }
-    J_at(6, 6) = 1;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+            J[internal_matrix ? i * N + j : (i * N + j) * J_stride] =
+                jacobian_entry(i, j, n, dp, iseq, df, dt);
 }
 
 /// \brief Integrate one time step at one integration point.
@@ -253,6 +265,163 @@ TDLS_HOST_DEVICE inline bool integrate(const double* deto, const double dt, doub
             Dt[i * stensor_size + j] = 2 * mu * X[j * N + i] + (i < 3 ? t : 0);
     }
     return true;
+}
+
+/// \brief LU solver of the 7 x 7 Newton systems for a group of
+/// threads, the solver of the CooperativeLUpp examples.
+/// \tparam rows_per_thread rows held by each thread of the group
+/// \tparam unroll          unroll policy: true on GPU, false on CPU
+template<int rows_per_thread, bool unroll>
+using GroupSolver = tdls::CooperativeLUppSolverStatic<double, N,
+                                                      tdls::CooperativeLUppConfig<double>{
+                                                          .rows_per_thread = rows_per_thread,
+                                                          .unroll_loops    = unroll}>;
+
+/// \brief Integrate one time step at one integration point with a
+/// CooperativeLUpp solver, called by every thread of the group that
+/// solves the point.
+///
+/// Every thread keeps its own copy of the state and computes the whole
+/// residual, which costs little at N = 7. It builds only the rows of the
+/// jacobian and the entries of the residual that it holds in the solver,
+/// so the solver reads them without a barrier. On return, the Newton
+/// step is visible to the whole group: in r when it is external, in the
+/// workspace otherwise, where each thread copies its entries. A barrier
+/// then keeps the next iteration from overwriting the step before every
+/// thread has read it.
+///
+/// The Newton loop and the tangent operator make the same calls in every
+/// group that shares a barrier: a group that has converged, or failed,
+/// keeps pace without updating its state while `any` reports a group
+/// still iterating. `any` reduces a flag over the scope of the barrier:
+/// the flag itself when the barrier covers exactly the group, the
+/// logical or of the work-group under a SYCL work-group barrier.
+/// \tparam internal_rhs    residency of r: the slice of the thread or the
+///         whole vector
+/// \tparam internal_piv    residency of the pivot
+/// \tparam internal_matrix residency of J
+/// \tparam Solver          a GroupSolver
+/// \tparam Sync            callable type of the barrier
+/// \tparam Any             callable type of the reduction
+/// \param[in]     tx         rank of the thread in its group
+/// \param[in]     sync       barrier of the group
+/// \param[in]     any        reduction of a flag over the scope of the
+///                barrier
+/// \param[in]     deto       strain increment of the step
+/// \param[in]     dt         time step
+/// \param[in,out] eel        elastic strain, advanced on success
+/// \param[in,out] p          viscoplastic multiplier, advanced on success
+/// \param[out]    sig        stress at the end of the step
+/// \param[out]    Dt         consistent tangent operator, 6 x 6 row-major
+/// \param[in,out] J          jacobian storage: the rows of the thread, or
+///                the whole matrix
+/// \param[in]     J_stride   element stride of J (external mode)
+/// \param[in,out] piv        pivot storage
+/// \param[in]     piv_stride element stride of piv (external mode)
+/// \param[in,out] r          residual storage
+/// \param[in]     rhs_stride element stride of r (external mode)
+/// \param[in,out] work       workspace of the group, Solver::workspace_size
+///                elements
+/// \return false when Newton did not converge or a jacobian was singular,
+///         the same verdict in every thread of the group
+template<bool internal_rhs, bool internal_piv, bool internal_matrix, typename Solver, typename Sync,
+         typename Any>
+TDLS_HOST_DEVICE inline bool
+integrate_group(const int tx, Sync& sync, Any& any, const double* deto, const double dt,
+                double* eel, double& p, double* sig, double* Dt, double* J, const int J_stride,
+                int* piv, const int piv_stride, double* r, const int rhs_stride, double* work) {
+    constexpr int rows    = Solver::rows_per_thread;
+    constexpr int threads = Solver::threads_per_system;
+    // Addressing of the rows of the thread: slot K holds row tx + K * threads.
+    auto J_at = [=](const int K, const int col) -> double& {
+        return J[internal_matrix ? K * N + col : ((tx + K * threads) * N + col) * J_stride];
+    };
+    auto r_at = [=](const int K) -> double& {
+        return r[internal_rhs ? K : (tx + K * threads) * rhs_stride];
+    };
+    // The whole solution, visible to every thread: from r when it is
+    // external, through the workspace otherwise.
+    auto share = [&](double* x) {
+        if constexpr (internal_rhs) {
+            for (int K = 0; K < rows && tx + K * threads < N; ++K)
+                work[tx + K * threads] = r_at(K);
+            sync();
+            for (int i = 0; i < N; ++i)
+                x[i] = work[i];
+        } else {
+            for (int i = 0; i < N; ++i)
+                x[i] = r[i * rhs_stride];
+        }
+        sync();
+    };
+
+    double deel[stensor_size] = {};
+    double dp                 = 0;
+    double n[stensor_size];
+    double f, df, iseq;
+
+    bool converged = false, failed = false;
+    for (int iter = 0; iter < newton_max_iter; ++iter) {
+        double eel_n[stensor_size], res[N];
+        for (int i = 0; i < stensor_size; ++i)
+            eel_n[i] = eel[i] + deel[i];
+        hooke(eel_n, sig);
+        flow(sig, n, f, df, iseq);
+        double norm = 0;
+        for (int i = 0; i < stensor_size; ++i) {
+            res[i] = deel[i] + dp * n[i] - deto[i];
+            norm += res[i] * res[i];
+        }
+        res[6] = dp - dt * f;
+        norm += res[6] * res[6];
+        if (!converged && !failed) converged = std::sqrt(norm) / N < newton_epsilon;
+        if (!any(!converged && !failed)) break;
+
+        // The rows of the thread, then the Newton step of the group.
+        for (int K = 0; K < rows && tx + K * threads < N; ++K) {
+            const int row = tx + K * threads;
+            for (int col = 0; col < N; ++col)
+                J_at(K, col) = jacobian_entry(row, col, n, dp, iseq, df, dt);
+            r_at(K) = res[row];
+        }
+        const bool ok = Solver::template solve_inplace<internal_rhs, internal_piv, internal_matrix>(
+            tx, J, J_stride, piv, piv_stride, r, rhs_stride, work, sync);
+        double c[N];
+        share(c);
+        if (converged || failed) continue;
+        if (!ok) {
+            failed = true;
+            continue;
+        }
+        for (int i = 0; i < stensor_size; ++i)
+            deel[i] -= c[i];
+        dp -= c[6];
+    }
+    const bool success = converged && !failed;
+    if (success) {
+        for (int i = 0; i < stensor_size; ++i)
+            eel[i] += deel[i];
+        p += dp;
+    }
+
+    // Consistent tangent operator: one factorization, then the six
+    // canonical columns of the elastic strain, solved one by one as
+    // MFront does.
+    for (int K = 0; K < rows && tx + K * threads < N; ++K)
+        for (int col = 0; col < N; ++col)
+            J_at(K, col) = jacobian_entry(tx + K * threads, col, n, dp, iseq, df, dt);
+    const bool factored = Solver::template factorize<internal_piv, internal_matrix>(
+        tx, J, J_stride, piv, piv_stride, work, sync);
+    for (int j = 0; j < stensor_size; ++j) {
+        double X[N];
+        Solver::template substitute_canonical<internal_rhs, internal_piv, internal_matrix>(
+            tx, J, J_stride, piv, piv_stride, j, r, rhs_stride, work, sync);
+        share(X);
+        const double t = lambda * (X[0] + X[1] + X[2]);
+        for (int i = 0; i < stensor_size; ++i)
+            Dt[i * stensor_size + j] = 2 * mu * X[i] + (i < 3 ? t : 0);
+    }
+    return success && factored;
 }
 
 /// \brief Reference solution of one step by the radial return.

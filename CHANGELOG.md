@@ -7,6 +7,37 @@ the API may change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- CooperativeLUpp: LU factorization with partial pivoting shared by a
+  group of threads, one system per group. The arithmetic is the one of
+  the small-system kernel of MAGMA 2.10.0, whose license is reproduced
+  in the headers. Each thread holds `rows_per_thread` rows, so that
+  several systems share a warp, and every value gives
+  bitwise-identical results. Two solvers: one with a compile-time
+  dimension, which keeps the rows in registers, and one with a runtime
+  dimension, which updates them in place. At equal shape and
+  configuration their results are bitwise identical. The caller
+  provides the barrier of the group; with one thread per system the
+  solver runs sequentially, on CPU as on GPU. The back substitution no
+  longer writes a shared entry in the barrier interval where every
+  thread reads it, a data race of the original kernel outside lockstep
+  execution.
+- Entry points of the new family: factorize, substitute, its in-place
+  and canonical forms, solve and solve_inplace, with the stride
+  convention of TiledLUpp and, for the compile-time solver, its
+  residency booleans. Every entry point runs a fixed sequence of
+  barriers, independent of the data.
+- Test suites of the new family, which run the groups of threads on
+  CPU threads: oracle anchors of both solvers, bitwise bridges between
+  them, across rows per thread, entry points, residencies and layouts,
+  singular verdicts, knobs, constexpr certificates and compile-time
+  contract checks.
+- Documentation of the new family: its page and snippet gallery, a
+  TFEL interoperability page, and the three example problems at every
+  execution scale, from one thread per system on CPU to groups of
+  lanes on GPU and groups of work-items in SYCL.
+
 ### Changed
 
 - The unroll knob of TiledLUppConfig is renamed `unroll_loops`, the name

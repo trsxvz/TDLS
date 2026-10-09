@@ -272,8 +272,8 @@ jobs:
     # compiler: icpx targets spir64 SPIR-V by default, so no device is
     # needed at compile time and the binaries serve Intel GPUs at run
     # time. With the CUDA and ROCm jobs this covers the three GPU
-    # vendors. Only the three SYCL targets are built: the CPU suites
-    # are covered by the other jobs.
+    # vendors. Only the SYCL targets are built: the CPU suites are
+    # covered by the other jobs.
     name: gpu examples build only (icpx, SYCL)
     runs-on: ubuntu-latest
     steps:
@@ -297,7 +297,10 @@ jobs:
           cmake --build build -j4 --target \
             tdls_example_tiledlupp_implicit_ode_batch_sycl \
             tdls_example_tiledlupp_integral_equation_batch_sycl \
-            tdls_example_tiledlupp_norton_law_batch_sycl
+            tdls_example_tiledlupp_norton_law_batch_sycl \
+            tdls_example_cooperativelupp_implicit_ode_batch_sycl \
+            tdls_example_cooperativelupp_integral_equation_batch_sycl \
+            tdls_example_cooperativelupp_norton_law_batch_sycl
 
   gpu-stdpar-nvhpc:
     # Build-only check of the parallel STL offload with nvc++. The HPC
@@ -332,6 +335,9 @@ jobs:
           tdls_example_tiledlupp_implicit_ode_batch_stdpar_gpu
           tdls_example_tiledlupp_integral_equation_batch_stdpar_gpu
           tdls_example_tiledlupp_norton_law_batch_stdpar_gpu
+          tdls_example_cooperativelupp_implicit_ode_batch_stdpar_gpu
+          tdls_example_cooperativelupp_integral_equation_batch_stdpar_gpu
+          tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu
 
   gpu-stdpar-hip:
     # Build-only check of the parallel STL offload with the ROCm clang
@@ -375,6 +381,9 @@ jobs:
           tdls_example_tiledlupp_implicit_ode_batch_stdpar_gpu
           tdls_example_tiledlupp_integral_equation_batch_stdpar_gpu
           tdls_example_tiledlupp_norton_law_batch_stdpar_gpu
+          tdls_example_cooperativelupp_implicit_ode_batch_stdpar_gpu
+          tdls_example_cooperativelupp_integral_equation_batch_stdpar_gpu
+          tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu
 
   gpu-stdpar-oneapi:
     # Build-only check of the parallel STL offload with icpx through
@@ -404,7 +413,10 @@ jobs:
           cmake --build build -j4 --target \
             tdls_example_tiledlupp_implicit_ode_batch_stdpar_gpu \
             tdls_example_tiledlupp_integral_equation_batch_stdpar_gpu \
-            tdls_example_tiledlupp_norton_law_batch_stdpar_gpu
+            tdls_example_tiledlupp_norton_law_batch_stdpar_gpu \
+            tdls_example_cooperativelupp_implicit_ode_batch_stdpar_gpu \
+            tdls_example_cooperativelupp_integral_equation_batch_stdpar_gpu \
+            tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu
 
   format:
     runs-on: ubuntu-latest

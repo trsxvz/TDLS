@@ -21,3 +21,4 @@ function(tdls_add_example family example)
 endfunction()
 
 add_subdirectory(tiled_lupp)
+add_subdirectory(cooperative_lupp)

@@ -81,3 +81,25 @@ tiled_lupp_snippets/views
 tiled_lupp_snippets/blocks_of_right_hand_sides
 tiled_lupp_snippets/rejected_shapes
 ```
+
+## CooperativeLUpp snippets
+
+The CooperativeLUpp solvers have no adaptors. An adaptor serves the
+object of one thread: the MFront behaviours build their jacobian in one
+thread per integration point, and the TiledLUpp adaptors solve it in
+place. A CooperativeLUpp system is shared by a group of threads, each
+holding some of its rows. Using it in a behaviour means building the
+rows of each thread in that thread, and launching a group of threads
+per integration point. That is a change of the generated code and of
+the launch, which an adaptor cannot hide.
+
+The TFEL objects still pass through the raw interface. Their storage is
+contiguous and row-major, so their `data()` pointer and a stride of 1
+make valid operands. The snippets are built and run as the TiledLUpp
+ones.
+
+```{toctree}
+:maxdepth: 1
+
+cooperative_lupp_snippets/raw_interface
+```

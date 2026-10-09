@@ -1,0 +1,239 @@
+# Configuration
+
+The knobs of `CooperativeLUppConfig`, one snippet each. Their roles are
+listed on the {doc}`family page <../index>`. Next to each matrix, $t_i$
+marks the thread that holds the row.
+
+## Defaults
+
+The default value, and the two solvers named on it. One row per
+thread: the 4 x 4 system takes a group of 4 threads.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_3 \end{matrix}, \quad
+b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_defaults.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Rows per thread
+
+The same 6 x 6 system on three mappings: 6 threads of 1 row, 3 threads
+of 2 rows, 2 threads of 3 rows. The solutions are bitwise identical.
+On 3 threads:
+
+$$
+A = \begin{pmatrix}
+8 & 1 & 0 & 0 & 2 & 0 \\
+1 & 8 & 1 & 0 & 0 & 2 \\
+0 & 1 & 8 & 1 & 0 & 0 \\
+0 & 0 & 1 & 8 & 1 & 0 \\
+2 & 0 & 0 & 1 & 8 & 1 \\
+0 & 2 & 0 & 0 & 1 & 8
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \\ t_2 \end{matrix}, \quad
+b = \begin{pmatrix} 20 \\ 32 \\ 30 \\ 40 \\ 52 \\ 57 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \\ 6 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_rows_per_thread.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## One thread per system
+
+As many rows per thread as the dimension: one thread solves the
+system, with no barrier. Every operand can then be a local array.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_0 \\ t_0 \\ t_0 \end{matrix}, \quad
+b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_one_thread.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Phantom rows
+
+A dimension that is not a multiple of `rows_per_thread`. The second
+slot holds rows 3 and 4 on threads 0 and 1, and a phantom row on
+thread 2.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 0 & 1 \\
+1 & 5 & 1 & 0 & 0 \\
+0 & 1 & 6 & 1 & 0 \\
+0 & 0 & 1 & 7 & 1 \\
+1 & 0 & 0 & 1 & 8
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 11 \\ 14 \\ 24 \\ 36 \\ 45 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_phantom_rows.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## More rows per thread than the dimension
+
+A `rows_per_thread` above the dimension acts as the dimension: one
+thread per system.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 0 & 1 \\
+1 & 5 & 1 & 0 & 0 \\
+0 & 1 & 6 & 1 & 0 \\
+0 & 0 & 1 & 7 & 1 \\
+1 & 0 & 0 & 1 & 8
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_0 \\ t_0 \\ t_0 \\ t_0 \end{matrix}, \quad
+b = \begin{pmatrix} 11 \\ 14 \\ 24 \\ 36 \\ 45 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_rows_larger.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Singularity floor
+
+The last pivot is tiny. The default floor accepts it, a raised one
+declares the matrix singular. The verdict reaches every thread.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 0 \\
+1 & 5 & 0 & 0 \\
+0 & 0 & 6 & 0 \\
+0 & 0 & 0 & \color{red}{10^{-8}}
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 6 \\ 11 \\ 18 \\ 0 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 0 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_singular_floor.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## No forced unrolling
+
+The same solve with and without the unroll pragmas: bitwise identical
+results.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_unroll.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Column-major layout
+
+The matrix stored column by column, as one system of a batch of 3:
+element (r, c) at `batch[(c * 4 + r) * 3 + 1]`.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_layout.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Scalar types
+
+The same system in `float` and in `long double`.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_scalar_types.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+## Solver constants
+
+The mapping and the knobs, read back from the solver type: 13 rows on
+threads of 5 rows take 3 threads, and the last slot holds a real row
+on thread 0 only.
+
+```{literalinclude} ../../../snippets/cooperative_lupp/config_constants.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```

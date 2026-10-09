@@ -19,6 +19,7 @@ function(tdls_add_snippet family snippet)
     set_tests_properties(snippets.${family}.${snippet} PROPERTIES LABELS "snippets")
 endfunction()
 
+add_subdirectory(cooperative_lupp)
 add_subdirectory(tiled_lupp)
 if(TDLS_BUILD_TFEL_SNIPPETS)
     add_subdirectory(tfel)
