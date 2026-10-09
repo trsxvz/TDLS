@@ -132,21 +132,22 @@ $$
 
 ## Row interchanges
 
-The same system under logical and physical row interchanges. Row 1
-holds the pivot of column 0. The logical scheme leaves the rows in
+The same system under logical and physical row interchanges. Row 0
+has a zero in column 0, so row 1 holds its pivot, whatever the
+threshold. The logical scheme leaves the rows in
 place and records their positions; the physical one moves them, as
 LAPACK does. The solutions are bitwise identical, and so are the
 factored rows once placed.
 
 $$
 A = \begin{pmatrix}
-1 & 2 & 0 & 1 \\
+0 & 2 & 0 & 1 \\
 \color{red}{4} & 1 & 1 & 0 \\
 0 & 1 & 3 & 1 \\
 2 & 0 & 1 & 5
 \end{pmatrix}
 \begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
-b = \begin{pmatrix} 9 \\ 9 \\ 15 \\ 25 \end{pmatrix}, \quad
+b = \begin{pmatrix} 8 \\ 9 \\ 15 \\ 25 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
@@ -160,9 +161,9 @@ $$
 ## Relative pivot threshold
 
 The row in place holds 3 in column 0, below the 4 of row 1. The
-partial pivoting of LAPACK exchanges the two rows. A relative
-threshold of 0.5 keeps the row in place, since 3 reaches half of 4:
-no row moves at all.
+partial pivoting of LAPACK, a threshold of 1, exchanges the two rows.
+The default threshold 0.1 keeps the row in place, since 3 reaches a
+tenth of 4: no row moves at all.
 
 $$
 A = \begin{pmatrix}

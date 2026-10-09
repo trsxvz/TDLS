@@ -210,13 +210,13 @@ TDLS_TEST_CASE("cooperativelupp/knobs/defaults") {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{};
     TDLS_CHECK(config.rows_per_thread == 1);
     TDLS_CHECK(config.row_interchange == tdls::RowInterchange::Logical);
-    TDLS_CHECK(static_cast<double>(config.relative_pivot_threshold) == 1.0);
+    TDLS_CHECK(static_cast<double>(config.relative_pivot_threshold) == 0.1);
     TDLS_CHECK(static_cast<double>(config.singular_floor) == std::numeric_limits<double>::min());
     TDLS_CHECK(config.unroll_loops);
     TDLS_CHECK(config.layout == tdls::MatrixLayout::RowMajor);
     using Solver = tdls::CooperativeLUppSolverStatic<double, 12>;
     TDLS_CHECK(Solver::rows_per_thread == 1 && Solver::threads_per_system == 12);
-    TDLS_CHECK(Solver::relative_pivot_threshold == 1.0 && Solver::workspace_size == 3 * 12 + 2);
+    TDLS_CHECK(Solver::relative_pivot_threshold == 0.1 && Solver::workspace_size == 3 * 12 + 2);
 }
 
 TDLS_TEST_MAIN

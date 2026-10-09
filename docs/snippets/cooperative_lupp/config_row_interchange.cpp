@@ -14,8 +14,8 @@
 #include "group.hpp"
 
 int main() {
-    const double A0[4 * 4]   = {1, 2, 0, 1, 4, 1, 1, 0, 0, 1, 3, 1, 2, 0, 1, 5};
-    const double b0[4]       = {9, 9, 15, 25};
+    const double A0[4 * 4]   = {0, 2, 0, 1, 4, 1, 1, 0, 0, 1, 3, 1, 2, 0, 1, 5};
+    const double b0[4]       = {8, 9, 15, 25};
     const double expected[4] = {1, 2, 3, 4};
     double A1[4 * 4], A2[4 * 4], y1[4], y2[4];
     for (int k = 0; k < 4 * 4; ++k)

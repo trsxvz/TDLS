@@ -24,13 +24,13 @@ int main() {
 
     // snippet begin
     // column 0: the row in place holds 3, row 1 holds 4. The partial
-    // pivoting of LAPACK takes 4; a relative threshold of 0.5 keeps 3,
-    // since 3 >= 0.5 * 4
-    constexpr auto lapack = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
-    constexpr auto relaxed =
-        tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2, .relative_pivot_threshold = 0.5};
-    using Lapack  = tdls::CooperativeLUppSolverStatic<double, 4, lapack>;
-    using Relaxed = tdls::CooperativeLUppSolverStatic<double, 4, relaxed>;
+    // pivoting of LAPACK, a threshold of 1, takes 4; the default threshold
+    // 0.1 keeps 3, since 3 >= 0.1 * 4
+    constexpr auto lapack =
+        tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2, .relative_pivot_threshold = 1.0};
+    constexpr auto relaxed = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
+    using Lapack           = tdls::CooperativeLUppSolverStatic<double, 4, lapack>;
+    using Relaxed          = tdls::CooperativeLUppSolverStatic<double, 4, relaxed>;
 
     double work[Lapack::workspace_size];
     int piv1[4], piv2[4];
@@ -44,7 +44,7 @@ int main() {
     });
 
     // LAPACK exchanges rows 0 and 1; under the threshold every row stays at
-    // its position, and the multipliers stay below 1 / 0.5 = 2
+    // its position, and the multipliers stay below 1 / 0.1 = 10
     const bool exchanged = piv1[0] == 1 && piv1[1] == 0;
     const bool in_place  = piv2[0] == 0 && piv2[1] == 1 && piv2[2] == 2 && piv2[3] == 3;
     // snippet end

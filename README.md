@@ -76,8 +76,9 @@ constexpr tdls::CooperativeLUppConfig<double> config{
     // move between the threads, as in LAPACK); same pivots, same operations
     .row_interchange = tdls::RowInterchange::Logical,
     // double (the scalar type T): the row in place keeps the pivot when it
-    // reaches this fraction of the largest magnitude of its column
-    .relative_pivot_threshold = 1.0,
+    // reaches this fraction of the largest magnitude of its column; 1 gives
+    // the pivots of LAPACK
+    .relative_pivot_threshold = 0.1,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
     .singular_floor = std::numeric_limits<double>::min(),

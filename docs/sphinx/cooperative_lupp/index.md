@@ -48,12 +48,18 @@ may then differ in the last bits. The mapping of rows to threads
 changes nothing in the arithmetic either: every value of
 `rows_per_thread` produces bitwise identical results.
 
-By default, the pivot of a column is its largest magnitude, as in
-LAPACK. A `relative_pivot_threshold` below 1 keeps the row in place
-when it reaches that fraction of the largest magnitude. Rows then move
-less often, and the multipliers stay bounded by the inverse of the
-threshold. The threshold is relative to the column, unlike the
-absolute `oot_pivot_threshold` of TiledLUpp.
+The pivot of a column follows a relative threshold,
+`relative_pivot_threshold`: the row in place keeps the pivot when it
+reaches that fraction of the largest magnitude of the column, and the
+largest magnitude wins otherwise. Rows then move less often, and the
+multipliers stay bounded by the inverse of the threshold. The default
+0.1 saves most row interchanges on matrices that pivot often, up to 30%
+of the solve time on GPU, for a backward error below 1e-13 in double.
+A threshold of 1 is the partial pivoting of LAPACK, with its pivots: on
+matrices that never interchange, such as Newton jacobians close to the
+identity, it saves the few percent that the test costs. The threshold
+is relative to the column, unlike the absolute `oot_pivot_threshold` of
+TiledLUpp.
 
 The diagonal of the factored matrix holds the pivots themselves. The
 factors are consumed by the substitutions of the family, under the
@@ -272,7 +278,7 @@ defaults.
 |---|---|---|
 | `rows_per_thread` | 1 | rows held by each thread, the main performance axis: a system of dimension N takes `ceil(N / rows_per_thread)` threads; from N on, one thread per system |
 | `row_interchange` | `Logical` | row interchanges, `Logical` (rows never move, as in MAGMA) or `Physical` (rows move between the threads, as in LAPACK); same pivots and operations, different factored formats and workspace sizes |
-| `relative_pivot_threshold` | 1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column; 1 is the partial pivoting of LAPACK; in (0, 1] |
+| `relative_pivot_threshold` | 0.1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column; 1 is the partial pivoting of LAPACK; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular; positive |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: those indexing the register rows, whose unrolling keeps them in registers on GPU; the pivot search never carries a pragma; `false` is the choice on CPU; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; results are bitwise identical |
