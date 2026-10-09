@@ -198,3 +198,32 @@ $$
 :end-before: // snippet end
 :dedent: 4
 ```
+
+## The deduced barrier
+
+The system of the first snippet, on 2 CPU threads, without a barrier
+argument: the solver deduces the barrier of the group, held in the
+last two elements of the workspace. `make_sync` returns the same
+barrier, for an exchange of the threads between two substitutions:
+each thread writes the right-hand side of the rows of the other one.
+
+$$
+A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{pmatrix}
+\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+b_1 = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+b_2 = \begin{pmatrix} 7 \\ 7 \\ 8 \\ 10 \end{pmatrix}, \quad
+x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
+x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/cooperative_lupp/static_deduced_barrier.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
