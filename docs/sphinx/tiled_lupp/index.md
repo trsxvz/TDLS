@@ -98,11 +98,15 @@ Above the shown code, the program declares what the formula displays:
 the matrix as a row-major `double` array, the right-hand sides, and
 the expected solution. Below the shown code, it checks its result.
 
+The pages go from the simplest call to the knobs and the batches, CPU
+first, then GPU where it applies.
+
 ```{toctree}
 :maxdepth: 1
 
-snippets/configuration
+snippets/getting_started
 snippets/compile_time_dimension
 snippets/runtime_dimension
+snippets/configuration
 snippets/batches_and_layouts
 ```

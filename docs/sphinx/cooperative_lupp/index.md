@@ -298,18 +298,21 @@ Above the shown code, the program declares what the formula displays:
 the matrix as a row-major `double` array, the right-hand sides, and
 the expected solution. Below the shown code, it checks its result.
 
-The groups of the snippets are CPU threads. `snippets::run_group`
-starts them, as a GPU launch starts the lanes of a warp, and runs its
-function on each one with the rank `tx` of the thread. A group of one
-thread runs on the calling thread. The solver deduces the barrier of
-the group, so the snippets pass none; one snippet passes its own. The
-formulas mark the thread that holds each row.
+The pages go from the simplest call to the groups of threads, the
+knobs and the batches, CPU first, then GPU where it applies. Until the
+groups page, one thread solves each system, as with TiledLUpp. The
+groups page then starts groups of CPU threads by hand, and the next
+pages with `snippets::run_group`, the same code in a function. When a
+snippet uses a group, $t_i$ next to the matrix marks the thread that
+holds the row.
 
 ```{toctree}
 :maxdepth: 1
 
-snippets/configuration
+snippets/getting_started
 snippets/compile_time_dimension
 snippets/runtime_dimension
+snippets/groups
+snippets/configuration
 snippets/batches_and_layouts
 ```

@@ -11,7 +11,6 @@
 #include <tdls/tdls.hpp>
 
 #include "check.hpp"
-#include "group.hpp"
 
 int main() {
     double A_unrolled[4 * 4] = {4, 1, 0, 2, 1, 5, 1, 0, 0, 1, 6, 1, 2, 0, 1, 7};
@@ -19,30 +18,25 @@ int main() {
     double y_unrolled[4]     = {14, 14, 24, 33};
     double y_rolled[4]       = {14, 14, 24, 33};
     const double expected[4] = {1, 2, 3, 4};
-    int ok[2]                = {};
 
     // snippet begin
-    constexpr auto unrolled = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
+    constexpr auto unrolled = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 4};
     constexpr auto rolled =
-        tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2, .unroll_loops = false};
-
+        tdls::CooperativeLUppConfig<double>{.rows_per_thread = 4, .unroll_loops = false};
     using Unrolled = tdls::CooperativeLUppSolverStatic<double, 4, unrolled>;
     using Rolled   = tdls::CooperativeLUppSolverStatic<double, 4, rolled>;
 
-    double work[Unrolled::workspace_size] = {};
+    double work[Unrolled::workspace_size];
     int piv[4];
 
     // no unroll pragma: same values, smaller code and faster builds, the choice for CPU code
-    snippets::run_group<Unrolled::threads_per_system>([&](const int tx) {
-        ok[tx] = Unrolled::solve_inplace<false, false, false>(tx, A_unrolled, 1, piv, 1, y_unrolled,
-                                                              1, work);
-        ok[tx] = Rolled::solve_inplace<false, false, false>(tx, A_rolled, 1, piv, 1, y_rolled, 1,
-                                                            work) &&
-                 ok[tx];
-    });
+    const bool ok1 =
+        Unrolled::solve_inplace<true, true, true>(0, A_unrolled, 1, piv, 1, y_unrolled, 1, work);
+    const bool ok2 =
+        Rolled::solve_inplace<true, true, true>(0, A_rolled, 1, piv, 1, y_rolled, 1, work);
     // snippet end
 
-    if (!ok[0] || !ok[1]) return 1;
+    if (!ok1 || !ok2) return 1;
     if (std::memcmp(y_unrolled, y_rolled, sizeof y_rolled) != 0) return 1;
     return snippets::check(y_rolled, expected, 4);
 }

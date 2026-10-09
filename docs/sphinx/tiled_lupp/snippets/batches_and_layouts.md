@@ -1,7 +1,9 @@
 # Batches and layouts
 
 Three systems with the same solution, laid out as each snippet says.
-The batch is filled above the shown code.
+The batch is filled above the shown code. On CPU, one loop over the
+systems, or OpenMP over the cores; on GPU, one thread per system, in
+the last snippet.
 
 $$
 A^{(s)} = A + s\,I, \quad b^{(s)} = b + s\,x, \quad s = 0, 1, 2, \quad

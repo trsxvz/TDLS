@@ -1,9 +1,11 @@
 # Compile-time dimension
 
 `CooperativeLUppSolverStatic<T, N, Config>`, one snippet per entry
-point. Unless the snippet says otherwise, the 4 x 4 system is solved
-by 2 threads of 2 rows: rows 0 and 2 on thread 0, rows 1 and 3 on
-thread 1. The operands are whole objects, external to the threads.
+point, on CPU. Each one solves the 4 x 4 system with one thread:
+`rows_per_thread` = 4. The first argument, 0, is the rank of that
+thread, and `work` the scratch space of the solver. The calls are the
+same in a GPU kernel and in a group of threads, see
+{doc}`getting_started` and {doc}`groups`.
 
 ## Factorize, then substitute
 
@@ -16,8 +18,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b_1 = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 b_2 = \begin{pmatrix} 7 \\ 7 \\ 8 \\ 10 \end{pmatrix}, \quad
 x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
@@ -41,8 +42,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -65,8 +65,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -89,8 +88,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -114,7 +112,6 @@ A x = e_2, \quad A = \begin{pmatrix}
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
 \end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/static_canonical.cpp
@@ -126,8 +123,7 @@ $$
 
 ## Singular verdict
 
-Column 2 is zero. Every thread runs the whole sequence of barriers and
-receives the same verdict.
+Column 2 is zero: the entry point returns false.
 
 $$
 A = \begin{pmatrix}
@@ -136,7 +132,6 @@ A = \begin{pmatrix}
 0 & 1 & \color{red}{0} & 1 \\
 2 & 0 & \color{red}{0} & 7
 \end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/static_singular.cpp
@@ -148,8 +143,8 @@ $$
 
 ## Constant evaluation
 
-The whole solve runs during constant evaluation, on one thread. The
-data lives inside the constexpr function.
+The whole solve runs during constant evaluation. The data lives
+inside the constexpr function.
 
 $$
 A = \begin{pmatrix}
@@ -157,8 +152,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_0 \\ t_0 \\ t_0 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -171,13 +165,10 @@ $$
 
 ## Newton iteration, then tangent columns
 
-The MFront pattern on a small nonlinear system, run by the group. Each
-thread builds the rows it holds, so the solver reads them without a
-barrier. On return, every thread reads the whole Newton step and
-updates its copy of x. A barrier keeps the next iteration from
-overwriting the step before every thread has read it: the one
-`make_sync` returns, the barrier the solver deduces. At the solution,
-one factorization serves the tangent columns.
+The MFront pattern on a small nonlinear system. Each iteration builds
+a fresh jacobian and solves in place: the right-hand side becomes the
+Newton step. At the solution, one factorization serves the tangent
+columns.
 
 $$
 F(x) = A x + x \odot x - c = 0, \quad
@@ -187,68 +178,12 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 c = \begin{pmatrix} 15 \\ 18 \\ 33 \\ 49 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/static_newton.cpp
-:language: cpp
-:start-after: // snippet begin
-:end-before: // snippet end
-:dedent: 4
-```
-
-## The deduced barrier
-
-The system of the first snippet, on 2 CPU threads, without a barrier
-argument: the solver deduces the barrier of the group, held in the
-first two elements of the workspace. `make_sync` returns the same
-barrier, for an exchange of the threads between two substitutions:
-each thread writes the right-hand side of the rows of the other one.
-
-$$
-A = \begin{pmatrix}
-4 & 1 & 0 & 2 \\
-1 & 5 & 1 & 0 \\
-0 & 1 & 6 & 1 \\
-2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
-b_1 = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
-b_2 = \begin{pmatrix} 7 \\ 7 \\ 8 \\ 10 \end{pmatrix}, \quad
-x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
-x_2 = \begin{pmatrix} 1 \\ 1 \\ 1 \\ 1 \end{pmatrix}
-$$
-
-```{literalinclude} ../../../snippets/cooperative_lupp/static_deduced_barrier.cpp
-:language: cpp
-:start-after: // snippet begin
-:end-before: // snippet end
-:dedent: 4
-```
-
-## An explicit barrier
-
-The same system with a barrier passed by the caller, the case of a
-group that the deduced barrier does not know, such as a group larger
-than a warp. Any callable taking no argument serves. The solver uses
-it as is, and the workspace then needs no initial value.
-
-$$
-A = \begin{pmatrix}
-4 & 1 & 0 & 2 \\
-1 & 5 & 1 & 0 \\
-0 & 1 & 6 & 1 \\
-2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
-b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
-$$
-
-```{literalinclude} ../../../snippets/cooperative_lupp/static_explicit_barrier.cpp
 :language: cpp
 :start-after: // snippet begin
 :end-before: // snippet end

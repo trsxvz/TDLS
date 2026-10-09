@@ -1,7 +1,7 @@
 # Configuration
 
-The knobs of `TiledLUppConfig`, one snippet each. Their roles are
-listed on the {doc}`family page <../index>`.
+The knobs of `TiledLUppConfig`, one snippet each, on CPU. Their roles
+are listed on the {doc}`family page <../index>`.
 
 ## Defaults
 

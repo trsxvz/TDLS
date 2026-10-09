@@ -27,8 +27,7 @@ int main() {
     std::vector<double> work(Solver::workspace_size(n));
     std::vector<int> piv(n);
 
-    // one thread: rank 0, and the deduced barrier, which does nothing for a group of one
-    // thread
+    // one thread suffices while threads_per_system(n) is 1; beyond, n needs a group
     const bool ok =
         Solver::threads_per_system(n) == 1 &&
         Solver::solve_inplace(n, 0, A.data(), 1, piv.data(), 1, y.data(), 1, work.data());

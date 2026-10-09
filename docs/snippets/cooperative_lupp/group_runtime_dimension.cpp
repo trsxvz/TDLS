@@ -27,7 +27,7 @@ int main() {
 
     // the group of a runtime dimension: 3 threads for n = 5, the last one with a phantom row
     const int threads = Solver::threads_per_system(n);
-    std::vector<double> work(Solver::workspace_size(n)); // 3 * n elements
+    std::vector<double> work(Solver::workspace_size(n)); // 2 + 3 n elements, zero
     std::vector<int> piv(n);
 
     snippets::run_group(threads, [&](const int tx) {

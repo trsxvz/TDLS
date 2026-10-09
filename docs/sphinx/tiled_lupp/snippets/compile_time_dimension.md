@@ -1,8 +1,9 @@
 # Compile-time dimension
 
-`TiledLUppSolverStatic` on a 4 x 4 system in tiles of 2. The matrix,
-the right-hand sides and the expected solutions are declared above the
-shown code.
+`TiledLUppSolverStatic` on a 4 x 4 system in tiles of 2, one snippet
+per entry point, on CPU. The matrix, the right-hand sides and the
+expected solutions are declared above the shown code. The calls are
+the same in a GPU kernel, see {doc}`getting_started`.
 
 ## Factorize, then substitute
 

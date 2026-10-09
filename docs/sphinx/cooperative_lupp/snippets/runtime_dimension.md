@@ -1,10 +1,11 @@
 # Runtime dimension
 
-`CooperativeLUppSolverDynamic<T, Config>`, one snippet per entry point.
-The dimension is the first argument, the rank of the thread the
-second. Every operand is a pointer plus a stride. Unless the snippet
-says otherwise, n = 5 on threads of 2 rows: a group of 3 threads, the
-last one holding a phantom row in its second slot.
+`CooperativeLUppSolverDynamic<T, Config>`, one snippet per entry point,
+on CPU. The dimension n is the first argument, the rank of the thread
+the second. Every operand is a pointer plus a stride. Unless the
+snippet says otherwise, n = 5 and `rows_per_thread` = 8: one thread
+solves every dimension up to 8. Groups of threads, for a runtime
+dimension as well, are on {doc}`groups`.
 
 ## Factorize, then substitute
 
@@ -17,8 +18,7 @@ A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b_1 = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 b_2 = \begin{pmatrix} 7 \\ 8 \\ 9 \\ 10 \\ 11 \end{pmatrix}, \quad
 x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}, \quad
@@ -43,8 +43,7 @@ A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -67,8 +66,7 @@ A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -92,8 +90,7 @@ A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -117,7 +114,6 @@ A x = e_2, \quad A = \begin{pmatrix}
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
 \end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/dynamic_canonical.cpp
@@ -127,36 +123,11 @@ $$
 :dedent: 4
 ```
 
-## The group of a runtime dimension
+## When n may exceed rows_per_thread
 
-The number of threads and the size of the workspace, read from the
-solver for a runtime n: 3 threads and 15 elements for n = 5.
-
-$$
-A = \begin{pmatrix}
-5 & 1 & 0 & 0 & 1 \\
-1 & 6 & 1 & 0 & 0 \\
-0 & 1 & 7 & 1 & 0 \\
-0 & 0 & 1 & 8 & 1 \\
-1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
-b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
-x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
-$$
-
-```{literalinclude} ../../../snippets/cooperative_lupp/dynamic_threads.cpp
-:language: cpp
-:start-after: // snippet begin
-:end-before: // snippet end
-:dedent: 4
-```
-
-## More rows per thread than the dimension
-
-A `rows_per_thread` of 8: one thread solves every n up to 8, and the
-deduced barrier does nothing for it. Beyond 8, the group would need a
-second thread, so the snippet checks the number of threads.
+One thread solves every n up to `rows_per_thread`. Beyond, the system
+needs a group of `threads_per_system(n)` threads: a caller that
+cannot rule it out checks the number of threads first.
 
 $$
 A = \begin{pmatrix}
@@ -165,8 +136,7 @@ A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_0 \\ t_0 \\ t_0 \\ t_0 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -190,8 +160,7 @@ A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$

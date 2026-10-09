@@ -61,6 +61,7 @@ class Barrier {
     unsigned long long generation = 0;
 };
 
+// run_group begin
 /// \brief Runs fn(tx) on every thread of a group whose size is a
 /// runtime value, as the number of threads of a runtime solver: new
 /// threads, or the calling thread for a group of one.
@@ -89,6 +90,7 @@ template<int threads, typename Fn>
 void run_group(Fn&& fn) {
     run_group(threads, fn);
 }
+// run_group end
 
 
 

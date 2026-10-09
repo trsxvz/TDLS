@@ -1,8 +1,11 @@
 # Configuration
 
-The knobs of `CooperativeLUppConfig`, one snippet each. Their roles are
-listed on the {doc}`family page <../index>`. Next to each matrix, $t_i$
-marks the thread that holds the row.
+The knobs of `CooperativeLUppConfig`, one snippet each, on CPU. Their
+roles are listed on the {doc}`family page <../index>`. The knobs of
+the groups (the defaults, `rows_per_thread`, the phantom rows) run
+groups of CPU threads with `snippets::run_group`, see {doc}`groups`;
+next to their matrices, $t_i$ marks the thread that holds the row. The
+other knobs solve with one thread.
 
 ## Defaults
 
@@ -134,10 +137,10 @@ $$
 
 The same system under logical and physical row interchanges. Row 0
 has a zero in column 0, so row 1 holds its pivot, whatever the
-threshold. The logical scheme leaves the rows in
-place and records their positions; the physical one moves them, as
-LAPACK does. The solutions are bitwise identical, and so are the
-factored rows once placed.
+threshold. The logical scheme leaves the rows in place and records
+their positions; the physical one moves them, as LAPACK does. The
+solutions are bitwise identical, and so are the factored rows once
+placed.
 
 $$
 A = \begin{pmatrix}
@@ -145,8 +148,7 @@ A = \begin{pmatrix}
 \color{red}{4} & 1 & 1 & 0 \\
 0 & 1 & 3 & 1 \\
 2 & 0 & 1 & 5
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 8 \\ 9 \\ 15 \\ 25 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -171,8 +173,7 @@ A = \begin{pmatrix}
 4 & 6 & 1 & 0 \\
 0 & 1 & 5 & 1 \\
 0 & 0 & 1 & 4
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 5 \\ 19 \\ 21 \\ 19 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -187,7 +188,7 @@ $$
 ## Singularity floor
 
 The last pivot is tiny. The default floor accepts it, a raised one
-declares the matrix singular. The verdict reaches every thread.
+declares the matrix singular.
 
 $$
 A = \begin{pmatrix}
@@ -195,8 +196,7 @@ A = \begin{pmatrix}
 1 & 5 & 0 & 0 \\
 0 & 0 & 6 & 0 \\
 0 & 0 & 0 & \color{red}{10^{-8}}
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 6 \\ 11 \\ 18 \\ 0 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 0 \end{pmatrix}
 $$
@@ -219,8 +219,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -243,8 +242,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -258,10 +256,7 @@ $$
 
 ## Scalar types
 
-The same system in `float` and in `long double`. A group of CPU
-threads in `long double` passes its own barrier: the deduced one needs
-lock-free atomics on the scalar type, which `long double` lacks on
-most CPUs, and the compiler says so.
+The same system in `float` and in `long double`.
 
 $$
 A = \begin{pmatrix}
@@ -269,8 +264,7 @@ A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$

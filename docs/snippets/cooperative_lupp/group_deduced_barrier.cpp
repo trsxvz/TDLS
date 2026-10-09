@@ -7,11 +7,10 @@
 /// (see the LICENSE file). CEA may also distribute it under specific
 /// licensing conditions.
 
-#include <thread>
-
 #include <tdls/tdls.hpp>
 
 #include "check.hpp"
+#include "group.hpp"
 
 int main() {
     double A[4 * 4]             = {4, 1, 0, 2, 1, 5, 1, 0, 0, 1, 6, 1, 2, 0, 1, 7};
@@ -25,27 +24,23 @@ int main() {
     int ok[2] = {};
 
     // snippet begin
-    // the workspace of the group, zero before the first call: its first 2 elements hold
-    // the barrier the solver deduces for 2 CPU threads
+    // shared by the group; its first 2 elements, zero, hold the barrier of the 2 CPU threads
     double work[Solver::workspace_size] = {};
     int piv[4];
-    std::thread group[2];
-    for (int tx = 0; tx < 2; ++tx)
-        group[tx] = std::thread([&, tx] {
-            // no barrier argument: the solver deduces it
-            ok[tx] = Solver::factorize<false, false>(tx, A, 1, piv, 1, work);
-            Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b1, x1, 1, work);
 
-            // the same barrier for an exchange of the caller: each thread writes the
-            // right-hand side of the rows of the other one, then waits for it
-            auto sync = Solver::make_sync(work);
-            for (int r = 1 - tx; r < 4; r += 2)
-                b2[r] = b2_values[r];
-            sync();
-            Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b2, x2, 1, work, sync);
-        });
-    for (auto& thread : group)
-        thread.join();
+    snippets::run_group<Solver::threads_per_system>([&](const int tx) {
+        // no barrier argument: the solver deduces it
+        ok[tx] = Solver::factorize<false, false>(tx, A, 1, piv, 1, work);
+        Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b1, x1, 1, work);
+
+        // the same barrier for an exchange of the caller: each thread writes the
+        // right-hand side of the rows of the other one, then waits for it
+        auto sync = Solver::make_sync(work);
+        for (int r = 1 - tx; r < 4; r += 2)
+            b2[r] = b2_values[r];
+        sync();
+        Solver::substitute<false, false, false>(tx, A, 1, piv, 1, b2, x2, 1, work, sync);
+    });
     // snippet end
 
     if (!ok[0] || !ok[1]) return 1;

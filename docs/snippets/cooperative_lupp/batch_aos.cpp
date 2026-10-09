@@ -10,7 +10,6 @@
 
 #include "batch.hpp"
 #include "check.hpp"
-#include "group.hpp"
 
 int main() {
     using namespace snippets;
@@ -22,25 +21,23 @@ int main() {
         for (int i = 0; i < N; ++i)
             y[s * N + i] = rhs(s, i);
     }
-    int ok[count][2] = {};
+    bool ok[count] = {};
 
     // snippet begin
-    constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
+    // one thread per system: 4 rows per thread
+    constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 4};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 4, config>;
 
-    double work[Solver::workspace_size] = {};
+    double work[Solver::workspace_size];
 
     // system s at A + s * N * N, its pivots and right-hand side at s * N: stride 1
-    for (int s = 0; s < count; ++s) {
-        snippets::run_group<Solver::threads_per_system>([&](const int tx) {
-            ok[s][tx] = Solver::solve_inplace<false, false, false>(
-                tx, A + s * N * N, 1, piv + s * N, 1, y + s * N, 1, work);
-        });
-    }
+    for (int s = 0; s < count; ++s)
+        ok[s] = Solver::solve_inplace<false, false, false>(0, A + s * N * N, 1, piv + s * N, 1,
+                                                           y + s * N, 1, work);
     // snippet end
 
     int status = 0;
     for (int s = 0; s < count; ++s)
-        status |= ok[s][0] && ok[s][1] ? snippets::check(y + s * N, 1, expected, N) : 1;
+        status |= ok[s] ? snippets::check(y + s * N, 1, expected, N) : 1;
     return status;
 }

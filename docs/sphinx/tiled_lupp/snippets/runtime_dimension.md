@@ -1,9 +1,10 @@
 # Runtime dimension
 
 `TiledLUppSolverDynamic` on a 5 x 5 system in tiles of 2: two full
-tiles and a trailing tile of 1. The dimension, the matrix, the
-right-hand sides and the expected solutions are declared above the
-shown code, the arrays as `std::vector<double>`.
+tiles and a trailing tile of 1, one snippet per entry point, on CPU.
+The dimension, the matrix, the right-hand sides and the expected
+solutions are declared above the shown code, the arrays as
+`std::vector<double>`. The calls are the same in a GPU kernel.
 
 ## Factorize, then substitute
 

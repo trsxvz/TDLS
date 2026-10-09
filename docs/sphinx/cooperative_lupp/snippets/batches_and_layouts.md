@@ -1,8 +1,10 @@
 # Batches and layouts
 
 Three 4 x 4 systems, $A + s I$ for $s = 0, 1, 2$, all with the same
-solution. The batch is filled above the shown code. Each system is
-solved by 2 threads of 2 rows, unless the snippet says otherwise.
+solution. The batch is filled above the shown code. On CPU, one
+thread solves each system, in a loop; the residencies snippet uses a
+group of 2 threads, marked $t_0$ and $t_1$ next to the matrix. On GPU,
+a group of 2 lanes solves each system.
 
 $$
 A = \begin{pmatrix}
@@ -19,8 +21,8 @@ $$
 
 ## Residencies
 
-The same solve on the slices of the threads, then on a system of an
-SoA batch. An internal operand is the slice of the calling thread: its
+The same solve on the slices of the 2 threads of a group, then on a
+system of an SoA batch. An internal operand is the slice of the calling thread: its
 rows, their pivot entries and their right-hand-side entries, in local
 arrays. An external operand is the whole object, reachable by the
 group and walked with a stride.
@@ -68,9 +70,8 @@ Blocks of 4 interleaved systems, the last block padded: stride 4.
 
 ## An OpenMP loop over a batch
 
-One thread per system on the CPU cores, in a function shown whole. The
-threads of OpenMP do not cooperate: a barrier between them would cost
-more than the solve itself.
+One thread per system on the CPU cores, in a function shown whole: the
+batch loops above, spread over the cores.
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/batch_openmp.cpp
 :language: cpp
@@ -80,8 +81,8 @@ more than the solve itself.
 
 ## Inside a GPU kernel
 
-Groups of 2 lanes per system of an SoA batch, as many groups per warp
-as fit, in the common CUDA/HIP dialect. Each group has its workspace
+On GPU: groups of 2 lanes per system of an SoA batch, as many groups
+per warp as fit, in the common CUDA/HIP dialect. Each group has its workspace
 in shared memory. No barrier is passed: the solver deduces the barrier
 of the 2 lanes, `__syncwarp` on them under CUDA, a wavefront fence
 under HIP. Built with the GPU example options, skipped without a
