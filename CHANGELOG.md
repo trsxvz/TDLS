@@ -28,8 +28,9 @@ the API may change between minor versions.
   NVIDIA GPUs, sm_70 or newer; a wavefront fence on AMD GPUs; a counter
   in the first two elements of the workspace for CPU threads. On GPU,
   the group is identified by its workspace and checked on entry: a
-  group whose threads are not together in their warp stops the program
-  with a message, instead of a wrong result or a deadlock. The kernels
+  group whose threads are not together in their warp, or whose
+  workspace is private to each thread, stops the program with a
+  message, instead of a wrong result or a deadlock. The kernels
   of CUDA, HIP, Kokkos, RAJA, OpenMP and OpenACC offloading, and of the
   parallel algorithms of nvc++, get it alike. A caller may still pass
   its own barrier, used as is, and `make_sync` returns the deduced one

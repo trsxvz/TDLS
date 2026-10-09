@@ -102,8 +102,11 @@ GPU code:
 The lanes of a group may sit anywhere in their warp or wavefront. On
 entry, the active lanes match the address of their workspace, and the
 group must find all its threads among them. A group that does not
-stops the program with a message, before any exchange: a wrong
-placement of the threads never gives a wrong result nor a deadlock.
+stops the program with a message, before any exchange. So does a
+workspace in the private memory of each thread, whose address is the
+same in every lane: the group shares its workspace, in shared or
+global memory. A wrong placement of the threads or of the workspace
+never gives a wrong result nor a deadlock.
 The threads of a group must therefore call the solver together, from
 the same path of the code, as they do when they solve the same system.
 The check runs once per call, and the barrier is the one a caller
@@ -133,7 +136,13 @@ barrier, and the compiler says so:
 - SPIR-V devices, Intel GPUs among them, through SYCL or OpenMP
   offloading: they have the instructions, but no standard way to stop
   a kernel that finds its group incomplete, so the check could not
-  keep its promise there.
+  keep its promise there;
+- a CPU whose standard library lacks `std::atomic_ref`, as libc++
+  before 19.
+
+On these targets, the runtime solver needs an explicit choice even for
+one thread per system: its group size depends on n, unknown to the
+compiler. `tdls::NoSync` states that choice.
 
 ### An explicit barrier
 

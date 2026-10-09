@@ -30,16 +30,19 @@
 ///     one wavefront (AMD). On entry, the lanes that run together match
 ///     the address of their workspace, and the group must find all its
 ///     threads among them. An incomplete group stops the program with a
-///     message, before any data is exchanged: a wrong placement of the
-///     threads never yields a wrong result nor a deadlock. The barrier
-///     then involves exactly the lanes of the group.
+///     message, before any data is exchanged, and so does a workspace in
+///     the private memory of each thread: a wrong placement of the
+///     threads or of the workspace never yields a wrong result nor a
+///     deadlock. The barrier then involves exactly the lanes of the
+///     group.
 ///   - on a CPU, the threads of a group are any threads running
 ///     concurrently: OpenMP, std::thread, Kokkos team threads and so on.
 ///     The barrier is a counter and a flag held in the first two elements
 ///     of the workspace, which must be zero before the first call; the
-///     barrier keeps them in that state between calls. A group waiting for more than a second
-///     prints a diagnostic once and keeps waiting: a thread may be late
-///     for a legitimate reason, so the wait is never cut short.
+///     barrier keeps them in that state between calls. A group waiting
+///     for more than a second prints a diagnostic once and keeps waiting:
+///     a thread may be late for a legitimate reason, so the wait is never
+///     cut short.
 ///
 /// **Targets.** The target is a property of the compilation pass, decided
 /// by the preprocessor in one place below:
@@ -52,17 +55,19 @@
 ///   - AMD through the clang builtins: the device passes of HIP, of
 ///     OpenMP offloading and of SYCL, the builtins HIP itself uses, from
 ///     ROCm 5.3 on;
-///   - the host, for every other pass.
+///   - the host, for every other pass, through std::atomic_ref (libc++
+///     has it from 19 on).
 /// A few passes offer no warp primitive callable without a handle
 /// passed by the kernel: nvc++ OpenMP or OpenACC offloading without
 /// -cuda, its OpenACC backend of the parallel algorithms, the generic
 /// mode of AdaptiveCpp, GCC offloading and NVIDIA GPUs before Volta.
 /// SPIR-V devices, through SYCL or OpenMP offloading, have the
-/// primitives, but no standard way to stop a kernel that finds its group
-/// incomplete, so the check could not keep its promise there. In all
-/// these passes the deduced barrier accepts only a group of one thread
-/// known at compile time, and the compiler asks for an explicit barrier
-/// otherwise.
+/// primitives, but no standard way to stop a kernel that finds its
+/// group incomplete, so the check could not keep its promise there. A
+/// host pass whose standard library lacks std::atomic_ref has none
+/// either. In all these passes the deduced barrier accepts only a group
+/// of one thread known at compile time, and the compiler asks for an
+/// explicit barrier otherwise.
 ///
 /// The GPU checks follow the warp synchronous primitives of each vendor:
 /// __match_any_sync on the active lanes, __syncwarp on the lanes of the
@@ -152,6 +157,10 @@
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE                                                                     \
     "The generic mode of AdaptiveCpp has none; its cuda and hip modes do."
+#elif !defined(__cpp_lib_atomic_ref)
+/// No deduced barrier in this pass; the reason, appended to the diagnostic.
+#define TDLS_DETAIL_GROUP_NONE                                                                     \
+    "On CPU, it needs std::atomic_ref, missing from this standard library (libc++ before 19)."
 #else
 /// The host.
 #define TDLS_DETAIL_GROUP_HOST
@@ -273,10 +282,13 @@ inline constexpr int group_lanes = 0;
 
 /// Message of an incomplete group, printed by its first lane. It takes no
 /// argument: a formatted print would reserve a stack frame in local
-/// memory for every kernel, even when it never runs.
+/// memory for every kernel, even when it never runs. A workspace in the
+/// private memory of each thread fails as well: its address is the same
+/// in every lane, so the lanes would match without sharing anything.
 #define TDLS_DETAIL_GROUP_INCOMPLETE                                                               \
-    "TDLS: a group of threads is incomplete in its warp. The threads of a group must call the "    \
-    "solver together, as lanes of one warp or wavefront.\n"
+    "TDLS: a group of threads is incomplete in its warp, or its workspace is private to each "     \
+    "thread. The threads of a group must call the solver together, as lanes of one warp or "       \
+    "wavefront, with a workspace in shared or global memory.\n"
 
 /* =========================================================================
    NVIDIA, CUDA API: nvcc, clang CUDA, nvc++ on the device side.
@@ -285,7 +297,8 @@ inline constexpr int group_lanes = 0;
 #if defined(TDLS_DETAIL_GROUP_CUDA) || defined(TDLS_DETAIL_GROUP_NVCXX)
 
 /// \brief Lanes of the calling group: the active lanes sharing its key.
-/// Stops the program when the group does not find all its threads.
+/// Stops the program when the group does not find all its threads, or
+/// when its key lies in the private memory of each thread.
 /// \param[in] key     address identifying the group
 /// \param[in] threads number of threads of the group
 /// \return the lane mask of the group
@@ -296,7 +309,7 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
         const unsigned mask =
             __match_any_sync(__activemask(), reinterpret_cast<unsigned long long>(key));
         const int found = __popc(mask);
-        if (found != threads) {
+        if (found != threads || __isLocal(key)) {
             unsigned lane;
             asm volatile("mov.u32 %0, %%laneid;" : "=r"(lane));
             if (lane == static_cast<unsigned>(__ffs(mask) - 1))
@@ -323,7 +336,8 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 #elif defined(TDLS_DETAIL_GROUP_NVPTX)
 
 /// \brief Lanes of the calling group: the active lanes sharing its key.
-/// Stops the program when the group does not find all its threads.
+/// Stops the program when the group does not find all its threads, or
+/// when its key lies in the private memory of each thread.
 /// \param[in] key     address identifying the group
 /// \param[in] threads number of threads of the group
 /// \return the lane mask of the group
@@ -333,7 +347,7 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
     const unsigned mask = __nvvm_match_any_sync_i64(
         active, static_cast<long long>(reinterpret_cast<unsigned long long>(key)));
     const int found = __builtin_popcount(mask);
-    if (found != threads) {
+    if (found != threads || __nvvm_isspacep_local(key)) {
 #if !defined(__SYCL_DEVICE_ONLY__)
         if (__nvvm_read_ptx_sreg_laneid() == __builtin_ctz(mask))
             printf(TDLS_DETAIL_GROUP_INCOMPLETE);
@@ -371,7 +385,8 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 #endif
 
 /// \brief Lanes of the calling group: the active lanes sharing its key.
-/// Stops the program when the group does not find all its threads.
+/// Stops the program when the group does not find all its threads, or
+/// when its key lies in the private memory of each thread.
 /// \param[in] key     address identifying the group
 /// \param[in] threads number of threads of the group
 /// \return the lane mask of the group
@@ -389,8 +404,13 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
             }
         }
     }
+    // The builtin takes a generic pointer, which OpenMP offloading does not
+    // make the default. Only a C cast changes the address space, as in the
+    // OpenMP device runtime.
     const int found = __builtin_popcountll(mask);
-    if (found != threads) {
+    const bool isprivate =
+        __builtin_amdgcn_is_private((const __attribute__((address_space(0))) void*)key);
+    if (found != threads || isprivate) {
 #if !defined(__SYCL_DEVICE_ONLY__)
         const unsigned lane = __builtin_amdgcn_mbcnt_hi(~0u, __builtin_amdgcn_mbcnt_lo(~0u, 0u));
         if (lane == static_cast<unsigned>(__builtin_ctzll(mask)))
@@ -471,9 +491,9 @@ void host_sync(T* slots, const int threads) noexcept {
         else if (now - start > std::chrono::seconds(1) && !warned.exchange(true))
             std::fprintf(stderr,
                          "TDLS: a group of %d CPU threads has waited for 1 s at a barrier. "
-                         "The threads of a group must run concurrently: not in a "
-                         "worksharing loop, nor in parallel STL or a SYCL kernel on the "
-                         "CPU.\n",
+                         "The threads of a group must share its workspace and run "
+                         "concurrently: not in a worksharing loop, nor in parallel STL or a "
+                         "SYCL kernel on the CPU.\n",
                          threads);
     }
 }
