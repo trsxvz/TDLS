@@ -49,17 +49,21 @@
 ///     the side with NV_IF_TARGET);
 ///   - NVIDIA through the clang builtins: the other clang device passes
 ///     for NVPTX, OpenMP offloading and SYCL;
-///   - AMD through the HIP API (ROCm 7.0 or newer, where the warp
-///     synchronous functions are enabled by default);
+///   - AMD through the HIP API: ROCm 7.0 or newer, where the warp
+///     synchronous functions are enabled by default, or ROCm 6.2 with
+///     HIP_ENABLE_WARP_SYNC_BUILTINS;
 ///   - AMD through the clang builtins: the other clang device passes for
 ///     AMDGCN, OpenMP offloading and SYCL (clang 19 or newer);
 ///   - the host, for every other pass.
 /// A few passes offer no warp primitive callable without a handle passed
 /// by the kernel: nvc++ OpenMP or OpenACC offloading without -cuda, its
 /// OpenACC backend of the parallel algorithms, the generic mode of
-/// AdaptiveCpp, GCC offloading and SYCL on SPIR-V devices. There the
-/// deduced barrier accepts only a group of one thread known at compile
-/// time, and the compiler asks for an explicit barrier otherwise.
+/// AdaptiveCpp, GCC offloading, and HIP before its warp synchronous
+/// functions. SYCL on SPIR-V devices has the primitives, but no way to
+/// stop a kernel that finds its group incomplete, so the check could not
+/// keep its promise there. In all these passes the deduced barrier
+/// accepts only a group of one thread known at compile time, and the
+/// compiler asks for an explicit barrier otherwise.
 ///
 /// The GPU checks follow the warp synchronous primitives of each vendor:
 /// __match_any_sync on the active lanes, __syncwarp on the lanes of the
@@ -95,46 +99,60 @@
    Target of the compilation pass.
    The order matters. clang defines __CUDA_ARCH__ in the OpenMP device
    pass for AMDGCN up to clang 18, and DPC++ does not define it for NVPTX:
-   the AMDGCN and NVPTX macros are tested first.
+   the AMDGCN and NVPTX macros are tested first. The builtins serve the
+   device passes outside the CUDA and HIP languages only: AdaptiveCpp
+   defines __NVPTX__ in the host pass of its CUDA mode too. The generic
+   mode of AdaptiveCpp compiles host and device code in one pass,
+   recognized by the macro its compiler defines, once no device pass has
+   matched.
    ========================================================================= */
 
 #if defined(__NVCOMPILER)
 #if defined(__NVCOMPILER_STDPAR_OPENACC_GPU)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE "the OpenACC backend of nvc++ for the parallel algorithms has none"
+#define TDLS_DETAIL_GROUP_NONE "The OpenACC backend of nvc++ for the parallel algorithms has none."
 #elif defined(_NVHPC_CUDA)
 /// nvc++ with CUDA: NV_IF_TARGET selects the device or the host side.
 #define TDLS_DETAIL_GROUP_NVCXX
 #elif defined(__NVCOMPILER_OPENMP_GPU) || defined(__NVCOMPILER_OPENACC_GPU)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE "nvc++ offers it to OpenMP and OpenACC offloading with -cuda"
+#define TDLS_DETAIL_GROUP_NONE "nvc++ offers it to OpenMP and OpenACC offloading with -cuda."
 #else
 /// The host.
 #define TDLS_DETAIL_GROUP_HOST
 #endif
-#elif defined(ACPP_LIBKERNEL_IS_DEVICE_PASS_SSCP) || defined(HIPSYCL_LIBKERNEL_IS_DEVICE_PASS_SSCP)
-/// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE "the generic mode of AdaptiveCpp has none; its cuda and hip modes do"
-#elif defined(__AMDGCN__) && defined(__clang__)
-#if defined(__HIP_DEVICE_COMPILE__)
+#elif defined(__AMDGCN__) && defined(__clang__) && defined(__HIP_DEVICE_COMPILE__)
+#if (HIP_VERSION_MAJOR >= 7 && !defined(HIP_DISABLE_WARP_SYNC_BUILTINS)) ||                        \
+    defined(HIP_ENABLE_WARP_SYNC_BUILTINS)
 /// AMD through the HIP API.
 #define TDLS_DETAIL_GROUP_HIP
 #else
+/// No deduced barrier in this pass; the reason, appended to the diagnostic.
+#define TDLS_DETAIL_GROUP_NONE                                                                     \
+    "HIP offers its warp synchronous functions from ROCm 7.0, or from ROCm 6.2 with "              \
+    "HIP_ENABLE_WARP_SYNC_BUILTINS."
+#endif
+#elif defined(__AMDGCN__) && defined(__clang__) && !defined(__HIP__)
 /// AMD through the clang builtins.
 #define TDLS_DETAIL_GROUP_AMDGCN
-#endif
 #elif defined(__CUDA_ARCH__) && (defined(__CUDACC__) || defined(__CUDA__))
 /// NVIDIA through the CUDA API.
 #define TDLS_DETAIL_GROUP_CUDA
-#elif defined(__NVPTX__) && defined(__clang__)
+#elif defined(__NVPTX__) && defined(__clang__) && !defined(__CUDA__)
 /// NVIDIA through the clang builtins.
 #define TDLS_DETAIL_GROUP_NVPTX
-#elif defined(__nvptx__) || defined(__AMDGCN__) || defined(__amdgcn__)
+#elif !defined(__clang__) && (defined(__nvptx__) || defined(__AMDGCN__) || defined(__amdgcn__))
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE "GCC offloading has none"
+#define TDLS_DETAIL_GROUP_NONE "GCC offloading has none."
 #elif defined(__SYCL_DEVICE_ONLY__)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
-#define TDLS_DETAIL_GROUP_NONE "SYCL devices other than NVIDIA and AMD have none yet"
+#define TDLS_DETAIL_GROUP_NONE                                                                     \
+    "On SPIR-V devices, SYCL cannot stop a kernel whose group is incomplete; pass a sub-group "    \
+    "or work-group barrier."
+#elif defined(__ACPP_ENABLE_LLVM_SSCP_TARGET__) || defined(__HIPSYCL_ENABLE_LLVM_SSCP_TARGET__)
+/// No deduced barrier in this pass; the reason, appended to the diagnostic.
+#define TDLS_DETAIL_GROUP_NONE                                                                     \
+    "The generic mode of AdaptiveCpp has none; its cuda and hip modes do."
 #else
 /// The host.
 #define TDLS_DETAIL_GROUP_HOST
@@ -281,8 +299,9 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 
 /* =========================================================================
    AMD, HIP API (ROCm 7.0 or newer). The lanes of a wavefront run in
-   lockstep: the barrier only orders the memory operations, as the
-   __syncwarp of HIP.
+   lockstep: the barrier only orders the memory operations. It is the
+   body of the __syncwarp() of HIP, spelled with the builtins it uses, so
+   that it holds whatever the HIP release.
    ========================================================================= */
 
 #elif defined(TDLS_DETAIL_GROUP_HIP)
@@ -307,7 +326,9 @@ TDLS_DETAIL_GROUP_LANES unsigned long long lanes_join(const void* key, const int
 /// \brief Barrier of the lanes of a group: a wavefront fence around a
 /// scheduling barrier.
 TDLS_DETAIL_GROUP_LANES void lanes_sync(unsigned long long) noexcept {
-    __syncwarp();
+    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "wavefront");
+    __builtin_amdgcn_wave_barrier();
+    __builtin_amdgcn_fence(__ATOMIC_ACQUIRE, "wavefront");
 }
 
 /* =========================================================================

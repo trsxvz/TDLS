@@ -89,7 +89,8 @@ from the target the code is compiled for.
 | CPU threads | a counter in the last two elements of the workspace |
 
 On GPU, this covers every model whose kernels the compiler builds as
-GPU code: CUDA, HIP (ROCm 7.0 or newer), Kokkos and RAJA, OpenMP
+GPU code: CUDA, HIP (ROCm 7.0, or 6.2 with
+`HIP_ENABLE_WARP_SYNC_BUILTINS`), Kokkos and RAJA, OpenMP
 offloading with clang (clang 19 or newer on AMD), nvc++ with
 `-stdpar=gpu`, or with `-cuda` for OpenMP and OpenACC offloading, and
 SYCL on NVIDIA and AMD devices. The lanes of a group may sit anywhere
@@ -114,8 +115,10 @@ per system stays the fast choice on CPU.
 
 A few targets offer no warp instruction callable without a handle of
 the kernel: nvc++ OpenMP or OpenACC offloading without `-cuda`, the
-generic mode of AdaptiveCpp, GCC offloading, and the SYCL devices
-other than NVIDIA and AMD. There, a group of several threads needs an
+generic mode of AdaptiveCpp and GCC offloading. SYCL on SPIR-V devices,
+Intel GPUs among them, has the instructions, but no way to stop a
+kernel that finds its group incomplete: the check could not keep its
+promise there. On these targets, a group of several threads needs an
 explicit barrier, and the compiler says so.
 
 ### An explicit barrier
