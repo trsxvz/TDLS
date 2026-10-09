@@ -89,31 +89,38 @@ from the target the code is compiled for.
 | CPU threads | a counter in the first two elements of the workspace |
 
 On GPU, this covers every model whose kernels the compiler builds as
-GPU code: CUDA, HIP (ROCm 7.0, or 6.2 with
-`HIP_ENABLE_WARP_SYNC_BUILTINS`), Kokkos and RAJA, OpenMP
-offloading with clang (clang 19 or newer on AMD), nvc++ with
-`-stdpar=gpu`, or with `-cuda` for OpenMP and OpenACC offloading, and
-SYCL on NVIDIA and AMD devices. The lanes of a group may sit anywhere
-in their warp or wavefront. On entry, the active lanes match the
-address of their workspace, and the group must find all its threads
-among them. A group that does not stops the program with a message,
-before any exchange: a wrong placement of the threads never gives a
-wrong result nor a deadlock. The threads of a group must therefore
-call the solver together, from the same path of the code, as they do
-when they solve the same system. The check runs once per call, and the
-barrier is the one a caller would write by hand.
+GPU code:
+
+- CUDA, and HIP from ROCm 7.0 (6.2 with
+  `HIP_ENABLE_WARP_SYNC_BUILTINS`);
+- Kokkos and RAJA;
+- OpenMP offloading with clang (clang 19 or newer on AMD);
+- nvc++ with `-stdpar=gpu`, or with `-cuda` for OpenMP and OpenACC
+  offloading;
+- SYCL on NVIDIA and AMD devices, AdaptiveCpp in its cuda and hip
+  modes included.
+
+The lanes of a group may sit anywhere in their warp or wavefront. On
+entry, the active lanes match the address of their workspace, and the
+group must find all its threads among them. A group that does not
+stops the program with a message, before any exchange: a wrong
+placement of the threads never gives a wrong result nor a deadlock.
+The threads of a group must therefore call the solver together, from
+the same path of the code, as they do when they solve the same system.
+The check runs once per call, and the barrier is the one a caller
+would write by hand.
 
 On CPU, the threads of a group are any threads that run concurrently:
 OpenMP, `std::thread`, Kokkos team threads. The first two elements of
 the workspace must be zero before the first call, as in a
 `std::vector`, and the barrier keeps them so between calls. They keep
 their place whatever the dimension and the configuration, so a
-workspace may serve other solves. A group
-that waits for more than a second prints a diagnostic once and keeps
-waiting: the threads of a group must not run one after the other, as
-in a worksharing loop or in the parallel algorithms on CPU. A barrier
-between CPU threads costs more than a step of the solve: one thread
-per system stays the fast choice on CPU.
+workspace may serve other solves. A group that waits for more than a
+second prints a diagnostic once and keeps waiting: the threads of a
+group must not run one after the other, as in a worksharing loop or in
+the parallel algorithms on CPU. A barrier between CPU threads costs
+more than a step of the solve: one thread per system stays the fast
+choice on CPU.
 
 A few targets offer no warp instruction callable without a handle of
 the kernel: nvc++ OpenMP or OpenACC offloading without `-cuda`, the
