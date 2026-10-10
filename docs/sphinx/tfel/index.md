@@ -88,9 +88,10 @@ The CooperativeLUpp solvers have no adaptors. An adaptor serves the
 object of one thread: the MFront behaviours build their jacobian in one
 thread per integration point, and the TiledLUpp adaptors solve it in
 place. A CooperativeLUpp system is shared by a group of threads, each
-holding some of its rows. Using it in a behaviour means building the
-rows of each thread in that thread, and launching a group of threads
-per integration point. That is a change of the generated code and of
+holding some of its vectors, columns under the row-major layout of
+TFEL. Using it in a behaviour means building the vectors of each thread
+in that thread, and launching a group of threads per integration
+point. That is a change of the generated code and of
 the launch, which an adaptor cannot hide.
 
 The TFEL objects still pass through the raw interface. Their storage is

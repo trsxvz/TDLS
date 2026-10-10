@@ -329,9 +329,10 @@ TDLS_HOST_DEVICE inline void share(const int tx, Sync& sync, const double* v, co
 /// solves the point.
 ///
 /// Every thread keeps its own copy of the state and computes the whole
-/// residual, which costs little at N = 7. It builds only the rows of the
-/// jacobian and the entries of the residual that it holds in the solver,
-/// so the solver reads them without a barrier. On return, the Newton
+/// residual, which costs little at N = 7. It builds only the vectors of
+/// the jacobian (columns under the row-major layout, rows under the
+/// column-major one) and the entries of the residual that it holds in
+/// the solver, so the solver reads them without a barrier. On return, the Newton
 /// step is visible to the whole group: in r when it is external, in the
 /// workspace otherwise, where each thread copies its entries. A barrier
 /// then keeps the next iteration from overwriting the step before every
@@ -360,8 +361,8 @@ TDLS_HOST_DEVICE inline void share(const int tx, Sync& sync, const double* v, co
 /// \param[in,out] p          viscoplastic multiplier, advanced on success
 /// \param[out]    sig        stress at the end of the step
 /// \param[out]    Dt         consistent tangent operator, 6 x 6 row-major
-/// \param[in,out] J          jacobian storage: the rows of the thread, or
-///                the whole matrix
+/// \param[in,out] J          jacobian storage: the vectors of the thread,
+///                or the whole matrix
 /// \param[in]     J_stride   element stride of J (external mode)
 /// \param[in,out] piv        pivot storage
 /// \param[in]     piv_stride element stride of piv (external mode)
@@ -379,9 +380,20 @@ integrate_group(const int tx, Sync& sync, Any& any, const double* deto, const do
                 int* piv, const int piv_stride, double* r, const int rhs_stride, double* work) {
     constexpr int rows    = Solver::rows_per_thread;
     constexpr int threads = Solver::threads_per_system;
-    // Addressing of the rows of the thread: slot K holds row tx + K * threads.
-    auto J_at = [=](const int K, const int col) -> double& {
-        return J[internal_matrix ? K * N + col : ((tx + K * threads) * N + col) * J_stride];
+    // Slot K of the thread holds vector tx + K * threads of the jacobian:
+    // its column under the row-major layout of the solver, its row under
+    // the column-major one, the vectors that sit at consecutive addresses
+    // for consecutive threads. Element c of the vector sits at
+    // c * N + tx + K * threads in the whole matrix, at c * rows + K in the
+    // slice of the thread.
+    auto J_at = [=](const int K, const int c) -> double& {
+        return J[internal_matrix ? c * rows + K : (c * N + tx + K * threads) * J_stride];
+    };
+    // Entry of the jacobian at element c of vector v.
+    auto entry = [&](const int v, const int c, const double* n, const double dp, const double iseq,
+                     const double df) {
+        return Solver::transposed ? jacobian_entry(c, v, n, dp, iseq, df, dt)
+                                  : jacobian_entry(v, c, n, dp, iseq, df, dt);
     };
     auto r_at = [=](const int K) -> double& {
         return r[internal_rhs ? K : (tx + K * threads) * rhs_stride];
@@ -409,12 +421,12 @@ integrate_group(const int tx, Sync& sync, Any& any, const double* deto, const do
         if (!converged && !failed) converged = std::sqrt(norm) / N < newton_epsilon;
         if (!any(!converged && !failed)) break;
 
-        // The rows of the thread, then the Newton step of the group.
+        // The vectors of the thread, then the Newton step of the group.
         for (int K = 0; K < rows && tx + K * threads < N; ++K) {
-            const int row = tx + K * threads;
-            for (int col = 0; col < N; ++col)
-                J_at(K, col) = jacobian_entry(row, col, n, dp, iseq, df, dt);
-            r_at(K) = res[row];
+            const int v = tx + K * threads;
+            for (int c = 0; c < N; ++c)
+                J_at(K, c) = entry(v, c, n, dp, iseq, df);
+            r_at(K) = res[v];
         }
         const bool ok = Solver::template solve_inplace<internal_rhs, internal_piv, internal_matrix>(
             tx, J, J_stride, piv, piv_stride, r, rhs_stride, work, sync);
@@ -440,8 +452,8 @@ integrate_group(const int tx, Sync& sync, Any& any, const double* deto, const do
     // canonical columns of the elastic strain, solved one by one as
     // MFront does.
     for (int K = 0; K < rows && tx + K * threads < N; ++K)
-        for (int col = 0; col < N; ++col)
-            J_at(K, col) = jacobian_entry(tx + K * threads, col, n, dp, iseq, df, dt);
+        for (int c = 0; c < N; ++c)
+            J_at(K, c) = entry(tx + K * threads, c, n, dp, iseq, df);
     const bool factored = Solver::template factorize<internal_piv, internal_matrix>(
         tx, J, J_stride, piv, piv_stride, work, sync);
     for (int j = 0; j < stensor_size; ++j) {

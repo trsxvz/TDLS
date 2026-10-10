@@ -6,9 +6,35 @@ one system per group. The family is derived from a kernel of
 It has one configuration type and two solvers: one with a compile-time
 dimension, one with a runtime dimension.
 
+## The layout picks the vectors of a thread
+
+The solver always reads the stored matrix column-major, and factors
+that matrix, called S on this page. The threads of a group thus hold
+vectors that sit at consecutive addresses: on GPU, the lanes of a group
+read one coalesced segment per load. The design of MAGMA rests on this
+access pattern.
+
+- Column-major layout (`ColMajor`), the convention of MAGMA: S = A, and
+  the threads hold rows of A. The solver is the kernel of MAGMA:
+  P A = L U, the forward pass L y = P b folded into the factorization,
+  then U x = y.
+- Row-major layout (`RowMajor`), the TFEL convention and the default:
+  S = A^T, and the threads hold columns of A. The factorization is the
+  one of MAGMA, applied to A^T: the pivoting interchanges columns of A,
+  which is partial pivoting of A^T, as stable. Since A = U^T L^T P, the
+  solve is the mirror of MAGMA's: U^T z = b folded into the
+  factorization, then L^T w = z, then x = P^T w. L has a unit
+  diagonal, so the backward pass divides by nothing.
+
+The layout is a compile-time knob: the choice costs nothing at run time.
+A matrix stored row-major and its transpose stored column-major are the
+same array: both configurations factor it the same way, bit for bit,
+and solve A x = b and A^T x = b respectively. The rest of this page
+speaks of the rows of S, the vectors of a thread.
+
 ## Algorithm
 
-The rows of a system are shared by the threads of a group. Each thread
+The rows of S are shared by the threads of a group. Each thread
 holds `rows_per_thread` rows. With T threads in the group, thread `tx`
 holds rows `tx`, `tx + T`, `tx + 2T` and so on. Any dimension works
 with any `rows_per_thread`. When the dimension is not a multiple of
@@ -66,13 +92,15 @@ factors are consumed by the substitutions of the family, under the
 same configuration. Below `singular_floor`, a pivot declares the
 matrix singular and the entry point returns `false`.
 
-The operations are those of the MAGMA kernel, in the same order. So
-is the pivot choice with `relative_pivot_threshold = 1`; a smaller
-threshold departs from it on purpose, keeping the row in place more
-often, so the pivots and the results then differ. The header of the
-solver lists the other changes: the mapping of rows to threads, the
-device-callable entry points, the pivot output, the singularity
-criterion, and a data race of the back substitution, removed.
+The operations are those of the MAGMA kernel applied to S, in the
+same order. So is the pivot choice with `relative_pivot_threshold = 1`;
+a smaller threshold departs from it on purpose, keeping the row in
+place more often, so the pivots and the results then differ. Under the
+row-major layout, the substitutions are the mirror of MAGMA's, with one
+barrier per step instead of two. The header of the solver lists the
+other changes: the mapping of rows to threads, the device-callable
+entry points, the pivot output, the singularity criterion, and a data
+race of the back substitution, removed.
 
 The portions derived from MAGMA remain subject to its license, BSD
 3-Clause. The license is reproduced at the top of each solver header
@@ -238,8 +266,9 @@ sequence too, and the verdict comes at the end. A barrier wider than
 the group, a whole warp or a work-group, is therefore valid as well,
 provided every thread of its scope makes the same calls.
 
-On entry, each thread reads only the entries of its own rows: the rows
-a thread builds itself need no barrier before the call. Every entry
+On entry, each thread reads only the entries of its own rows of S and
+of the right-hand side: under the row-major layout, its columns of A.
+The vectors a thread builds itself need no barrier before the call. Every entry
 point ends with a barrier. On return, all the results are visible to
 the whole group, whatever the residency of the operands, and the
 workspace is free again.
@@ -250,8 +279,12 @@ workspace is free again.
 compile time. Each thread keeps its rows in registers. Three residency
 template booleans, `internal_rhs`, `internal_piv` and
 `internal_matrix`, declare where each operand lives. An internal
-operand is the slice of the calling thread: its rows, their pivot
-entries, their right-hand-side entries, in a local array. An external
+operand is the slice of the calling thread: its rows of S, their pivot
+entries, their right-hand-side entries, in a local array. The matrix
+slice holds the vectors of the thread in the chosen layout: the
+N x `rows_per_thread` block of its columns, row-major, or the
+`rows_per_thread` x N block of its rows, column-major. With one thread
+per system, it is the whole matrix in that layout. An external
 operand is the whole object, reachable by the group and walked with a
 runtime stride. The booleans have no default: each call site states
 what its buffers are.
@@ -276,12 +309,12 @@ defaults.
 
 | Knob | Default | Role |
 |---|---|---|
-| `rows_per_thread` | 1 | rows held by each thread, the main performance axis: a system of dimension N takes `ceil(N / rows_per_thread)` threads; from N on, one thread per system |
+| `rows_per_thread` | 1 | vectors held by each thread, rows of S: columns of A row-major, rows column-major; the main performance axis: a system of dimension N takes `ceil(N / rows_per_thread)` threads; from N on, one thread per system |
 | `row_interchange` | `Logical` | row interchanges, `Logical` (rows never move, as in MAGMA) or `Physical` (rows move between the threads, as in LAPACK); same pivots and operations, different factored formats and workspace sizes |
 | `relative_pivot_threshold` | 0.1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column; 1 is the partial pivoting of LAPACK; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular; positive |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: those indexing the register rows, whose unrolling keeps them in registers on GPU; the pivot search never carries a pragma; `false` is the choice on CPU; ignored by the runtime solver |
-| `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; results are bitwise identical |
+| `layout` | `RowMajor` | matrix storage, which picks the vectors of a thread: `RowMajor`, the threads hold columns and the solve runs through the factors of A^T; `ColMajor`, the threads hold rows, the kernel of MAGMA; in both, a group reads consecutive addresses |
 
 The default `rows_per_thread` is the mapping of MAGMA, one row per
 thread. A larger value packs more systems in a warp and leaves fewer

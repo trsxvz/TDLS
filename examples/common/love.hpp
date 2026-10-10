@@ -76,7 +76,7 @@ TDLS_HOST_DEVICE inline double node(const int i, const int n) {
 
 /// \brief Row i of the Nystroem system and of its manufactured
 /// right-hand side, the unit of assemble: the CooperativeLUpp examples
-/// assemble in each thread the rows that it holds in the solver.
+/// assemble in each thread the rows of its right-hand-side entries.
 /// \param[in]  i        row
 /// \param[in]  n        quadrature resolution
 /// \param[in]  d        plate separation
@@ -153,12 +153,16 @@ using GroupSolver = tdls::CooperativeLUppSolverDynamic<double, group_config(rows
 /// \brief One capacitor instance with a CooperativeLUpp solver, called by
 /// every thread of the group that solves it.
 ///
-/// Each thread assembles the rows it holds in the solver, which reads
-/// them without a barrier. The group factorizes once and substitutes two
-/// right-hand sides: the manufactured one, then the unit potential. The
-/// results are visible to every thread on return; a barrier keeps the
-/// second substitution from overwriting u before every thread has read
-/// it.
+/// Each thread assembles the rows of its right-hand-side entries: an
+/// entry of the manufactured right-hand side needs its whole row. Under
+/// the column-major layout these are the rows the solver gives the
+/// thread, which it reads without a barrier. Under the row-major layout,
+/// the default, the solver gives each thread columns, which the other
+/// threads assemble: a barrier hands them over. The group factorizes once
+/// and substitutes two right-hand sides: the manufactured one, then the
+/// unit potential. The results are visible to every thread on return; a
+/// barrier keeps the second substitution from overwriting u before every
+/// thread has read it.
 /// \tparam Solver a GroupSolver
 /// \tparam Sync   callable type of the barrier
 /// \param[in]  n          quadrature resolution
@@ -185,6 +189,7 @@ capacitor_group(const int n, const int tx, Sync& sync, const double d, double* A
     const int threads = Solver::threads_per_system(n);
     for (int i = tx; i < n; i += threads)
         assemble_row(i, n, d, A, A_stride, g, rhs_stride);
+    if constexpr (Solver::transposed) sync();
     const bool ok = Solver::factorize(n, tx, A, A_stride, piv, piv_stride, work, sync);
 
     Solver::substitute(n, tx, A, A_stride, piv, piv_stride, g, u, rhs_stride, work, sync);

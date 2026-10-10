@@ -266,9 +266,10 @@ TDLS_HOST_DEVICE inline void share(const int tx, Sync& sync, const double* v, co
 ///
 /// The scheme is the one of radau_step. Every thread keeps its own copy
 /// of the stage values and computes the whole residual, which costs
-/// little at N = 9. It builds only the rows of the Newton matrix and the
-/// entries of the residual that it holds in the solver, so the solver
-/// reads them without a barrier. On return, the correction is visible
+/// little at N = 9. It builds only the vectors of the Newton matrix
+/// (columns under the row-major layout, rows under the column-major one)
+/// and the entries of the residual that it holds in the solver, so the
+/// solver reads them without a barrier. On return, the correction is visible
 /// to the whole group: in dz when it is external, in the workspace
 /// otherwise, where each thread copies its entries. A barrier then keeps
 /// the next iteration from overwriting it before every thread has read
@@ -295,7 +296,7 @@ TDLS_HOST_DEVICE inline void share(const int tx, Sync& sync, const double* v, co
 /// \param[in]     theta      temperature factor of the cell
 /// \param[in]     h          time step
 /// \param[in,out] y          cell state, advanced by h on success
-/// \param[in,out] M          Newton matrix storage: the rows of the thread,
+/// \param[in,out] M          Newton matrix storage: the vectors of the thread,
 ///                or the whole matrix
 /// \param[in]     M_stride   element stride of M (external mode)
 /// \param[in,out] piv        pivot storage
@@ -316,9 +317,14 @@ radau_step_group(const int tx, Sync& sync, Any& any, const double (&butcher)[sta
                  const int rhs_stride, double* work) {
     constexpr int rows    = Solver::rows_per_thread;
     constexpr int threads = Solver::threads_per_system;
-    // Addressing of the rows of the thread: slot K holds row tx + K * threads.
-    auto M_at = [=](const int K, const int col) -> double& {
-        return M[internal_matrix ? K * N + col : ((tx + K * threads) * N + col) * M_stride];
+    // Slot K of the thread holds vector tx + K * threads of the Newton
+    // matrix: its column under the row-major layout of the solver, its row
+    // under the column-major one, the vectors that sit at consecutive
+    // addresses for consecutive threads. Element c of the vector sits at
+    // c * N + tx + K * threads in the whole matrix, at c * rows + K in the
+    // slice of the thread.
+    auto M_at = [=](const int K, const int c) -> double& {
+        return M[internal_matrix ? c * rows + K : (c * N + tx + K * threads) * M_stride];
     };
     auto r_at = [=](const int K) -> double& {
         return r[internal_rhs ? K : (tx + K * threads) * rhs_stride];
@@ -332,13 +338,16 @@ radau_step_group(const int tx, Sync& sync, Any& any, const double (&butcher)[sta
     bool done = false, success = false;
     for (int attempt = 0; attempt < 3; ++attempt) {
         if (!any(!done)) break;
-        // The rows of the thread of the Newton matrix, the Jacobian frozen
-        // at the step start, or refreshed at the last stage.
+        // The vectors of the thread of the Newton matrix, the Jacobian
+        // frozen at the step start, or refreshed at the last stage.
         double J[species * species];
         jacobian(theta, attempt == 0 ? y : &Z[(stages - 1) * species], J);
-        for (int K = 0; K < rows && tx + K * threads < N; ++K)
-            for (int col = 0; col < N; ++col)
-                M_at(K, col) = newton_entry(tx + K * threads, col, butcher, J, h);
+        for (int K = 0; K < rows && tx + K * threads < N; ++K) {
+            const int v = tx + K * threads;
+            for (int c = 0; c < N; ++c)
+                M_at(K, c) = Solver::transposed ? newton_entry(c, v, butcher, J, h)
+                                                : newton_entry(v, c, butcher, J, h);
+        }
         const bool factored = Solver::template factorize<internal_piv, internal_matrix>(
             tx, M, M_stride, piv, piv_stride, work, sync);
         if (!factored) done = true;
@@ -348,7 +357,7 @@ radau_step_group(const int tx, Sync& sync, Any& any, const double (&butcher)[sta
             const bool iterating = !done && correction > 1e-12;
             if (!any(iterating)) break;
             // Residual R_i = Y_i - y - h sum_j butcher[i][j] f(Y_j), the
-            // entries of the rows of the thread.
+            // entries of the thread.
             double f[stages][species];
             for (int j = 0; j < stages; ++j)
                 rhs(theta, &Z[j * species], f[j]);

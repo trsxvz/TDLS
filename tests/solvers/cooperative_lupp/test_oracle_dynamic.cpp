@@ -124,10 +124,10 @@ TDLS_ANCHOR_CASES(double, 12, 3, 200, 1e-9, 691203)
 TDLS_ANCHOR_CASES(double, 13, 5, 200, 1e-9, 691305)
 TDLS_ANCHOR_CASES(double, 7, 1, 200, 1e-9, 690701)
 
-// Float: partial pivoting on the whole column keeps the element growth
-// small, so the float backward error stays near n * eps_float.
-TDLS_ANCHOR_CASES(float, 12, 12, 1000, 1e-5, 781212)
-TDLS_ANCHOR_CASES(float, 13, 5, 200, 1e-5, 791305)
+// Float: the tolerance of the static anchor suite, set by the default
+// relative threshold 0.1 (see test_oracle_static.cpp).
+TDLS_ANCHOR_CASES(float, 12, 12, 1000, 5e-5, 781212)
+TDLS_ANCHOR_CASES(float, 13, 5, 200, 5e-5, 791305)
 
 // Long double: the backward error accumulates in double, so the double
 // tolerance applies.

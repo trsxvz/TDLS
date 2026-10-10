@@ -27,9 +27,14 @@
 /// the storage dictated by the residency template booleans: per-thread slices in local arrays of each
 /// thread for internal operands, slices of a small strided arena shared
 /// by the group for external ones. It runs one entry path and gathers
-/// every output back to canonical storage (factored rows row-major in
-/// physical order, row positions indexed by physical row, solution), so
-/// that different combinations can be compared bitwise.
+/// every output back to canonical storage (factored rows of S row-major
+/// in physical order, row positions indexed by physical row, solution),
+/// so that different combinations can be compared bitwise. S is the
+/// matrix the solver factors, the stored matrix read column-major: A
+/// under the column-major layout, A^T under the row-major one. Element
+/// (r, c) of S thus sits at the flat index c * N + r in both layouts, and
+/// at c * rows_per_thread + K in the internal slice of the thread holding
+/// row r of S in slot K.
 ///
 /// DynamicGroupRunner does the same for the runtime solver, whose operands
 /// are all external. The external arena holds three system slots and the
@@ -210,7 +215,8 @@ struct GroupRunner {
     /// \brief Arena slot holding the system under test.
     static constexpr int slot = 1;
 
-    /// \brief Flat index of matrix element (r, c) under the configured layout.
+    /// \brief Flat index of matrix element (r, c) of A under the configured
+    /// layout.
     /// \param[in] r row
     /// \param[in] c column
     /// \return the flat index
@@ -219,14 +225,22 @@ struct GroupRunner {
                                                              : std::size_t(c) * N + r;
     }
 
-    /// \brief Index of element (K, c) in the slice of a thread under the
-    /// configured layout.
+    /// \brief Element (r, c) of S, the matrix the solver factors.
+    /// \param[in] A0 matrix A, contiguous row-major
+    /// \param[in] r  row of S
+    /// \param[in] c  column of S
+    /// \return the element
+    static constexpr T s_element(const T* A0, const int r, const int c) {
+        return Config.layout == tdls::MatrixLayout::RowMajor ? A0[c * N + r] : A0[r * N + c];
+    }
+
+    /// \brief Index of element (K, c) of S in the slice of a thread: the
+    /// slice holds the rows of S of the thread column-major.
     /// \param[in] K row slot
-    /// \param[in] c column
+    /// \param[in] c column of S
     /// \return the slice index
     static constexpr std::size_t slice_index(const int K, const int c) {
-        return Config.layout == tdls::MatrixLayout::RowMajor ? std::size_t(K) * N + c
-                                                             : std::size_t(c) * rows + K;
+        return std::size_t(c) * rows + K;
     }
 
     /// \brief Solves one system and returns every output in canonical
@@ -235,8 +249,8 @@ struct GroupRunner {
     /// \param[in]  A0      original matrix, contiguous row-major
     /// \param[in]  b0      right-hand side, contiguous (ignored by the
     ///             canonical path)
-    /// \param[out] A_out   factored rows, contiguous row-major, physical
-    ///             order
+    /// \param[out] A_out   factored rows of S, contiguous row-major,
+    ///             physical order
     /// \param[out] piv_out position of each physical row in the pivoted
     ///             order
     /// \param[out] x_out   solution
@@ -262,14 +276,14 @@ struct GroupRunner {
         std::vector<int> verdicts(threads, 0);
 
         run_group<threads, deduced>([&](const int tx, auto&& sync) {
-            // Per-thread slices: the rows tx + K * threads of the system.
+            // Per-thread slices: the rows tx + K * threads of S.
             T A_slice[rows * N];
             int piv_slice[rows];
             T b_slice[rows], x_slice[rows];
             for (int K = 0; K < rows; ++K) {
                 const int r = tx + K * threads;
                 for (int c = 0; c < N; ++c)
-                    A_slice[slice_index(K, c)] = r < N ? A0[r * N + c] : T(0);
+                    A_slice[slice_index(K, c)] = r < N ? s_element(A0, r, c) : T(0);
                 piv_slice[K] = 0;
                 b_slice[K]   = r < N ? b0[r] : T(0);
                 x_slice[K]   = b_slice[K];
@@ -318,9 +332,10 @@ struct GroupRunner {
                 const int r = tx + K * threads;
                 if (r >= N) continue;
                 for (int c = 0; c < N; ++c)
-                    A_out[r * N + c] = internal_matrix
-                                           ? A_slice[slice_index(K, c)]
-                                           : A_arena[matrix_index(r, c) * arena_count + slot];
+                    A_out[r * N + c] =
+                        internal_matrix
+                            ? A_slice[slice_index(K, c)]
+                            : A_arena[(static_cast<std::size_t>(c) * N + r) * arena_count + slot];
                 piv_out[r] = internal_piv
                                  ? piv_slice[K]
                                  : piv_arena[static_cast<std::size_t>(r) * arena_count + slot];
@@ -359,8 +374,8 @@ struct DynamicGroupRunner {
     /// \param[in]  A0      original matrix, contiguous row-major
     /// \param[in]  b0      right-hand side, contiguous (ignored by the
     ///             canonical path)
-    /// \param[out] A_out   factored rows, contiguous row-major, physical
-    ///             order
+    /// \param[out] A_out   factored rows of S, contiguous row-major,
+    ///             physical order
     /// \param[out] piv_out position of each physical row in the pivoted
     ///             order
     /// \param[out] x_out   solution
@@ -424,7 +439,7 @@ struct DynamicGroupRunner {
 
         for (int r = 0; r < n; ++r) {
             for (int c = 0; c < n; ++c)
-                A_out[r * n + c] = A[matrix_index(r, c) * arena_count + slot];
+                A_out[r * n + c] = A[(static_cast<std::size_t>(c) * n + r) * arena_count + slot];
             piv_out[r] = piv[static_cast<std::size_t>(r) * arena_count + slot];
             x_out[r]   = x[static_cast<std::size_t>(r) * arena_count + slot];
         }

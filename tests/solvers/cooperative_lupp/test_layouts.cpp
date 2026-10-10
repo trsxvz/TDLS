@@ -1,6 +1,5 @@
 /// \file
-/// \brief Bridge suite: matrix layouts and batched layouts are
-/// equivalent.
+/// \brief Bridge suite: matrix layouts and batched layouts.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -9,16 +8,23 @@
 ///
 /// In external mode, the CooperativeLUpp solver sees every batched layout
 /// through the same (pre-offset pointer, element stride) pair: AoS is
-/// stride 1, SoA is stride count, AoSoA is stride W. Config.layout only
-/// remaps the flat index of a matrix element. On identical inputs, every
-/// combination of the two matrix layouts and the three batched layouts
-/// must therefore produce bitwise-identical factored rows, row positions
-/// and solutions, for the matrix, the right-hand side and the pivot
-/// simultaneously, with both solvers. Row-major SoA under the static
-/// solver is the baseline. The batches are solved by groups of CPU
-/// threads, through solve_inplace and through factorize + substitute,
-/// which reloads the factored rows with the same addressing.
+/// stride 1, SoA is stride count, AoSoA is stride W. Under one matrix
+/// layout, the three batched layouts and both solvers must therefore
+/// produce bitwise-identical factored matrices, row positions and
+/// solutions, for the matrix, the right-hand side and the pivot
+/// simultaneously; static SoA is the baseline of each matrix layout.
+///
+/// Both matrix layouts factor S, the stored matrix read column-major, and
+/// solve S x = b (column-major, S = A) or S^T x = b (row-major, S = A^T).
+/// A matrix stored row-major and its transpose stored column-major are the
+/// same array: the two configurations must produce the same factored
+/// array and the same row positions, bit for bit, while their solutions
+/// solve A x = b and A^T x = b, each checked by its backward error. The
+/// batches are solved by groups of CPU threads, through solve_inplace and
+/// through factorize + substitute, which reloads the factored rows with
+/// the same addressing.
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -27,6 +33,7 @@
 #include "generators.hpp"
 #include "group_runner.hpp"
 #include "harness.hpp"
+#include "reference_lu.hpp"
 
 namespace {
 
@@ -78,29 +85,30 @@ std::size_t batch_offset(const Batch layout, const std::size_t system,
     return batch_index(layout, 0, system, object_size, count);
 }
 
-/// \brief Outputs of a whole batch in canonical storage.
+/// \brief Outputs of a whole batch.
 struct BatchResult {
-    std::vector<double> A; ///< factored rows, row-major, physical order
+    std::vector<double> A; ///< factored matrices, as stored (flat index)
     std::vector<int> piv;  ///< row positions
     std::vector<double> x; ///< solutions
     std::vector<int> ok;   ///< verdicts
 };
 
 /// \brief Solves every system of a batch stored under one matrix layout
-/// and one batched layout, and gathers the outputs canonically.
+/// and one batched layout, and gathers the outputs.
 /// \tparam N               system dimension
 /// \tparam rows_per_thread rows held by each thread
 /// \tparam layout          matrix layout
 /// \tparam dynamic         solve with the runtime solver instead of the
 ///         compile-time one
-/// \param[in] batch  the systems, contiguous row-major
-/// \param[in] blay   batched layout of every operand
-/// \param[in] fused  solve_inplace when true, factorize + substitute
+/// \param[in] batch     the systems, contiguous row-major
+/// \param[in] blay      batched layout of every operand
+/// \param[in] fused     solve_inplace when true, factorize + substitute
 ///            otherwise
+/// \param[in] transpose solve with the transpose of each matrix
 /// \return the outputs
 template<int N, int rows_per_thread, tdls::MatrixLayout layout, bool dynamic = false>
 BatchResult solve_batch(const tdls_tests::SystemBatch<double>& batch, const Batch blay,
-                        const bool fused) {
+                        const bool fused, const bool transpose) {
     constexpr auto config = tdls::CooperativeLUppConfig<double>{
         .rows_per_thread = rows_per_thread,
         .unroll_loops    = tdls_tests::test_unroll<N, rows_per_thread>,
@@ -121,7 +129,8 @@ BatchResult solve_batch(const tdls_tests::SystemBatch<double>& batch, const Batc
     for (int s = 0; s < count; ++s) {
         for (int r = 0; r < N; ++r) {
             for (int c = 0; c < N; ++c)
-                A[batch_index(blay, flat(r, c), s, N * N, padded)] = batch.matrix(s)[r * N + c];
+                A[batch_index(blay, flat(r, c), s, N * N, padded)] =
+                    transpose ? batch.matrix(s)[c * N + r] : batch.matrix(s)[r * N + c];
             b[batch_index(blay, r, s, N, padded)] = batch.rhs(s)[r];
             x[batch_index(blay, r, s, N, padded)] = batch.rhs(s)[r];
         }
@@ -161,10 +170,10 @@ BatchResult solve_batch(const tdls_tests::SystemBatch<double>& batch, const Batc
             }
             if (tx == 0) out.ok[s] = ok ? 1 : 0;
         });
+        for (int e = 0; e < N * N; ++e)
+            out.A[static_cast<std::size_t>(s) * N * N + e] =
+                A[batch_index(blay, e, s, N * N, padded)];
         for (int r = 0; r < N; ++r) {
-            for (int c = 0; c < N; ++c)
-                out.A[static_cast<std::size_t>(s) * N * N + r * N + c] =
-                    A[batch_index(blay, flat(r, c), s, N * N, padded)];
             out.piv[static_cast<std::size_t>(s) * N + r] = piv[batch_index(blay, r, s, N, padded)];
             out.x[static_cast<std::size_t>(s) * N + r]   = x[batch_index(blay, r, s, N, padded)];
         }
@@ -172,46 +181,79 @@ BatchResult solve_batch(const tdls_tests::SystemBatch<double>& batch, const Batc
     return out;
 }
 
-/// \brief Compares every (solver, matrix layout, batched layout)
-/// combination to the static row-major SoA baseline on one reproducible
-/// batch.
+/// \brief Requires two batch results to agree bit for bit.
+/// \param[in] base  reference result
+/// \param[in] other compared result
+void check_same(const BatchResult& base, const BatchResult& other) {
+    TDLS_CHECK_BITWISE(base.ok.data(), other.ok.data(), base.ok.size());
+    TDLS_CHECK_BITWISE(base.A.data(), other.A.data(), base.A.size());
+    TDLS_CHECK_BITWISE(base.piv.data(), other.piv.data(), base.piv.size());
+    TDLS_CHECK_BITWISE(base.x.data(), other.x.data(), base.x.size());
+}
+
+/// \brief Compares every (solver, batched layout) combination of one
+/// matrix layout to its static SoA baseline, and returns the baseline.
+/// \tparam N               system dimension
+/// \tparam rows_per_thread rows held by each thread
+/// \tparam layout          matrix layout
+/// \param[in] batch     the systems
+/// \param[in] fused     solve_inplace when true, factorize + substitute
+///            otherwise
+/// \param[in] transpose solve with the transpose of each matrix
+/// \return the baseline
+template<int N, int rows_per_thread, tdls::MatrixLayout layout>
+BatchResult batched_layouts(const tdls_tests::SystemBatch<double>& batch, const bool fused,
+                            const bool transpose) {
+    const auto base = solve_batch<N, rows_per_thread, layout>(batch, Batch::soa, fused, transpose);
+    int solved      = 0;
+    for (const int v : base.ok)
+        solved += v;
+    // Floor: every system of the baseline solved.
+    TDLS_CHECK(solved == batch.count);
+    for (const auto blay : {Batch::soa, Batch::aos, Batch::aosoa}) {
+        if (blay != Batch::soa)
+            check_same(base,
+                       solve_batch<N, rows_per_thread, layout>(batch, blay, fused, transpose));
+        check_same(base,
+                   solve_batch<N, rows_per_thread, layout, true>(batch, blay, fused, transpose));
+    }
+    return base;
+}
+
+/// \brief Runs both bridges on one reproducible batch: the batched layouts
+/// under each matrix layout, and the row-major solve of A against the
+/// column-major solve of A^T, which factor the same array.
 /// \tparam N               system dimension
 /// \tparam rows_per_thread rows held by each thread
 /// \param[in] count number of systems
 /// \param[in] seed  generator seed
 template<int N, int rows_per_thread>
 void layouts_case(const int count, const std::uint64_t seed) {
-    const auto batch   = tdls_tests::make_batch<double>(N, count, seed, 0.5);
-    constexpr auto row = tdls::MatrixLayout::RowMajor;
-    constexpr auto col = tdls::MatrixLayout::ColMajor;
+    const auto batch = tdls_tests::make_batch<double>(N, count, seed, 0.5);
     for (const bool fused : {true, false}) {
-        const auto base = solve_batch<N, rows_per_thread, row>(batch, Batch::soa, fused);
-        int solved      = 0;
-        for (const int v : base.ok)
-            solved += v;
-        // Floor: every system of the baseline solved.
-        TDLS_CHECK(solved == count);
-        for (const auto blay : {Batch::soa, Batch::aos, Batch::aosoa}) {
-            for (const bool colmajor : {false, true}) {
-                if (blay == Batch::soa && !colmajor) continue;
-                const auto other = colmajor
-                                       ? solve_batch<N, rows_per_thread, col>(batch, blay, fused)
-                                       : solve_batch<N, rows_per_thread, row>(batch, blay, fused);
-                TDLS_CHECK_BITWISE(base.ok.data(), other.ok.data(), base.ok.size());
-                TDLS_CHECK_BITWISE(base.A.data(), other.A.data(), base.A.size());
-                TDLS_CHECK_BITWISE(base.piv.data(), other.piv.data(), base.piv.size());
-                TDLS_CHECK_BITWISE(base.x.data(), other.x.data(), base.x.size());
-            }
-            for (const bool colmajor : {false, true}) {
-                const auto other =
-                    colmajor ? solve_batch<N, rows_per_thread, col, true>(batch, blay, fused)
-                             : solve_batch<N, rows_per_thread, row, true>(batch, blay, fused);
-                TDLS_CHECK_BITWISE(base.ok.data(), other.ok.data(), base.ok.size());
-                TDLS_CHECK_BITWISE(base.A.data(), other.A.data(), base.A.size());
-                TDLS_CHECK_BITWISE(base.piv.data(), other.piv.data(), base.piv.size());
-                TDLS_CHECK_BITWISE(base.x.data(), other.x.data(), base.x.size());
-            }
+        const auto row =
+            batched_layouts<N, rows_per_thread, tdls::MatrixLayout::RowMajor>(batch, fused, false);
+        const auto col =
+            batched_layouts<N, rows_per_thread, tdls::MatrixLayout::ColMajor>(batch, fused, true);
+        TDLS_CHECK_BITWISE(row.ok.data(), col.ok.data(), row.ok.size());
+        TDLS_CHECK_BITWISE(row.A.data(), col.A.data(), row.A.size());
+        TDLS_CHECK_BITWISE(row.piv.data(), col.piv.data(), row.piv.size());
+        double be_row = 0.0, be_col = 0.0;
+        std::vector<double> At(static_cast<std::size_t>(N) * N);
+        for (int s = 0; s < count; ++s) {
+            const double* A0 = batch.matrix(s);
+            for (int r = 0; r < N; ++r)
+                for (int c = 0; c < N; ++c)
+                    At[static_cast<std::size_t>(c) * N + r] = A0[r * N + c];
+            be_row = std::max(
+                be_row, tdls_tests::backward_error(
+                            A0, row.x.data() + static_cast<std::size_t>(s) * N, batch.rhs(s), N));
+            be_col = std::max(be_col, tdls_tests::backward_error(
+                                          At.data(), col.x.data() + static_cast<std::size_t>(s) * N,
+                                          batch.rhs(s), N));
         }
+        TDLS_CHECK_LE(be_row, 1e-13);
+        TDLS_CHECK_LE(be_col, 1e-13);
     }
 }
 

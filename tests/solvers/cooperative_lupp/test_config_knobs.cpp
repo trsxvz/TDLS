@@ -70,17 +70,25 @@ void unroll_case(const int count, const std::uint64_t seed) {
 }
 
 /// \brief Solves one 4 x 4 system on a group of two threads through the
-/// fused path and returns the pivot entry of row 0: 0 when the row in
-/// place kept the first pivot, 1 when row 1 took it. Both row
-/// interchanges record the exchange of rows 0 and 1 the same way.
+/// fused path and returns the pivot entry of row 0 of S, the matrix the
+/// solver factors: 0 when the row in place kept the first pivot, 1 when
+/// row 1 took it. Both row interchanges record the exchange of rows 0
+/// and 1 the same way.
 /// \tparam Config solver configuration
-/// \param[in]  A0 matrix, contiguous row-major
+/// \param[in]  S0 matrix S, contiguous row-major: the matrix A itself
+///             under the column-major layout, its transpose under the
+///             row-major one
 /// \param[in]  b0 right-hand side
 /// \param[out] ok verdict, uniform across the group
-/// \return the pivot entry of row 0
+/// \return the pivot entry of row 0 of S
 template<tdls::CooperativeLUppConfig<double> Config>
-int first_pivot(const double* A0, const double* b0, bool& ok) {
+int first_pivot(const double* S0, const double* b0, bool& ok) {
     using Runner = tdls_tests::GroupRunner<double, 4, Config, false, false, false>;
+    double A0[16];
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c)
+            A0[r * 4 + c] =
+                Config.layout == tdls::MatrixLayout::RowMajor ? S0[c * 4 + r] : S0[r * 4 + c];
     std::vector<double> A_out(16), x(4);
     int piv[4];
     bool uniform = false;
@@ -113,18 +121,30 @@ constexpr tdls::CooperativeLUppConfig<double> physical(tdls::CooperativeLUppConf
     return config;
 }
 
+/// \brief The given configuration under the column-major layout.
+/// \param[in] config configuration under the row-major layout
+/// \return the same configuration, column-major
+constexpr tdls::CooperativeLUppConfig<double>
+column_major(tdls::CooperativeLUppConfig<double> config) {
+    config.layout = tdls::MatrixLayout::ColMajor;
+    return config;
+}
+
 /// \brief Checks the pivot choice of one configuration under both row
-/// interchanges.
+/// interchanges and both layouts.
 /// \tparam Config solver configuration, under logical row interchanges
-/// \param[in] A0     matrix, contiguous row-major
+///         and the row-major layout
+/// \param[in] S0     matrix S, contiguous row-major
 /// \param[in] b0     right-hand side
-/// \param[in] expect expected pivot entry of row 0
+/// \param[in] expect expected pivot entry of row 0 of S
 template<tdls::CooperativeLUppConfig<double> Config>
-void check_first_pivot(const double* A0, const double* b0, const int expect) {
-    bool ok_l = false, ok_p = false;
-    TDLS_CHECK(first_pivot<Config>(A0, b0, ok_l) == expect);
-    TDLS_CHECK(first_pivot<physical(Config)>(A0, b0, ok_p) == expect);
-    TDLS_CHECK(ok_l && ok_p);
+void check_first_pivot(const double* S0, const double* b0, const int expect) {
+    bool ok_l = false, ok_p = false, ok_lc = false, ok_pc = false;
+    TDLS_CHECK(first_pivot<Config>(S0, b0, ok_l) == expect);
+    TDLS_CHECK(first_pivot<physical(Config)>(S0, b0, ok_p) == expect);
+    TDLS_CHECK(first_pivot<column_major(Config)>(S0, b0, ok_lc) == expect);
+    TDLS_CHECK(first_pivot<column_major(physical(Config))>(S0, b0, ok_pc) == expect);
+    TDLS_CHECK(ok_l && ok_p && ok_lc && ok_pc);
 }
 
 /// \brief Solves a batch of tiny-entry systems under the given floor and
@@ -164,24 +184,25 @@ TDLS_TEST_CASE("cooperativelupp/knobs/unroll/double/N=8,rows_per_thread=3,physic
 }
 
 TDLS_TEST_CASE("cooperativelupp/knobs/relative-pivot-threshold") {
-    // Column 0: the row in place holds 0.5, row 1 the maximum 1. The other
-    // columns are diagonally dominant, and keep their pivots in place.
-    const double A0[16] = {0.5, 0.1, 0.0, 0.0, 1.0, 4.0, 0.1, 0.0,
+    // Column 0 of S: the row in place holds 0.5, row 1 the maximum 1. The
+    // other columns are diagonally dominant, and keep their pivots in
+    // place.
+    const double S0[16] = {0.5, 0.1, 0.0, 0.0, 1.0, 4.0, 0.1, 0.0,
                            0.1, 0.0, 4.0, 0.1, 0.0, 0.1, 0.0, 4.0};
     const double b0[4]  = {1.0, 2.0, 3.0, 4.0};
-    check_first_pivot<threshold_config(1.0)>(A0, b0, 1);  // LAPACK: the maximum wins
-    check_first_pivot<threshold_config(0.6)>(A0, b0, 1);  // 0.5 below 0.6 * 1
-    check_first_pivot<threshold_config(0.5)>(A0, b0, 0);  // 0.5 reaches 0.5 * 1: kept
-    check_first_pivot<threshold_config(0.25)>(A0, b0, 0); // kept a fortiori
+    check_first_pivot<threshold_config(1.0)>(S0, b0, 1);  // LAPACK: the maximum wins
+    check_first_pivot<threshold_config(0.6)>(S0, b0, 1);  // 0.5 below 0.6 * 1
+    check_first_pivot<threshold_config(0.5)>(S0, b0, 0);  // 0.5 reaches 0.5 * 1: kept
+    check_first_pivot<threshold_config(0.25)>(S0, b0, 0); // kept a fortiori
 }
 
 TDLS_TEST_CASE("cooperativelupp/knobs/relative-pivot-threshold-below-floor") {
     // The row in place holds 5e-4, above 0.001 times the maximum 0.1 but
     // below the floor 1e-3: it must not keep the pivot, which goes to row 1.
-    const double A0[16] = {5e-4, 0.1, 0.0, 0.0, 0.1, 4.0, 0.1, 0.0,
+    const double S0[16] = {5e-4, 0.1, 0.0, 0.0, 0.1, 4.0, 0.1, 0.0,
                            0.0,  0.1, 4.0, 0.1, 0.0, 0.0, 0.1, 4.0};
     const double b0[4]  = {1.0, 2.0, 3.0, 4.0};
-    check_first_pivot<threshold_config(0.001, 1e-3)>(A0, b0, 1);
+    check_first_pivot<threshold_config(0.001, 1e-3)>(S0, b0, 1);
 }
 
 TDLS_TEST_CASE("cooperativelupp/knobs/singular-floor") {

@@ -234,7 +234,11 @@ $$
 ## Column-major layout
 
 The matrix stored column by column, as one system of a batch of 3:
-element (r, c) at `batch[(c * 4 + r) * 3 + 1]`.
+element (r, c) at `batch[(c * 4 + r) * 3 + 1]`. The layout picks the
+vectors of each thread: under the column-major layout the threads hold
+rows of A and the solver is the kernel of MAGMA; under the default
+row-major one they hold columns, and the solve runs through the factors
+of A^T (see {doc}`../index`).
 
 $$
 A = \begin{pmatrix}

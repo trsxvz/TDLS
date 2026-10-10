@@ -13,9 +13,16 @@ the API may change between minor versions.
   group of threads, one system per group. The arithmetic is the one of
   the small-system kernel of MAGMA 2.10.0, whose license is reproduced
   in the headers, the pivot choice included when
-  `relative_pivot_threshold` is 1. Each thread holds `rows_per_thread` rows, so that
-  several systems share a warp, and every value gives
-  bitwise-identical results. Two solvers: one with a compile-time
+  `relative_pivot_threshold` is 1. Each thread holds `rows_per_thread`
+  vectors of the matrix, so that several systems share a warp, and
+  every value gives bitwise-identical results. The layout picks the
+  vectors: the solver factors the stored matrix read column-major, so
+  that a group reads consecutive addresses in both layouts. Column-major
+  is the kernel of MAGMA, the threads holding rows. Row-major, the
+  default, factors A^T, the threads holding columns, and solves through
+  the transposed factors, the mirror of MAGMA's solve: U^T z = b folded
+  into the factorization, then L^T w = z, which divides by nothing, one
+  barrier per step. Two solvers: one with a compile-time
   dimension, which keeps the rows in registers, and one with a runtime
   dimension, which updates them in place. At equal shape and
   configuration their results are bitwise identical. With one thread

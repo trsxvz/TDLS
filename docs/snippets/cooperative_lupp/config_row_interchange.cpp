@@ -40,13 +40,17 @@ int main() {
 
     // same pivots, same operations: the solutions are bitwise identical
     const bool identical = std::memcmp(y1, y2, sizeof y1) == 0;
-    // row 1 holds the pivot of column 0. Logical: rows stay in place and
-    // piv1[r] is the position of row r. Physical: rows move, row k of A2 is
-    // the factored row at position k and piv2[k] its original index.
+    // under the default row-major layout the solver factors A^T: its rows
+    // are the columns of A, and column 1 holds the pivot of row 0. Logical:
+    // the columns stay in place and piv1[v] is the position of column v.
+    // Physical: the columns move, column k of A2 is the factored vector at
+    // position k and piv2[k] its original index.
     bool placed = true;
-    for (int r = 0; r < 4; ++r)
-        placed = placed && piv2[piv1[r]] == r &&
-                 std::memcmp(&A1[r * 4], &A2[piv1[r] * 4], 4 * sizeof(double)) == 0;
+    for (int v = 0; v < 4; ++v) {
+        placed = placed && piv2[piv1[v]] == v;
+        for (int i = 0; i < 4; ++i)
+            placed = placed && A1[i * 4 + v] == A2[i * 4 + piv1[v]];
+    }
     // snippet end
 
     if (!ok1 || !ok2 || !identical || !placed || piv1[0] == 0) return 1;

@@ -56,18 +56,31 @@
 /// subject to the MAGMA license (BSD 3-Clause), reproduced in full in the
 /// comment at the top of this file as required by it.
 ///
-/// One system is solved by a group of threads_per_system threads that
-/// share its rows: thread tx holds rows tx, tx + threads_per_system,
-/// tx + 2 * threads_per_system and so on, rows_per_thread of them, in
-/// registers. The threads cooperate through a small workspace (shared
+/// One system is solved by a group of threads_per_system threads. The
+/// solver factors S, the stored matrix read column-major: S = A under the
+/// column-major layout, S = A^T under the row-major one, the default.
+/// Thread tx holds rows tx, tx + threads_per_system,
+/// tx + 2 * threads_per_system and so on of S, rows_per_thread of them,
+/// in registers: rows of A under the column-major layout, columns of A
+/// under the row-major one. In both layouts the threads of a group thus
+/// read consecutive addresses, the access pattern the design of MAGMA
+/// rests on. The threads cooperate through a small workspace (shared
 /// memory on GPU) and a barrier, deduced or provided by the caller. The
-/// numerical algorithm is the right-looking LU with partial pivoting of
-/// MAGMA's register-blocked small-system kernel: same operations, same
-/// order and, with Config.relative_pivot_threshold = 1, same pivot
-/// choice; a smaller threshold keeps the row in place more often, and
-/// the pivots then differ. By default pivoting is logical: rows never
-/// move, each thread tracks the position of its rows in the pivoted
-/// order (MAGMA's rowid) and the pivot array records it.
+/// factorization is the right-looking LU with partial pivoting of
+/// MAGMA's register-blocked small-system kernel, applied to S: same
+/// operations, same order and, with Config.relative_pivot_threshold = 1,
+/// same pivot choice; a smaller threshold keeps the row in place more
+/// often, and the pivots then differ. Under the column-major layout,
+/// P A = L U and the solve is MAGMA's: L y = P b folded into the
+/// factorization, then U x = y. Under the row-major layout, P A^T = L U,
+/// so A = U^T L^T P: the pivoting interchanges columns of A, which is
+/// partial pivoting of A^T and as stable, and the solve is the mirror of
+/// MAGMA's: U^T z = b folded into the factorization, then L^T w = z,
+/// which divides by nothing since L has a unit diagonal, and x = P^T w.
+/// The rest of this documentation speaks of the rows of S. By default
+/// pivoting is logical: rows never move, each thread tracks the position
+/// of its rows in the pivoted order (MAGMA's rowid) and the pivot array
+/// records it.
 /// Config.row_interchange selects physical row interchanges instead,
 /// the scheme of LAPACK: the rows move between the threads, so that the
 /// row at position k always lives in slot k / threads_per_system of
@@ -117,8 +130,11 @@
 /// even when the threads of a group do not run in lockstep.
 ///
 /// **Inputs on entry.** Each thread reads only the entries of its own
-/// rows. A caller that builds the rows of each thread in that thread
-/// needs no barrier before the call.
+/// rows of S and of the right-hand side: the matrix entries
+/// S(tx + K * threads_per_system, c) and the right-hand-side entries
+/// tx + K * threads_per_system. A caller that builds them in that thread
+/// needs no barrier before the call: under the row-major layout, the
+/// columns of A of the thread.
 ///
 /// **Results on return.** Every entry point ends with a barrier. When a
 /// thread returns, every thread of the group has written its results
@@ -134,17 +150,24 @@
 /// caller-local array, and the stride is ignored. In *external* mode the
 /// operand is the whole object, in memory reachable by every thread of
 /// the group, walked with the stride.
-///   - matrix: external element (r, c) lives at
+///   - matrix: external element (r, c) of A lives at
 ///     `A[((r)*N+(c))*A_stride]` under the default row-major layout,
-///     `A[((c)*N+(r))*A_stride]` under the column-major one. The internal
-///     slice holds the rows_per_thread rows of the thread: element (K, c),
-///     column c of row tx + K * threads_per_system, lives at
-///     `A[K*N+c]` row-major and `A[c*rows_per_thread+K]` column-major.
+///     `A[((c)*N+(r))*A_stride]` under the column-major one. Element
+///     (v, c) of S thus lives at `A[((c)*N+(v))*A_stride]` in both. The
+///     internal slice holds the rows_per_thread rows of S of the thread:
+///     element c of row tx + K * threads_per_system lives at
+///     `A[c*rows_per_thread+K]`. It is the block of A made of these
+///     vectors, stored in the layout of Config.layout: the
+///     N x rows_per_thread block of the columns of the thread, row-major,
+///     or the rows_per_thread x N block of its rows, column-major. With
+///     one thread per system, the slice is the whole matrix in that
+///     layout.
 ///   - pivot: under logical row interchanges, external entry r holds the
-///     position of physical row r in the pivoted order. This maps physical
-///     to logical rows, the inverse of the TiledLUpp convention. Under
-///     physical ones, entry k holds the original index of the row at
-///     position k, as in the TiledLUpp solvers. The internal slice holds
+///     position of physical row r of S in the pivoted order. This maps
+///     physical to logical rows, the inverse of the TiledLUpp convention.
+///     Under physical ones, entry k holds the original index of the row of
+///     S at position k, as in the TiledLUpp solvers. Under the row-major
+///     layout, the rows of S are the columns of A. The internal slice holds
 ///     the entries of the rows of the thread, entry K for row
 ///     tx + K * threads_per_system.
 ///   - right-hand side and solution: external entry r is row r; the
@@ -155,16 +178,18 @@
 /// batched layout: AoS (stride 1), SoA (stride = batch size), AoSoA
 /// (stride = W).
 ///
-/// **Factored format.** Under logical row interchanges, the factorization
-/// stays in the physical rows: physical row r holds, before the column of
-/// its pivot step, the multipliers of L, and from that column on, its row
-/// of U. Under physical ones, the rows end in the pivoted order, as in
+/// **Factored format.** S is factored in place, in the stored array.
+/// Under logical row interchanges, the factorization stays in the
+/// physical rows of S: physical row r holds, before the column of its
+/// pivot step, the multipliers of L, and from that column on, its row of
+/// U. Under physical ones, the rows end in the pivoted order, as in
 /// LAPACK: row k holds the multipliers of L before column k, and its row
 /// of U from column k on. Both formats hold the same rows, bit for bit,
-/// at different places. The diagonal holds the pivots themselves, not
-/// their reciprocals. A factorization produced here must be consumed by
-/// the substitution routines of this solver, under the same
-/// configuration.
+/// at different places. Under the row-major layout, these rows of S are
+/// the columns of the stored array. The diagonal holds the pivots
+/// themselves, not their reciprocals. A factorization produced here must
+/// be consumed by the substitution routines of this solver, under the
+/// same configuration.
 ///
 /// **Workspace.** Under logical row interchanges, 3 * N elements per
 /// group, MAGMA's sB, sx and dsx, in this order. Under physical ones,
@@ -172,10 +197,10 @@
 /// threads and their positions, the magnitude of the row in place, then
 /// two exchange records of N + 2 elements, the rows that leave and
 /// enter the position of the step. The substitutions use the first
-/// 2 * N elements. Two more elements come first, those of the deduced
-/// CPU barrier: on CPU, they must be zero before the first call of a
-/// group of several threads, and the barrier keeps them in that state
-/// between calls. They keep their place whatever the dimension and the
+/// 2 * N + 2 elements at most. Two more elements come first, those of
+/// the deduced CPU barrier: on CPU, they must be zero before the first
+/// call of a group of several threads, and the barrier keeps them in
+/// that state between calls. They keep their place whatever the dimension and the
 /// configuration, so that a workspace may serve other solves.
 /// workspace_size counts them all. The workspace
 /// pointer carries no restrict qualifier: the other threads of the
@@ -200,6 +225,11 @@
 ///     matrix keeps its physical row order: a separate substitution can
 ///     then rebuild its state from the factored rows alone. The swap
 ///     sequence (sipiv) is not computed.
+///   - Under the row-major layout, MAGMA's factorization of A^T and the
+///     mirror solve U^T z = b, L^T w = z, x = P^T w: the threads hold
+///     columns of A, so that a group still reads consecutive addresses.
+///     Each substitution step takes one barrier instead of two, the
+///     exchange being double-buffered.
 ///   - Physical row interchanges as an option, with the same pivots and
 ///     the same operations: one candidate per thread instead of one
 ///     magnitude per row, two barriers per column instead of three, and no
@@ -307,21 +337,19 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void unroll_K(Fn&& fn) noexcept {
 
 /* Addressing macros. They expand inside member functions where the
    parameter names (tx, A, A_stride, piv, piv_stride, b, x, y,
-   rhs_stride), the residency template booleans, the Config value and the
-   class constants are in scope. K is a row slot of the calling thread,
-   its row is tx + K * threads_per_system. #undef'd at the end of this
-   header. */
+   rhs_stride), the residency template booleans and the class constants
+   are in scope. K is a row slot of the calling thread, its row is
+   tx + K * threads_per_system. #undef'd at the end of this header. */
 
 /// \def TDLS_COOP_LUPP_A
-/// \brief Element (row of slot K, c) of the matrix: slice of the calling
-/// thread under internal residency, whole strided matrix otherwise, flat
-/// index remapped by Config.layout.
+/// \brief Element (row of slot K, c) of S, the stored matrix read
+/// column-major (A under the column-major layout, A^T under the row-major
+/// one): slice of the calling thread under internal residency, whole
+/// strided matrix otherwise. Consecutive threads hold consecutive rows of
+/// S, thus consecutive addresses.
 #define TDLS_COOP_LUPP_A(K, c)                                                                     \
-    A[internal_matrix                                                                              \
-          ? (Config.layout == tdls::MatrixLayout::RowMajor                                         \
-                 ? unsigned((K) * N + (c))                                                         \
-                 : unsigned((c) * rows_per_thread + (K)))                                          \
-          : TDLS_LAYOUT_INDEX(tx + (K) * threads_per_system, c, N) * unsigned(A_stride)]
+    A[internal_matrix ? unsigned((c) * rows_per_thread + (K))                                      \
+                      : unsigned((c) * N + tx + (K) * threads_per_system) * unsigned(A_stride)]
 /// \def TDLS_COOP_LUPP_PIV
 /// \brief Pivot entry of the row of slot K: slice of the calling thread
 /// under internal residency, whole strided array otherwise.
@@ -352,7 +380,8 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void unroll_K(Fn&& fn) noexcept {
 /// every thread of the group with its rank tx, and take raw pointers
 /// pre-offset by the caller plus one runtime stride per array (see the
 /// file documentation for the calling convention). Entry points:
-///   - factorize:             A := P*L*U in place, pivot entries out
+///   - factorize:             S := P*L*U in place, pivot entries out (S
+///     = A column-major, A^T row-major)
 ///   - substitute:            x := A^-1 b from a factorization (b and x
 ///     distinct)
 ///   - substitute_canonical:  idem with b = e_col (tangent-operator columns)
@@ -407,6 +436,14 @@ struct CooperativeLUppSolverStatic {
     /// \brief Singularity floor, read once from the configuration (see
     /// CooperativeLUppConfig::singular_floor).
     static constexpr T singular_floor = Config.singular_floor;
+    /// \brief Whether the solve uses the transpose of the factored matrix.
+    /// The solver factors S, the stored matrix read column-major, so that
+    /// consecutive threads hold consecutive addresses whatever the layout.
+    /// Under the column-major layout S = A and the solve is S x = b, the
+    /// kernel of MAGMA. Under the row-major layout S = A^T, the threads hold
+    /// columns of A, and the solve is S^T x = b (see the file
+    /// documentation).
+    static constexpr bool transposed = Config.layout == MatrixLayout::RowMajor;
 
     static_assert(relative_pivot_threshold > T(0) && relative_pivot_threshold <= T(1),
                   "CooperativeLUppSolverStatic: relative_pivot_threshold must be in (0, 1]");
@@ -437,11 +474,12 @@ struct CooperativeLUppSolverStatic {
         return (K + 1) * threads_per_system <= N;
     }
 
-    /// \brief Calls fn on the slot of position pos when the calling thread
-    /// holds it, the position of a row being the index of its slot under
-    /// physical row interchanges.
+    /// \brief Calls fn on the slot of static index pos when the calling
+    /// thread holds it: the position of a row under physical row
+    /// interchanges, the entry of the right-hand side under the transposed
+    /// solve.
     ///
-    /// Position pos lives in slot pos / threads_per_system of thread
+    /// Index pos lives in slot pos / threads_per_system of thread
     /// pos % threads_per_system. Inside an unrolled column sweep, a column
     /// index is a constant: the slot is then selected at compile time, and
     /// only the rank of the thread is tested at run time. The solver passes
@@ -645,16 +683,26 @@ struct CooperativeLUppSolverStatic {
 
     /// \brief One column of the factorization under logical row
     /// interchanges.
-    /// \tparam fuse_rhs apply the elimination to the right-hand side as well
-    ///         (the forward pass of solve_inplace)
+    ///
+    /// With fuse_rhs, the step applies the forward pass to the right-hand
+    /// side as well. Solve S x = b (column-major): the owner of the pivot
+    /// row publishes its entry y_i and the rows below subtract L(r, i) y_i,
+    /// as in MAGMA. Solve S^T x = b (row-major), U^T z = b: the owner of
+    /// entry i publishes b'(i), final at this step, every thread computes
+    /// z_i = b'(i) / U(i, i) through the reciprocal of the pivot, the owner
+    /// of entry i keeps z_i in its place, and each entry c > i subtracts
+    /// U(i, c) z_i, row i of U being the published pivot row.
+    /// \tparam fuse_rhs apply the forward pass to the right-hand side as well
+    ///         (solve_inplace)
     /// \tparam Sync     callable type of the barrier
+    /// \param[in]     tx    rank of the calling thread in its group
     /// \param[in]     i     column of this step
     /// \param[in,out] rA    register rows of the thread
     /// \param[in,out] rB    right-hand-side registers (fuse_rhs only)
     /// \param[in,out] rowid position of each row of the thread in the
     ///                pivoted order
-    /// \param[in]     sB    workspace: broadcast slot of the pivot
-    ///                right-hand side (fuse_rhs only)
+    /// \param[in]     sB    workspace: broadcast slot of the right-hand-side
+    ///                entry of the step (fuse_rhs only)
     /// \param[in]     sx    workspace: pivot row
     /// \param[in]     dsx   workspace: magnitudes of the column
     /// \param[in,out] linfo 0, or 1 + the first column whose best pivot
@@ -663,8 +711,8 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool fuse_rhs, typename Sync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
-    logical_elimination_step(const int i, T (&rA)[rows_per_thread][N],
-                             [[maybe_unused]] T (&rB)[rows_per_thread],
+    logical_elimination_step([[maybe_unused]] const int tx, const int i,
+                             T (&rA)[rows_per_thread][N], [[maybe_unused]] T (&rB)[rows_per_thread],
                              int (&rowid)[rows_per_thread], T* sB, T* sx, T* dsx, int& linfo,
                              Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         // izamax: the magnitudes of column i, at the positions of their rows.
@@ -710,15 +758,19 @@ struct CooperativeLUppSolverStatic {
                         for (int j = i; j < N; j++)
                             sx[j] = update * rA[K][j];
                     }
-                    if constexpr (fuse_rhs) sB[0] = rB[K];
+                    if constexpr (fuse_rhs && !transposed) sB[0] = rB[K];
                 } else if (rowid[K] == i) {
                     rowid[K] = max_id;
                 }
             }
         });
+        if constexpr (fuse_rhs && transposed)
+            at_position(tx, i, [&](auto K_tag) { sB[0] = rB[decltype(K_tag)::value]; });
         sync();
 
-        const T reg = zero_pivot ? T(1) : T(1) / sx[i];
+        const T reg            = zero_pivot ? T(1) : T(1) / sx[i];
+        [[maybe_unused]] T z_i = T(0);
+        if constexpr (fuse_rhs && transposed) z_i = sB[0] * reg;
 
         // scal and ger: every thread eliminates its rows below the pivot.
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -734,7 +786,12 @@ struct CooperativeLUppSolverStatic {
                         for (int j = i + 1; j < N; j++)
                             rA[K][j] -= rA[K][i] * sx[j];
                     }
-                    if constexpr (fuse_rhs) rB[K] -= rA[K][i] * sB[0];
+                    if constexpr (fuse_rhs && !transposed) rB[K] -= rA[K][i] * sB[0];
+                }
+                if constexpr (fuse_rhs && transposed) {
+                    const int c = tx + K * threads_per_system;
+                    if (c == i) rB[K] = z_i;
+                    if ((slot_is_full(K) || c < N) && c > i) rB[K] -= sx[c] * z_i;
                 }
             }
         });
@@ -920,8 +977,15 @@ struct CooperativeLUppSolverStatic {
     /// row publishes it as well, and both rows are exchanged before the
     /// elimination, their multipliers included: the factored rows end in
     /// the pivoted order, as in LAPACK.
-    /// \tparam fuse_rhs apply the elimination to the right-hand side as well
-    ///         (the forward pass of solve_inplace)
+    ///
+    /// With fuse_rhs, the forward pass of the right-hand side is that of the
+    /// logical scheme on positions. Solve S x = b: the entry of each row
+    /// travels with it. Solve S^T x = b: the right-hand side is indexed by
+    /// the columns of S, which never move; the owner of position i is the
+    /// owner of entry i, publishes b'(i) with its row and keeps z_i in its
+    /// place.
+    /// \tparam fuse_rhs apply the forward pass to the right-hand side as well
+    ///         (solve_inplace)
     /// \tparam Sync     callable type of the barrier
     /// \param[in]     tx     rank of the calling thread in its group
     /// \param[in]     i      column of this step
@@ -939,6 +1003,8 @@ struct CooperativeLUppSolverStatic {
                               [[maybe_unused]] T (&rB)[rows_per_thread],
                               int (&origin)[rows_per_thread], T* work, int& linfo,
                               Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
+        // The right-hand side moves with the rows only under S x = b.
+        constexpr bool carries_rhs = fuse_rhs && !transposed;
         // Workspace: the candidates and their positions, the magnitude of
         // the row in place, then the exchange records of the rows leaving
         // and entering position i. Positions travel as values of T, as in
@@ -1001,28 +1067,32 @@ struct CooperativeLUppSolverStatic {
         // well: it enters position i, and the row in place leaves it for
         // position max_id. The elimination reads the pivot row and its
         // right-hand-side entry from the record of the row that ends at
-        // position i. A zero pivot is not scaled away as in the logical
-        // scheme: the factorization of a singular matrix is unspecified,
-        // and reg = 1 keeps it finite.
+        // position i, under S x = b; under S^T x = b, the entry b'(i) of
+        // the owner of position i, from the record of the row in place. A
+        // zero pivot is not scaled away as in the logical scheme: the
+        // factorization of a singular matrix is unspecified, and reg = 1
+        // keeps it finite.
         at_position(tx, i, [&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
             save_row<fuse_rhs>(rA[K], rB[K], origin[K], leaving);
         });
         if (max_id != i && tx == max_id % threads_per_system)
-            gather_row<fuse_rhs>(tx, i, max_id, rA, rB, origin, entering);
+            gather_row<carries_rhs>(tx, i, max_id, rA, rB, origin, entering);
         sync();
 
         if (max_id != i) {
             at_position(tx, i, [&](auto K_tag) {
                 constexpr int K = decltype(K_tag)::value;
-                load_row<fuse_rhs>(rA[K], rB[K], origin[K], entering);
+                load_row<carries_rhs>(rA[K], rB[K], origin[K], entering);
             });
             if (tx == max_id % threads_per_system)
-                scatter_row<fuse_rhs>(tx, i, max_id, rA, rB, origin, leaving);
+                scatter_row<carries_rhs>(tx, i, max_id, rA, rB, origin, leaving);
         }
 
-        const T* const prow = max_id == i ? leaving : entering;
-        const T reg         = zero_pivot ? T(1) : T(1) / prow[i];
+        const T* const prow    = max_id == i ? leaving : entering;
+        const T reg            = zero_pivot ? T(1) : T(1) / prow[i];
+        [[maybe_unused]] T z_i = T(0);
+        if constexpr (fuse_rhs && transposed) z_i = leaving[N] * reg;
 
         // scal and ger: every thread eliminates its rows below the pivot.
         // The next step writes only the candidates, which no thread reads
@@ -1041,15 +1111,19 @@ struct CooperativeLUppSolverStatic {
                         for (int j = i + 1; j < N; j++)
                             rA[K][j] -= rA[K][i] * prow[j];
                     }
-                    if constexpr (fuse_rhs) rB[K] -= rA[K][i] * prow[N];
+                    if constexpr (carries_rhs) rB[K] -= rA[K][i] * prow[N];
+                }
+                if constexpr (fuse_rhs && transposed) {
+                    if (pos == i) rB[K] = z_i;
+                    if ((slot_is_full(K) || pos < N) && pos > i) rB[K] -= prow[pos] * z_i;
                 }
             }
         });
     }
 
     /// \brief Factorization of the register rows of the group.
-    /// \tparam fuse_rhs apply the elimination to the right-hand side as well
-    ///         (the forward pass of solve_inplace)
+    /// \tparam fuse_rhs apply the forward pass to the right-hand side as well
+    ///         (solve_inplace)
     /// \tparam Sync     callable type of the barrier
     /// \param[in]     tx   rank of the calling thread in its group
     /// \param[in,out] rA   register rows of the thread
@@ -1063,7 +1137,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool fuse_rhs, typename Sync>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
-    eliminate([[maybe_unused]] const int tx, T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
+    eliminate(const int tx, T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
               int (&rpiv)[rows_per_thread], T* work,
               Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         int linfo = 0;
@@ -1074,10 +1148,12 @@ struct CooperativeLUppSolverStatic {
             if constexpr (Config.unroll_loops) {
                 TDLS_UNROLL_FORCE
                 for (int i = 0; i < N; i++)
-                    logical_elimination_step<fuse_rhs>(i, rA, rB, rpiv, sB, sx, dsx, linfo, sync);
+                    logical_elimination_step<fuse_rhs>(tx, i, rA, rB, rpiv, sB, sx, dsx, linfo,
+                                                       sync);
             } else {
                 for (int i = 0; i < N; i++)
-                    logical_elimination_step<fuse_rhs>(i, rA, rB, rpiv, sB, sx, dsx, linfo, sync);
+                    logical_elimination_step<fuse_rhs>(tx, i, rA, rB, rpiv, sB, sx, dsx, linfo,
+                                                       sync);
             }
         } else {
             if constexpr (Config.unroll_loops) {
@@ -1094,7 +1170,7 @@ struct CooperativeLUppSolverStatic {
     }
 
     /* =====================================================================
-       SUBSTITUTION.
+       SUBSTITUTION of S x = b, the column-major layout.
        Forward: the owner of the row at position i publishes its
        right-hand-side entry, every thread updates its rows below. This is
        the elimination of the right-hand side that solve_inplace folds into
@@ -1284,55 +1360,271 @@ struct CooperativeLUppSolverStatic {
         });
     }
 
-    /// \brief Forward substitution L y = P b, y overwriting the
-    /// right-hand-side registers.
+    /* =====================================================================
+       SUBSTITUTION of S^T x = b, the row-major layout.
+       With P S = L U, S^T = U^T L^T P. Both passes run on the positions of
+       the rows, held at the entries of the same index: z_p and w_p live in
+       the slot of entry p, which b'(p) leaves when it is consumed, so no
+       second vector is needed. Forward, U^T z = b: the row at position i
+       publishes its row of U, the owner of entry i its b'(i), every thread
+       computes z_i = b'(i) / U(i, i) through the reciprocal of the pivot,
+       the owner of entry i keeps z_i, and each entry c > i loses
+       U(i, c) z_i. This is the forward pass that solve_inplace folds into
+       the factorization, replayed from the factored rows. Backward,
+       L^T w = z: the row at position k publishes its multipliers L(k, c),
+       c < k, the owner of entry k its w_k, and each entry c < k loses
+       L(k, c) w_k; L has a unit diagonal, so no division sits on the chain
+       of the steps. One barrier per step: each step writes its own half of
+       a double buffer, which no thread still reads (see segment). Then
+       x = P^T w, one exchange through the workspace: under logical row
+       interchanges, row r of S takes w at its position; under physical
+       ones, w_p goes to the original index of the row at position p. These
+       are the mirror of the staging of the right-hand side that the
+       substitutions of S x = b make at the start.
+       ===================================================================== */
+
+    /// \brief Half of the double buffer of the transposed substitutions
+    /// used by a step: N + 1 elements, a row segment and one value. A thread
+    /// reads the half of step s after the barrier of step s; the next write
+    /// to that half comes at step s + 2, after the barrier of step s + 1,
+    /// which every thread reaches only once its reads of step s are done.
+    /// Both halves take 2 * N + 2 elements, within the workspace for
+    /// N >= 2; a dimension of 1 uses the first half only.
+    /// \param[in] work workspace of the group
+    /// \param[in] step index of the step
+    /// \return the half of the step
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr T* segment(T* work,
+                                                                  const int step) noexcept {
+        return work + (step & 1) * (N + 1);
+    }
+
+    /// \brief One step of the forward substitution U^T z = b.
     /// \tparam Sync callable type of the barrier
-    /// \param[in]     tx   rank of the calling thread in its group
-    /// \param[in]     rA   factored register rows of the thread
-    /// \param[in,out] rB   right-hand-side registers of the thread
-    /// \param[in]     rpiv pivot entry of each slot of the thread
-    /// \param[in]     work workspace of the group
-    /// \param[in]     sync barrier of the group
+    /// \param[in]     tx    rank of the calling thread in its group
+    /// \param[in]     i     position of this step
+    /// \param[in]     rA    factored register rows of the thread
+    /// \param[in,out] rB    entries tx + K * threads_per_system: b' below
+    ///                position i, z from it on
+    /// \param[in]     rowid position of each row of the thread in the
+    ///                pivoted order
+    /// \param[in]     work  workspace of the group
+    /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
-    forward_substitution([[maybe_unused]] const int tx, const T (&rA)[rows_per_thread][N],
-                         T (&rB)[rows_per_thread], const int (&rpiv)[rows_per_thread], T* work,
-                         Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
-        if constexpr (Config.row_interchange == RowInterchange::Logical) {
-            forward_pass(rA, rB, rpiv, work, sync);
+    transposed_forward_step(const int tx, const int i, const T (&rA)[rows_per_thread][N],
+                            T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread], T* work,
+                            Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
+        T* const sx = segment(work, i);
+        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+            constexpr int K = decltype(K_tag)::value;
+            if constexpr (slot_has_rows(K)) {
+                if (rowid[K] == i) {
+                    // Unrolled, the copy runs over all N entries under a
+                    // guard: a trip count set by the step lets the AMD
+                    // compiler unroll it before the step loop, and the
+                    // rows then fall to scratch memory.
+                    if constexpr (Config.unroll_loops) {
+                        TDLS_UNROLL_FORCE
+                        for (int j = 0; j < N; j++)
+                            if (j >= i) sx[j] = rA[K][j];
+                    } else {
+                        for (int j = i; j < N; j++)
+                            sx[j] = rA[K][j];
+                    }
+                }
+            }
+        });
+        at_position(tx, i, [&](auto K_tag) { sx[N] = rB[decltype(K_tag)::value]; });
+        sync();
+
+        const T z_i = sx[N] * (T(1) / sx[i]);
+        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+            constexpr int K = decltype(K_tag)::value;
+            if constexpr (slot_has_rows(K)) {
+                const int c = tx + K * threads_per_system;
+                if (c == i) rB[K] = z_i;
+                if ((slot_is_full(K) || c < N) && c > i) rB[K] -= sx[c] * z_i;
+            }
+        });
+    }
+
+    /// \brief One step of the backward substitution L^T w = z.
+    ///
+    /// The step uses the half of step k + 1: the first step, k = N - 1,
+    /// then writes the half that the last step of the forward pass does not
+    /// read, so that no barrier separates the passes.
+    /// \tparam Sync callable type of the barrier
+    /// \param[in]     tx    rank of the calling thread in its group
+    /// \param[in]     k     position of this step
+    /// \param[in]     rA    factored register rows of the thread
+    /// \param[in,out] rB    entries tx + K * threads_per_system: z below
+    ///                position k, w from it on
+    /// \param[in]     rowid position of each row of the thread in the
+    ///                pivoted order
+    /// \param[in]     work  workspace of the group
+    /// \param[in]     sync  barrier of the group
+    TDLS_EXEC_CHECK_DISABLE
+    template<typename Sync>
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_backward_step(const int tx, const int k, const T (&rA)[rows_per_thread][N],
+                             T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread], T* work,
+                             Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
+        T* const sx = segment(work, k + 1);
+        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+            constexpr int K = decltype(K_tag)::value;
+            if constexpr (slot_has_rows(K)) {
+                if (rowid[K] == k) {
+                    // Unrolled over all N entries under a guard, as in the
+                    // forward step.
+                    if constexpr (Config.unroll_loops) {
+                        TDLS_UNROLL_FORCE
+                        for (int c = 0; c < N; c++)
+                            if (c < k) sx[c] = rA[K][c];
+                    } else {
+                        for (int c = 0; c < k; c++)
+                            sx[c] = rA[K][c];
+                    }
+                }
+            }
+        });
+        at_position(tx, k, [&](auto K_tag) { sx[N] = rB[decltype(K_tag)::value]; });
+        sync();
+
+        const T w_k = sx[N];
+        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+            constexpr int K = decltype(K_tag)::value;
+            if constexpr (slot_has_rows(K)) {
+                const int c = tx + K * threads_per_system;
+                if (c < k) rB[K] -= sx[c] * w_k;
+            }
+        });
+    }
+
+    /// \brief Forward then backward pass of S^T x = b on the given row
+    /// positions: b in the entries of the thread on entry, w at the entries
+    /// of the same positions on exit. Position 0 updates no entry in the
+    /// backward pass: its step is skipped.
+    /// \tparam backward_only skip the forward pass, folded into the
+    ///         factorization (solve_inplace)
+    /// \tparam Sync          callable type of the barrier
+    /// \param[in]     tx    rank of the calling thread in its group
+    /// \param[in]     rA    factored register rows of the thread
+    /// \param[in,out] rB    entries tx + K * threads_per_system
+    /// \param[in]     rowid position of each row of the thread in the
+    ///                pivoted order
+    /// \param[in]     work  workspace of the group
+    /// \param[in]     sync  barrier of the group
+    TDLS_EXEC_CHECK_DISABLE
+    template<bool backward_only, typename Sync>
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_passes(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
+                      const int (&rowid)[rows_per_thread], T* work,
+                      Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
+        if constexpr (Config.unroll_loops) {
+            if constexpr (!backward_only) {
+                TDLS_UNROLL_FORCE
+                for (int i = 0; i < N; i++)
+                    transposed_forward_step(tx, i, rA, rB, rowid, work, sync);
+            }
+            TDLS_UNROLL_FORCE
+            for (int k = N - 1; k >= 1; k--)
+                transposed_backward_step(tx, k, rA, rB, rowid, work, sync);
         } else {
-            // Staged apart from the broadcast slot of the pass, which a
-            // faster thread may already write.
-            gather_rhs(tx, rB, rpiv, work + N, sync);
-            int position[rows_per_thread];
-            init_piv(tx, position);
-            forward_pass(rA, rB, position, work, sync);
+            if constexpr (!backward_only) {
+                for (int i = 0; i < N; i++)
+                    transposed_forward_step(tx, i, rA, rB, rowid, work, sync);
+            }
+            for (int k = N - 1; k >= 1; k--)
+                transposed_backward_step(tx, k, rA, rB, rowid, work, sync);
         }
     }
 
-    /// \brief Backward substitution U x = y: the forward-reduced
-    /// right-hand side y in the registers on entry, the solution entries
-    /// of the thread on exit.
+    /// \brief x = P^T w, through the workspace. Logical row interchanges:
+    /// the slot of row r of S takes w at the position of the row. Physical
+    /// ones: w_p goes to the original index of the row at position p. The
+    /// exchange is staged in the half of the double buffer that the last
+    /// backward step does not read.
     /// \tparam Sync callable type of the barrier
     /// \param[in]     tx   rank of the calling thread in its group
-    /// \param[in]     rA   factored register rows of the thread
-    /// \param[in,out] rB   y entries of the rows of the thread on entry,
-    ///                solution entries tx + K * threads_per_system on exit
+    /// \param[in,out] rB   w of the positions tx + K * threads_per_system on
+    ///                entry, solution entries tx + K * threads_per_system
+    ///                on exit
     /// \param[in]     rpiv pivot entry of each slot of the thread
     /// \param[in]     work workspace of the group
     /// \param[in]     sync barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
     TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
-    backward_substitution(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
-                          const int (&rpiv)[rows_per_thread], T* work,
-                          Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
-        if constexpr (Config.row_interchange == RowInterchange::Logical) {
+    unpermute_solution(const int tx, T (&rB)[rows_per_thread], const int (&rpiv)[rows_per_thread],
+                       T* work, Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
+        constexpr bool logical = Config.row_interchange == RowInterchange::Logical;
+        T* const staged        = segment(work, 1);
+        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+            constexpr int K = decltype(K_tag)::value;
+            if constexpr (slot_has_rows(K)) {
+                if (slot_is_full(K) || tx + K * threads_per_system < N)
+                    staged[logical ? tx + K * threads_per_system : rpiv[K]] = rB[K];
+            }
+        });
+        sync();
+
+        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+            constexpr int K = decltype(K_tag)::value;
+            if constexpr (slot_has_rows(K)) {
+                if (slot_is_full(K) || tx + K * threads_per_system < N)
+                    rB[K] = staged[logical ? rpiv[K] : tx + K * threads_per_system];
+            }
+        });
+    }
+
+    /* =====================================================================
+       SUBSTITUTION, dispatch on the layout.
+       ===================================================================== */
+
+    /// \brief Substitution from the factored rows, the right-hand side in
+    /// the registers on entry, the solution entries of the thread on exit:
+    /// L y = P b then U x = y under the column-major layout, U^T z = b,
+    /// L^T w = z and x = P^T w under the row-major one.
+    /// \tparam backward_only skip the forward pass, folded into the
+    ///         factorization (solve_inplace)
+    /// \tparam Sync          callable type of the barrier
+    /// \param[in]     tx   rank of the calling thread in its group
+    /// \param[in]     rA   factored register rows of the thread
+    /// \param[in,out] rB   right-hand-side registers of the thread on entry
+    ///                (forward-reduced with backward_only), solution
+    ///                entries tx + K * threads_per_system on exit
+    /// \param[in]     rpiv pivot entry of each slot of the thread
+    /// \param[in]     work workspace of the group
+    /// \param[in]     sync barrier of the group
+    TDLS_EXEC_CHECK_DISABLE
+    template<bool backward_only, typename Sync>
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    substitution(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
+                 const int (&rpiv)[rows_per_thread], T* work,
+                 Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
+        constexpr bool logical = Config.row_interchange == RowInterchange::Logical;
+        if constexpr (transposed) {
+            if constexpr (logical) {
+                transposed_passes<backward_only>(tx, rA, rB, rpiv, work, sync);
+            } else {
+                int position[rows_per_thread];
+                init_piv(tx, position);
+                transposed_passes<backward_only>(tx, rA, rB, position, work, sync);
+            }
+            unpermute_solution(tx, rB, rpiv, work, sync);
+        } else if constexpr (logical) {
+            if constexpr (!backward_only) forward_pass(rA, rB, rpiv, work, sync);
             backward_pass(tx, rA, rB, rpiv, work, sync);
         } else {
             int position[rows_per_thread];
             init_piv(tx, position);
+            if constexpr (!backward_only) {
+                // Staged apart from the broadcast slot of the pass, which a
+                // faster thread may already write.
+                gather_rhs(tx, rB, rpiv, work + N, sync);
+                forward_pass(rA, rB, position, work, sync);
+            }
             backward_pass(tx, rA, rB, position, work, sync);
         }
     }
@@ -1428,8 +1720,7 @@ struct CooperativeLUppSolverStatic {
         load_rows<internal_matrix>(tx, A, A_stride, rA);
         load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
         load_rhs<internal_rhs>(tx, b, rhs_stride, rB);
-        forward_substitution(tx, rA, rB, rpiv, exchange, group);
-        backward_substitution(tx, rA, rB, rpiv, exchange, group);
+        substitution<false>(tx, rA, rB, rpiv, exchange, group);
         store_solution<internal_rhs>(tx, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
     }
@@ -1471,8 +1762,7 @@ struct CooperativeLUppSolverStatic {
             constexpr int K = decltype(K_tag)::value;
             rB[K]           = (tx + K * threads_per_system == col) ? T(1) : T(0);
         });
-        forward_substitution(tx, rA, rB, rpiv, exchange, group);
-        backward_substitution(tx, rA, rB, rpiv, exchange, group);
+        substitution<false>(tx, rA, rB, rpiv, exchange, group);
         store_solution<internal_rhs>(tx, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
     }
@@ -1514,8 +1804,7 @@ struct CooperativeLUppSolverStatic {
         load_rows<internal_matrix>(tx, A, A_stride, rA);
         load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
         load_rhs<internal_rhs>(tx, x, rhs_stride, rB);
-        forward_substitution(tx, rA, rB, rpiv, exchange, group);
-        backward_substitution(tx, rA, rB, rpiv, exchange, group);
+        substitution<false>(tx, rA, rB, rpiv, exchange, group);
         store_solution<internal_rhs>(tx, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
     }
@@ -1564,8 +1853,7 @@ struct CooperativeLUppSolverStatic {
         store_rows<internal_matrix>(tx, A, A_stride, rA);
         store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
         load_rhs<internal_rhs>(tx, b, rhs_stride, rB);
-        forward_substitution(tx, rA, rB, rpiv, exchange, group);
-        backward_substitution(tx, rA, rB, rpiv, exchange, group);
+        substitution<false>(tx, rA, rB, rpiv, exchange, group);
         store_solution<internal_rhs>(tx, x, rhs_stride, rB);
         group(); // every output visible to the whole group on return
         return linfo == 0;
@@ -1618,7 +1906,7 @@ struct CooperativeLUppSolverStatic {
         const int linfo = eliminate<true>(tx, rA, rB, rpiv, exchange, group);
         store_rows<internal_matrix>(tx, A, A_stride, rA);
         store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        backward_substitution(tx, rA, rB, rpiv, exchange, group);
+        substitution<true>(tx, rA, rB, rpiv, exchange, group);
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
             if constexpr (slot_has_rows(K)) {

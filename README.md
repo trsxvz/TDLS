@@ -18,9 +18,11 @@ pivoting:
 
 - TiledLUpp: one thread per system, logical pivoting on a tile grid.
 - CooperativeLUpp: a group of threads per system, each thread holding
-  some of its rows, synchronized by a barrier deduced from the
-  compilation target or provided by the caller; a single thread is a
-  valid group. Derived from
+  some of its vectors (columns under the row-major layout, rows under
+  the column-major one), so that a group reads consecutive addresses in
+  both layouts, synchronized by a barrier deduced from the compilation
+  target or provided by the caller; a single thread is a valid group.
+  Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
 
 Here are two snippets, one per family, with every knob spelled out.
@@ -70,7 +72,8 @@ const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 // Designated initializers override individual knobs;
 // tdls::CooperativeLUppConfig<double>{} alone keeps the defaults.
 constexpr tdls::CooperativeLUppConfig<double> config{
-    // int: rows of the system held by each thread of the group
+    // int: vectors of the matrix held by each thread of the group, its
+    // columns under the row-major layout, its rows under the column-major one
     .rows_per_thread = 3,
     // tdls::RowInterchange: Logical (rows never move) or Physical (rows
     // move between the threads, as in LAPACK); same pivots, same operations
@@ -85,11 +88,12 @@ constexpr tdls::CooperativeLUppConfig<double> config{
     // bool: forced unrolling of the loops over the rows of the thread,
     // the ones where it pays
     .unroll_loops = true,
-    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor
+    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor; it picks the
+    // vectors of each thread, and the solve of the transpose for RowMajor
     .layout = tdls::MatrixLayout::RowMajor};
 
 // LU solver for systems of dimension 9, shared by a group of 3 threads
-// holding 3 rows each. Every thread of the group makes the same call
+// holding 3 columns each. Every thread of the group makes the same call
 // with its rank tx in the group and the workspace of the group
 // (Solver::workspace_size elements in memory shared by the group). The
 // solver deduces the barrier of the group from the compilation target:
@@ -97,7 +101,7 @@ constexpr tdls::CooperativeLUppConfig<double> config{
 // passes another barrier, any callable. The residency booleans declare
 // every operand external: the whole matrix, pivot and right-hand side,
 // reached by the group with an element stride (the 1s). A single thread
-// holding every row passes 0 for tx.
+// holding every column passes 0 for tx.
 using Solver = tdls::CooperativeLUppSolverStatic<double, 9, config>;
 const bool ok = Solver::solve_inplace<false, false, false>(tx, M, 1, piv, 1, y, 1, work);
 ```

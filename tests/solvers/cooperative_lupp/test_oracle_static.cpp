@@ -165,10 +165,13 @@ TDLS_ANCHOR_CASES(double, 13, 5, 200, 1e-9, 611305)
 TDLS_ANCHOR_CASES(double, 7, 1, 200, 1e-9, 610701)
 TDLS_ANCHOR_CASES(double, 8, 3, 200, 1e-9, 610803)
 
-// Float: partial pivoting on the whole column keeps the element growth
-// small, so the float backward error stays near n * eps_float.
-TDLS_ANCHOR_CASES(float, 12, 12, 1000, 1e-5, 701212)
-TDLS_ANCHOR_CASES(float, 13, 5, 200, 1e-5, 711305)
+// Float: under the default relative threshold 0.1 the multipliers reach
+// 10, and the float backward error, about 2e-7 under partial pivoting
+// (threshold 1), grows tenfold: measured on 100000 systems of dimension
+// 12, a 99.9th percentile near 7e-6 and a maximum near 2.5e-5 in both
+// layouts. The tolerance keeps a margin of 2 over that maximum.
+TDLS_ANCHOR_CASES(float, 12, 12, 1000, 5e-5, 701212)
+TDLS_ANCHOR_CASES(float, 13, 5, 200, 5e-5, 711305)
 
 // Long double: the backward error accumulates in double, so the double
 // tolerance applies.
@@ -200,6 +203,6 @@ TDLS_PIVOTING_ANCHOR_CASES(double, 7, 1, Physical, false, "physical", 200, 1e-9,
 TDLS_PIVOTING_ANCHOR_CASES(double, 12, 12, Logical, true, "threshold", 1000, 1e-9, 631212)
 TDLS_PIVOTING_ANCHOR_CASES(double, 12, 3, Logical, true, "threshold", 200, 1e-9, 631203)
 TDLS_PIVOTING_ANCHOR_CASES(double, 13, 5, Physical, true, "physical,threshold", 200, 1e-9, 631305)
-TDLS_PIVOTING_ANCHOR_CASES(float, 13, 5, Physical, true, "physical,threshold", 200, 1e-5, 731305)
+TDLS_PIVOTING_ANCHOR_CASES(float, 13, 5, Physical, true, "physical,threshold", 200, 5e-5, 731305)
 
 TDLS_TEST_MAIN

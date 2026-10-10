@@ -51,12 +51,14 @@ int main() {
         // every thread iterates on its own copy of x, kept identical by the shared steps
         double x[4] = {0, 0, 0, 0};
         for (int iteration = 0; iteration < 20; ++iteration) {
-            // each thread builds the rows it holds in the solver, rows tx and tx + 2: the
-            // solver reads them from their owner, so no barrier is needed before the call
-            for (int i = tx; i < 4; i += Solver::threads_per_system) {
-                r[i] = residual(A, c, x, i);
-                for (int j = 0; j < 4; ++j)
-                    J[i * 4 + j] = A[i * 4 + j] + (i == j ? 2 * x[i] : 0);
+            // each thread builds the vectors it holds in the solver, columns tx and tx + 2
+            // of J under the default row-major layout, and the residual entries of the
+            // same indices: the solver reads them from their owner, so no barrier is
+            // needed before the call
+            for (int v = tx; v < 4; v += Solver::threads_per_system) {
+                r[v] = residual(A, c, x, v);
+                for (int i = 0; i < 4; ++i)
+                    J[i * 4 + v] = A[i * 4 + v] + (i == v ? 2 * x[v] : 0);
             }
             // one solve in place per iteration; on return the whole step is visible to every
             // thread, so each one updates its x with the entries of the others
@@ -69,13 +71,13 @@ int main() {
             }
             // the same test in every thread: the group leaves the loop together
             if (step < 1e-14) break;
-            sync(); // no thread rebuilds its rows of J and r before the others have read r
+            sync(); // no thread rebuilds its part of J and r before the others have read r
         }
 
         // tangent columns: one factorization at the solution, two canonical columns
-        for (int i = tx; i < 4; i += Solver::threads_per_system)
-            for (int j = 0; j < 4; ++j)
-                J[i * 4 + j] = A[i * 4 + j] + (i == j ? 2 * x[i] : 0);
+        for (int v = tx; v < 4; v += Solver::threads_per_system)
+            for (int i = 0; i < 4; ++i)
+                J[i * 4 + v] = A[i * 4 + v] + (i == v ? 2 * x[v] : 0);
         if (!Solver::factorize<false, false>(tx, J, 1, piv, 1, work, sync)) ok[tx] = 0;
         Solver::substitute_canonical<false, false, false>(tx, J, 1, piv, 1, 0, dx_dc[0], 1, work,
                                                           sync);

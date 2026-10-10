@@ -207,7 +207,7 @@ keeps the instrumented builds short.
 | `auto_sync` | the deduced barrier against an explicit one, bitwise, on every entry point of both solvers, and the barrier of `make_sync` in the exchanges of the caller; the barrier elements of the workspace back to their state between calls |
 | `entry_points` | the documented entry point equivalences, bitwise, and the guarantees on return: every result visible to the whole group, the workspace free; a regression case guards the workspace, which no solver may declare `restrict` |
 | `residencies` | every residency combination against the external one, bitwise |
-| `layouts` | the two matrix layouts and the AoS, SoA and AoSoA addressing, bitwise, on both solvers |
+| `layouts` | the AoS, SoA and AoSoA addressing under each matrix layout, bitwise, on both solvers; A stored row-major and A^T stored column-major, the same array, factored bit for bit the same way, each solution checked by its backward error |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case, with a verdict uniform across the group |
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the pivot choice under a relative threshold |
 | `constexpr` | compile-time certificates on both solvers, one thread per system, under both row interchanges |
@@ -248,8 +248,9 @@ Each scale picks its group of threads:
   returns for the exchanges of the example.
 
 In a group, every thread keeps its own copy of the state of the
-problem and computes the whole residual. It builds only the rows it
-holds, so the solver reads them without a barrier. On return, the
+problem and computes the whole residual. It builds only the vectors it
+holds, columns under the default row-major layout, so the solver reads
+them without a barrier. On return, the
 solution is visible to the whole group.
 
 Groups that share a barrier wider than themselves, as in a SYCL

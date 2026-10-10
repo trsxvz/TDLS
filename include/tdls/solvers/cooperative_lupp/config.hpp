@@ -48,14 +48,17 @@ namespace tdls {
 template<typename T>
 struct CooperativeLUppConfig {
 
-    /// Number of matrix rows held by each thread of the group. A system
-    /// of dimension N is solved by ceil(N / rows_per_thread) threads, and
-    /// each thread keeps its rows in registers. This is the main
+    /// Number of vectors of the matrix held by each thread of the group:
+    /// rows of S, the stored matrix read column-major, that is columns of
+    /// A under the row-major layout and rows of A under the column-major
+    /// one (see layout). A system of dimension N is solved by
+    /// ceil(N / rows_per_thread) threads, and each thread keeps its
+    /// vectors in registers. This is the main
     /// performance axis of the solver: a larger value packs more systems
     /// per warp and wastes fewer lanes, at the price of more registers per
     /// thread. The default 1 is the original mapping of MAGMA, one row per
     /// thread. When N is not a multiple of rows_per_thread, the last
-    /// thread holds phantom rows, skipped at compile time. A value
+    /// thread holds phantom vectors, skipped at compile time. A value
     /// reaching N gives one thread per system, the setting of sequential
     /// CPU code, and a larger value acts as N. Requires
     /// rows_per_thread >= 1.
@@ -130,13 +133,21 @@ struct CooperativeLUppConfig {
     /// unroll_loops.
     bool unroll_loops = true;
 
-    /// Memory layout of the matrix, in both residency modes. The knob only
-    /// remaps the flat element index that the element stride scales: the
-    /// arithmetic sequence is unchanged, so both layouts produce
-    /// bitwise-identical results on identical inputs. Row-major is the
-    /// TFEL convention and the default; column-major is the convention of
-    /// MAGMA. The vector operands and the pivot are one-dimensional and
-    /// unaffected.
+    /// Memory layout of the matrix, in both residency modes. The solver
+    /// adapts its design to it, at compile time: it factors S, the stored
+    /// matrix read column-major, and each thread holds rows of S, so that
+    /// the threads of a group read consecutive addresses in both layouts,
+    /// the access pattern the design of MAGMA rests on. Column-major, the
+    /// convention of MAGMA: S = A, the threads hold rows of A, and the
+    /// solver is MAGMA's kernel. Row-major, the TFEL convention and the
+    /// default: S = A^T, the threads hold columns of A, the pivoting
+    /// interchanges columns of A (partial pivoting of A^T, as stable), and
+    /// the solve is the mirror of MAGMA's, through the transposed factors.
+    /// A matrix stored row-major and its transpose stored column-major are
+    /// thus the same array, factored the same way bit for bit, while the
+    /// first solves A x = b and the second A^T x = b. The internal slice
+    /// of a thread holds its vectors, in the chosen layout. The vector
+    /// operands are one-dimensional and unaffected.
     MatrixLayout layout = MatrixLayout::RowMajor;
 };
 

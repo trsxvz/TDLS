@@ -255,33 +255,39 @@ constexpr bool canonical_certificate(const unsigned seed, const double tolerance
     return true;
 }
 
-/// \brief Certificate: the column-major layout on transposed storage, and
-/// a rows_per_thread above N, reproduce the row-major sequential solve
+/// \brief Certificate: both layouts factor the stored array read
+/// column-major, S. The row-major layout on A and the column-major layout
+/// on the same array, then A^T, produce the same factored array and the
+/// same pivot entries, bit for bit, and solve A x = b and A^T x = b
+/// respectively. A rows_per_thread above N reproduces the row-major solve
 /// exactly.
 /// \tparam N system dimension
-/// \param[in] seed generator seed
+/// \param[in] seed      generator seed
+/// \param[in] tolerance backward-error bound of both solves
 /// \return true when the three solves agree
 template<int N>
-constexpr bool layout_and_clamp_certificate(const unsigned seed) {
+constexpr bool layout_and_clamp_certificate(const unsigned seed, const double tolerance) {
     using Row = tdls::CooperativeLUppSolverStatic<double, N, sequential_config<double, N>>;
     using Col = tdls::CooperativeLUppSolverStatic<
         double, N, sequential_config<double, N, true, tdls::MatrixLayout::ColMajor>>;
     using Clamped = tdls::CooperativeLUppSolverStatic<
         double, N, tdls::CooperativeLUppConfig<double>{.rows_per_thread = N + 3}>;
     static_assert(Clamped::rows_per_thread == N && Clamped::threads_per_system == 1);
+    static_assert(Row::transposed && !Col::transposed);
     double A0[N * N] = {};
     double b[N]      = {};
     fill_system<double, N>(seed, A0, b);
 
     double work[Row::workspace_size] = {};
-    double A_r[N * N] = {}, A_c[N * N] = {}, A_k[N * N] = {};
+    double A_r[N * N] = {}, A_c[N * N] = {}, A_k[N * N] = {}, A0t[N * N] = {};
     double y_r[N] = {}, y_c[N] = {}, y_k[N] = {};
     int piv_r[N] = {}, piv_c[N] = {}, piv_k[N] = {};
     for (int r = 0; r < N; ++r) {
         for (int c = 0; c < N; ++c) {
             A_r[r * N + c] = A0[r * N + c];
-            A_c[c * N + r] = A0[r * N + c];
+            A_c[r * N + c] = A0[r * N + c];
             A_k[r * N + c] = A0[r * N + c];
+            A0t[c * N + r] = A0[r * N + c];
         }
         y_r[r] = b[r];
         y_c[r] = b[r];
@@ -295,11 +301,12 @@ constexpr bool layout_and_clamp_certificate(const unsigned seed) {
         return false;
     for (int r = 0; r < N; ++r) {
         for (int c = 0; c < N; ++c)
-            if (A_r[r * N + c] != A_c[c * N + r] || A_r[r * N + c] != A_k[r * N + c]) return false;
+            if (A_r[r * N + c] != A_c[r * N + c] || A_r[r * N + c] != A_k[r * N + c]) return false;
         if (piv_r[r] != piv_c[r] || piv_r[r] != piv_k[r]) return false;
-        if (y_r[r] != y_c[r] || y_r[r] != y_k[r]) return false;
+        if (y_r[r] != y_k[r]) return false;
     }
-    return true;
+    return backward_error<double, N>(A0, y_r, b) <= tolerance &&
+           backward_error<double, N>(A0t, y_c, b) <= tolerance;
 }
 
 /// \brief Certificate: a zero column makes factorize return false. The
@@ -479,8 +486,9 @@ constexpr bool interchange_certificate(const unsigned seed) {
         for (int r = 0; r < N; ++r) {
             const int position = piv_l[r];
             if (position < 0 || position >= N || piv_p[position] != r) return false;
+            // the internal slice of one thread holds S column-major
             for (int c = 0; c < N; ++c)
-                if (A_l[r * N + c] != A_p[position * N + c]) return false;
+                if (A_l[c * N + r] != A_p[c * N + position]) return false;
             if (x_l[r] != x_p[r]) return false;
         }
         return true;
@@ -531,8 +539,9 @@ static_assert(solve_external_certificate<5>(207, 1e-9));
 // Entry-point equivalences and the tangent-operator path.
 static_assert(entry_points_certificate<5>(208));
 static_assert(canonical_certificate<4>(209, 1e-9));
-// Column-major layout and rows_per_thread above N.
-static_assert(layout_and_clamp_certificate<5>(210));
+// The stored array read column-major by both layouts, and
+// rows_per_thread above N.
+static_assert(layout_and_clamp_certificate<5>(210, 1e-9));
 // Singular verdict of the factorization.
 static_assert(singular_rejected_certificate<4>());
 // The runtime solver: the scalar corner, odd and even dimensions, and
@@ -582,7 +591,7 @@ TDLS_TEST_CASE("cooperativelupp/constexpr/certificates-also-hold-at-run-time") {
     TDLS_CHECK((solve_external_certificate<5>(207, 1e-9)));
     TDLS_CHECK((entry_points_certificate<5>(208)));
     TDLS_CHECK((canonical_certificate<4>(209, 1e-9)));
-    TDLS_CHECK((layout_and_clamp_certificate<5>(210)));
+    TDLS_CHECK((layout_and_clamp_certificate<5>(210, 1e-9)));
     TDLS_CHECK((singular_rejected_certificate<4>()));
     TDLS_CHECK((dynamic_solve_certificate<1, 1>(220, 1e-9)));
     TDLS_CHECK((dynamic_solve_certificate<5, 5>(221, 1e-9)));

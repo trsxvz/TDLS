@@ -33,13 +33,14 @@ int main() {
     double work[Solver::workspace_size] = {};
 
     snippets::run_group<Solver::threads_per_system>([&](const int tx) {
-        // internal: every operand is the slice of the thread, its rows tx and tx + 2,
-        // in local arrays: the matrix rows, the right-hand side entries and the pivots
-        double A_slice[2 * N], y_slice[2];
+        // internal: every operand is the slice of the thread, in local arrays: its
+        // vectors tx and tx + 2 of the matrix (columns, under the default row-major
+        // layout), stored row-major, the right-hand side entries and the pivots
+        double A_slice[N * 2], y_slice[2];
         int piv_slice[2];
         for (int K = 0; K < 2; ++K) {
-            for (int c = 0; c < N; ++c)
-                A_slice[K * N + c] = matrix(0, (tx + 2 * K) * N + c);
+            for (int r = 0; r < N; ++r)
+                A_slice[r * 2 + K] = matrix(0, r * N + tx + 2 * K);
             y_slice[K] = rhs(0, tx + 2 * K);
         }
         ok[tx] =

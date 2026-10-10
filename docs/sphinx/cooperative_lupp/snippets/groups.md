@@ -155,8 +155,8 @@ $$
 ## A Newton iteration in a group
 
 The MFront pattern on a small nonlinear system, run by the group. Each
-thread builds the rows it holds, so the solver reads them without a
-barrier. On return, every thread reads the whole Newton step and
+thread builds the vectors it holds, columns of J under the default
+row-major layout, so the solver reads them without a barrier. On return, every thread reads the whole Newton step and
 updates its copy of x. A barrier keeps the next iteration from
 overwriting the step before every thread has read it: the one
 `make_sync` returns, the barrier the solver deduces. At the solution,
