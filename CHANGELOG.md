@@ -38,15 +38,24 @@ the API may change between minor versions.
   the group is identified by its workspace and checked on entry: a
   group whose threads are not together in their warp, or whose
   workspace is private to each thread, stops the program with a
-  message, instead of a wrong result or a deadlock. The kernels
-  of CUDA, HIP, Kokkos, RAJA, OpenMP and OpenACC offloading, and of the
-  parallel algorithms of nvc++, get it alike. A caller may still pass
-  its own barrier, used as is, and `make_sync` returns the deduced one
-  for the exchanges of the caller. `tdls::NoSync` is checked against
-  the size of the group: at compile time by the compile-time solver, on
-  entry by the runtime solver, whose group size depends on n. The new
-  header `tdls/core/group.hpp` holds the barriers, `tdls::NoSync`
-  included.
+  message, instead of a wrong result or a deadlock. The kernels of
+  CUDA, HIP, Kokkos, RAJA, OpenMP and OpenACC offloading get it alike.
+  So do SYCL on NVIDIA and AMD devices, AdaptiveCpp in its cuda and
+  hip modes included, and the parallel algorithms of nvc++. A caller
+  may still pass its own barrier, used as is. `make_sync` returns the
+  deduced one for the exchanges of the caller. Some targets have no
+  deduced barrier for a group of several threads. There, the
+  compilation stops with a message that says why. These targets are
+  NVIDIA GPUs before Volta, SPIR-V devices such as Intel GPUs, nvc++
+  OpenMP or OpenACC offloading without `-cuda`, the generic mode of
+  AdaptiveCpp and GCC offloading. So is a CPU whose standard library
+  lacks `std::atomic_ref`, as libc++ before 19. On these targets the
+  caller passes its barrier. The runtime solver then needs
+  `tdls::NoSync` even for one thread per system. `tdls::NoSync` is
+  checked against the size of the group: at compile time by the
+  compile-time solver, on entry by the runtime solver, whose group size
+  depends on n. The new header `tdls/core/group.hpp` holds the
+  barriers, `tdls::NoSync` included.
 - Entry points of the new family: factorize, substitute, its in-place
   and canonical forms, solve and solve_inplace, with the stride
   convention of TiledLUpp and, for the compile-time solver, its
@@ -99,18 +108,23 @@ the API may change between minor versions.
 - TiledLUpp adapts its design to the column-major layout, as
   CooperativeLUpp does to the row-major one. The solver factors the
   stored matrix read row-major, so that tiles are read in address
-  order in both layouts: under the column-major layout, A^T. The
-  pivoting then interchanges columns of A, which is partial pivoting
-  of A^T, as stable, and the solve runs through the transposed
-  factors: U^T z = b, folded into the factorization by solve_inplace,
-  then L^T w = z, which divides by nothing, then x = P^T w. The
-  row-major code is unchanged. Breaking for column-major callers: the
-  factored matrix, the pivot array and the out-of-tile counter now
-  come from the factorization of A^T, bit for bit the one the
-  row-major solver computes on the same array, and so does the
-  singular verdict of a matrix near `singular_floor`. Solutions solve
-  the same system, within the backward error of partial pivoting, but
-  are no longer bitwise the former ones.
+  order in both layouts. Under the column-major layout, it thus
+  factors A^T. The pivoting interchanges columns of A: this is partial
+  pivoting of A^T, as stable. The solve runs through the transposed
+  factors. First U^T z = b, folded into the factorization by
+  solve_inplace. Then L^T w = z, which divides by nothing, and
+  x = P^T w. The row-major code is unchanged. Breaking for
+  column-major callers: the factored matrix, the pivot array and the
+  out-of-tile counter now come from the factorization of A^T. They
+  match bit for bit what the row-major solver computes on the same
+  array. So does the singular verdict of a matrix near
+  `singular_floor`. The solutions solve the same system, within the
+  backward error of partial pivoting. They are no longer bitwise the
+  former ones.
+- The snippet pages of both families open with a getting-started page.
+  It shows a first call on CPU, a first call on GPU and the solver of a
+  runtime dimension. CooperativeLUpp then adds a page on groups of
+  threads, on GPU and on CPU threads.
 
 ### Removed
 
