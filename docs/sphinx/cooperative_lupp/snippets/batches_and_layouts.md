@@ -2,18 +2,17 @@
 
 Three 4 x 4 systems, $A + s I$ for $s = 0, 1, 2$, all with the same
 solution. The batch is filled above the shown code. On CPU, one
-thread solves each system, in a loop; the residencies snippet uses a
-group of 2 threads, marked $t_0$ and $t_1$ next to the matrix. On GPU,
-a group of 2 lanes solves each system.
+thread solves each system, in a loop. The residencies snippet uses a
+group of 2 threads instead: $t_0$ and $t_1$ mark the columns of A that
+each one holds. On GPU, a group of 2 lanes solves each system.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
 A_s = A + s I, \quad b_s = b + s x

@@ -336,8 +336,10 @@ knobs and the batches, CPU first, then GPU where it applies. Until the
 groups page, one thread solves each system, as with TiledLUpp. The
 groups page then starts groups of CPU threads by hand, and the next
 pages with `snippets::run_group`, the same code in a function. When a
-snippet uses a group, $t_i$ next to the matrix marks the thread that
-holds the row.
+snippet uses a group, a mark $t_j$ names the thread that holds a vector
+of A. Under the default row-major layout, a thread holds columns: the
+mark sits above the column. Under the column-major layout, a thread
+holds rows: the mark sits beside the row.
 
 ```{toctree}
 :maxdepth: 1

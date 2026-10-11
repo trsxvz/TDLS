@@ -1,10 +1,12 @@
 # Groups of threads
 
-A group of threads shares the rows of a system: with T threads, thread
-`tx` holds rows `tx`, `tx + T` and so on. Every thread of the group
-calls the same entry point, with its own rank `tx` and the same
-workspace. The solver deduces the barrier of the group: the snippets
-pass none, unless they say otherwise.
+A group of threads shares the rows of the matrix the solver factors.
+With T threads, thread `tx` holds rows `tx`, `tx + T` and so on. Under
+the default row-major layout, these rows are the columns of A. The
+figures mark each column with the thread that holds it. Every thread
+of the group calls the same entry point, with its own rank `tx` and
+the same workspace. The solver deduces the barrier of the group: the
+snippets pass none, unless they say otherwise.
 
 ## On GPU
 
@@ -37,13 +39,12 @@ CPU: the barrier between CPU threads costs more than a step of the
 solve.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -75,14 +76,13 @@ solver for a runtime n: 3 threads and 17 elements for n = 5, the last
 thread holding a phantom row in its second slot.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_2 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 5 & 1 & 0 & 0 & 1 \\
 1 & 6 & 1 & 0 & 0 \\
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 12 \\ 16 \\ 27 \\ 40 \\ 50 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -102,13 +102,12 @@ right-hand side of the rows of the other one. Passed to the next call,
 it serves as is.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b_1 = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 b_2 = \begin{pmatrix} 7 \\ 7 \\ 8 \\ 10 \end{pmatrix}, \quad
 x_1 = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}, \quad
@@ -134,13 +133,12 @@ no argument serves; the solver uses it as is, and the workspace then
 needs no initial value.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -165,13 +163,12 @@ one factorization serves the tangent columns.
 $$
 F(x) = A x + x \odot x - c = 0, \quad
 J(x) = A + 2 \operatorname{diag}(x), \quad
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 c = \begin{pmatrix} 15 \\ 18 \\ 33 \\ 49 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$

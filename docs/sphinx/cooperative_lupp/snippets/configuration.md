@@ -3,9 +3,12 @@
 The knobs of `CooperativeLUppConfig`, one snippet each, on CPU. Their
 roles are listed on the {doc}`family page <../index>`. The knobs of
 the groups (the defaults, `rows_per_thread`, the phantom rows) run
-groups of CPU threads with `snippets::run_group`, see {doc}`groups`;
-next to their matrices, $t_i$ marks the thread that holds the row. The
-other knobs solve with one thread.
+groups of CPU threads with `snippets::run_group`, see {doc}`groups`.
+Above their matrices, a mark $t_j$ names the thread that holds each
+column of A. Under the default row-major layout, the threads hold
+columns of A: these are the rows that `rows_per_thread` counts. The
+section on the column-major layout shows the other case. The other
+knobs solve with one thread.
 
 ## Defaults
 
@@ -13,13 +16,12 @@ The default value, and the two solvers named on it. One row per
 thread: the 4 x 4 system takes a group of 4 threads.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_2 & \scriptstyle t_3 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_3 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -38,15 +40,14 @@ of 2 rows, 2 threads of 3 rows. The solutions are bitwise identical.
 On 3 threads:
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_2 & \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_2 \end{matrix}}{\begin{pmatrix}
 8 & 1 & 0 & 0 & 2 & 0 \\
 1 & 8 & 1 & 0 & 0 & 2 \\
 0 & 1 & 8 & 1 & 0 & 0 \\
 0 & 0 & 1 & 8 & 1 & 0 \\
 2 & 0 & 0 & 1 & 8 & 1 \\
 0 & 2 & 0 & 0 & 1 & 8
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \\ t_2 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 20 \\ 32 \\ 30 \\ 40 \\ 52 \\ 57 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \\ 6 \end{pmatrix}
 $$
@@ -64,13 +65,12 @@ As many rows per thread as the dimension: one thread solves the
 system, with no barrier. Every operand can then be a local array.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_0 & \scriptstyle t_0 & \scriptstyle t_0 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_0 \\ t_0 \\ t_0 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
@@ -84,19 +84,18 @@ $$
 
 ## Phantom rows
 
-A dimension that is not a multiple of `rows_per_thread`. The second
-slot holds rows 3 and 4 on threads 0 and 1, and a phantom row on
-thread 2.
+A dimension that is not a multiple of `rows_per_thread`. In the second
+slot, threads 0 and 1 hold columns 3 and 4 of A. The slot of thread 2
+is a phantom row: it holds no column, and no operation runs on it.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_2 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 0 & 1 \\
 1 & 5 & 1 & 0 & 0 \\
 0 & 1 & 6 & 1 & 0 \\
 0 & 0 & 1 & 7 & 1 \\
 1 & 0 & 0 & 1 & 8
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_1 \\ t_2 \\ t_0 \\ t_1 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 11 \\ 14 \\ 24 \\ 36 \\ 45 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -114,14 +113,13 @@ A `rows_per_thread` above the dimension acts as the dimension: one
 thread per system.
 
 $$
-A = \begin{pmatrix}
+A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_0 & \scriptstyle t_0 & \scriptstyle t_0 & \scriptstyle t_0 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 0 & 1 \\
 1 & 5 & 1 & 0 & 0 \\
 0 & 1 & 6 & 1 & 0 \\
 0 & 0 & 1 & 7 & 1 \\
 1 & 0 & 0 & 1 & 8
-\end{pmatrix}
-\begin{matrix} t_0 \\ t_0 \\ t_0 \\ t_0 \\ t_0 \end{matrix}, \quad
+\end{pmatrix}}, \quad
 b = \begin{pmatrix} 11 \\ 14 \\ 24 \\ 36 \\ 45 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \end{pmatrix}
 $$
@@ -233,21 +231,36 @@ $$
 
 ## Column-major layout
 
-The matrix stored column by column, as one system of a batch of 3:
-element (r, c) at `batch[(c * 4 + r) * 3 + 1]`. The layout picks the
-vectors of each thread: under the column-major layout the threads hold
-rows of A and the solver is the kernel of MAGMA; under the default
-row-major one they hold columns, and the solve runs through the factors
-of A^T (see {doc}`../index`).
+The layout picks the vectors of each thread. Under the default
+row-major layout, the solver factors A^T. The threads hold columns of
+A, and the solve runs through the factors of A^T. Under the
+column-major layout, the solver factors A. The threads hold rows of A:
+this is the kernel of MAGMA (see {doc}`../index`). Either way, the
+threads of a group read consecutive addresses. Here with a group of 2
+threads:
 
 $$
-A = \begin{pmatrix}
+\text{row-major:}\ A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
 4 & 1 & 0 & 2 \\
-1 & 5 & 1 & 0 \\
+2 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
-2 & 0 & 1 & 7
-\end{pmatrix}, \quad
-b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+1 & 0 & 3 & 7
+\end{pmatrix}}, \qquad
+\text{column-major:}\ A = \begin{pmatrix}
+4 & 1 & 0 & 2 \\
+2 & 5 & 1 & 0 \\
+0 & 1 & 6 & 1 \\
+1 & 0 & 3 & 7
+\end{pmatrix}
+\begin{matrix} \scriptstyle t_0 \\ \scriptstyle t_1 \\ \scriptstyle t_0 \\ \scriptstyle t_1 \end{matrix}
+$$
+
+The snippet stores the matrix column by column, as one system of a
+batch of 3. Element (r, c) sits at `batch[(c * 4 + r) * 3 + 1]`. One
+thread solves it.
+
+$$
+b = \begin{pmatrix} 14 \\ 15 \\ 24 \\ 38 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
