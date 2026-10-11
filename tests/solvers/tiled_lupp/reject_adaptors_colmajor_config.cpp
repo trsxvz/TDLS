@@ -10,8 +10,8 @@
 /// This translation unit must NOT compile. ctest builds it on purpose
 /// and passes only when the compiler emits the row-major diagnostic of
 /// the adaptors. The recognized indexing policies are row-major: a
-/// column-major configuration would remap the flat index under a
-/// row-major object and silently corrupt the results.
+/// column-major configuration would read the row-major object as A^T
+/// and silently solve the transposed system.
 
 #include <tdls/tdls.hpp>
 

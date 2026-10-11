@@ -11,8 +11,8 @@
 #include "check.hpp"
 
 int main() {
-    const double A0[4 * 4]   = {4, 1, 0, 2, 1, 5, 1, 0, 0, 1, 6, 1, 2, 0, 1, 7};
-    double y[4]              = {14, 14, 24, 33};
+    const double A0[4 * 4]   = {4, 1, 0, 2, 2, 5, 1, 0, 0, 1, 6, 1, 1, 0, 3, 7};
+    double y[4]              = {14, 15, 24, 38};
     const double expected[4] = {1, 2, 3, 4};
     double batch[4 * 4 * 3]  = {};
     for (int r = 0; r < 4; ++r)

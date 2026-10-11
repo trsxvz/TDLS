@@ -18,7 +18,9 @@
 /// diagnostics-free overloads against the counting ones, and the
 /// runtime solver against the compile-time one on the same systems.
 /// Internal and external residencies are both exercised on the
-/// compile-time solver.
+/// compile-time solver. The column-major cells run the same checks
+/// through the transposed passes (U^T then L^T sweeps, then x = P^T w),
+/// one of them without unroll pragmas.
 
 #include <cstdint>
 #include <vector>
@@ -36,14 +38,18 @@ namespace {
 /// \tparam tile_size tile size
 /// \tparam Schedule  elimination schedule
 /// \tparam nrhs      number of right-hand-side columns per block
+/// \tparam Layout    matrix layout
+/// \tparam unroll    value of the unroll_loops knob
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int tile_size, tdls::Schedule Schedule, int nrhs>
+template<typename T, int N, int tile_size, tdls::Schedule Schedule, int nrhs,
+         tdls::MatrixLayout Layout = tdls::MatrixLayout::RowMajor, bool unroll = true>
 void multirhs_case(const int count, const double bound, const std::uint64_t seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule};
-    using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
-    using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
+    constexpr auto config = tdls::TiledLUppConfig<T>{
+        .tile_size = tile_size, .schedule = Schedule, .unroll_loops = unroll, .layout = Layout};
+    using Static  = tdls::TiledLUppSolverStatic<T, N, config>;
+    using Dynamic = tdls::TiledLUppSolverDynamic<T, config>;
 
     const auto batch = tdls_tests::make_batch<T>(N, count, seed, bound);
     tdls_tests::UniformGenerator extra(seed + 1, bound);
@@ -235,6 +241,22 @@ TDLS_TEST_CASE("tiledlupp/bridge/multirhs/double/N=5,tile_size=8,RL,nrhs=7,singl
 }
 TDLS_TEST_CASE("tiledlupp/bridge/multirhs/float/N=12,tile_size=3,RL,nrhs=3,default") {
     multirhs_case<float, 12, 3, tdls::Schedule::RightLooking, 3>(100, 0.5, 240600);
+}
+TDLS_TEST_CASE("tiledlupp/bridge/multirhs/colmajor/double/N=12,tile_size=3,RL,nrhs=4,default") {
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4, tdls::MatrixLayout::ColMajor>(
+        100, 0.5, 240700);
+}
+TDLS_TEST_CASE("tiledlupp/bridge/multirhs/colmajor/double/N=13,tile_size=6,LL,nrhs=5,default") {
+    multirhs_case<double, 13, 6, tdls::Schedule::LeftLooking, 5, tdls::MatrixLayout::ColMajor>(
+        100, 0.5, 240800);
+}
+TDLS_TEST_CASE("tiledlupp/bridge/multirhs/colmajor/double/N=12,tile_size=3,RL,nrhs=1,collapse") {
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 1, tdls::MatrixLayout::ColMajor>(
+        100, 0.5, 240900);
+}
+TDLS_TEST_CASE("tiledlupp/bridge/multirhs/colmajor/double/N=12,tile_size=3,RL,nrhs=4,no-unroll") {
+    multirhs_case<double, 12, 3, tdls::Schedule::RightLooking, 4, tdls::MatrixLayout::ColMajor,
+                  false>(100, 0.5, 241000);
 }
 
 TDLS_TEST_MAIN

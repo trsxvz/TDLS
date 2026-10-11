@@ -338,51 +338,72 @@ constexpr bool bridge_certificate(const unsigned seed) {
     return true;
 }
 
-/// \brief Certificate: the column-major layout reproduces the row-major
-/// solve bitwise on transposed storage, on both solvers.
+/// \brief Certificate: the column-major layout runs the row-major
+/// factorization on the stored array, which holds A^T, bitwise; its solve,
+/// through the transposed factors, solves A x = b; the fused and two-call
+/// entry points of both solvers agree with it bitwise.
 /// \tparam T         scalar type
 /// \tparam N         system dimension
 /// \tparam tile_size tile size
-/// \param[in] seed generator seed
-/// \return true when every output matches exactly
-template<typename T, int N, int tile_size>
-constexpr bool colmajor_certificate(const unsigned seed) {
-    constexpr auto config_col =
-        tdls::TiledLUppConfig<T>{.tile_size = tile_size, .layout = tdls::MatrixLayout::ColMajor};
-    using RowSolver =
-        tdls::TiledLUppSolverStatic<T, N, tdls::TiledLUppConfig<T>{.tile_size = tile_size}>;
+/// \tparam Schedule  elimination schedule
+/// \param[in] seed      generator seed
+/// \param[in] tolerance backward-error bound of the column-major solve
+/// \return true when every output matches exactly and the solve is
+///         within the tolerance
+template<typename T, int N, int tile_size, tdls::Schedule Schedule = tdls::Schedule::RightLooking>
+constexpr bool colmajor_certificate(const unsigned seed, const double tolerance) {
+    constexpr auto config_row =
+        tdls::TiledLUppConfig<T>{.tile_size = tile_size, .schedule = Schedule};
+    constexpr auto config_col = tdls::TiledLUppConfig<T>{
+        .tile_size = tile_size, .schedule = Schedule, .layout = tdls::MatrixLayout::ColMajor};
+    using RowSolver  = tdls::TiledLUppSolverStatic<T, N, config_row>;
     using ColSolver  = tdls::TiledLUppSolverStatic<T, N, config_col>;
     using ColDynamic = tdls::TiledLUppSolverDynamic<T, config_col>;
-    T Ar[N * N]      = {};
+    T A0[N * N]      = {}; // A, row-major
+    T Ar[N * N]      = {}; // the column-major array of A, read row-major: A^T
     T Ac[N * N]      = {};
     T Ad[N * N]      = {};
+    T Ai[N * N]      = {};
+    T Aj[N * N]      = {};
     T b[N]           = {};
-    T xr[N]          = {};
     T xc[N]          = {};
     T xd[N]          = {};
+    T y[N]           = {};
+    T yj[N]          = {};
     int pr[N]        = {};
     int pc[N]        = {};
     int pd[N]        = {};
+    int pi[N]        = {};
+    int pj[N]        = {};
     unsigned s       = seed;
     for (int r = 0; r < N; ++r)
         for (int c = 0; c < N; ++c) {
             const T v     = static_cast<T>(lcg(s));
-            Ar[r * N + c] = v;
+            A0[r * N + c] = v;
+            Ar[c * N + r] = v;
             Ac[c * N + r] = v;
             Ad[c * N + r] = v;
+            Ai[c * N + r] = v;
+            Aj[c * N + r] = v;
         }
-    for (int i = 0; i < N; ++i)
-        b[i] = static_cast<T>(lcg(s));
-    const bool okr = RowSolver::template solve<true, true, true>(Ar, 1, pr, 1, b, xr, 1);
+    for (int i = 0; i < N; ++i) {
+        b[i]  = static_cast<T>(lcg(s));
+        y[i]  = b[i];
+        yj[i] = b[i];
+    }
+    const bool okr = RowSolver::template factorize<true, true>(Ar, 1, pr, 1);
     const bool okc = ColSolver::template solve<true, true, true>(Ac, 1, pc, 1, b, xc, 1);
     const bool okd = ColDynamic::solve(N, Ad, 1, pd, 1, b, xd, 1);
-    if (!okr || !okc || !okd) return false;
-    for (int r = 0; r < N; ++r)
-        for (int c = 0; c < N; ++c)
-            if (Ar[r * N + c] != Ac[c * N + r] || Ac[c * N + r] != Ad[c * N + r]) return false;
+    const bool oki = ColSolver::template solve_inplace<true, true, true>(Ai, 1, pi, 1, y, 1);
+    const bool okj = ColDynamic::solve_inplace(N, Aj, 1, pj, 1, yj, 1);
+    if (!okr || !okc || !okd || !oki || !okj) return false;
+    for (int e = 0; e < N * N; ++e)
+        if (Ar[e] != Ac[e] || Ac[e] != Ad[e] || Ac[e] != Ai[e] || Ac[e] != Aj[e]) return false;
     for (int i = 0; i < N; ++i)
-        if (xr[i] != xc[i] || xc[i] != xd[i] || pr[i] != pc[i] || pc[i] != pd[i]) return false;
-    return true;
+        if (pr[i] != pc[i] || pc[i] != pd[i] || pc[i] != pi[i] || pc[i] != pj[i] ||
+            xc[i] != xd[i] || xc[i] != y[i] || xc[i] != yj[i])
+            return false;
+    return backward_error<T, N>(A0, xc, b) <= tolerance;
 }
 
 /// \brief Certificate: the multi right-hand-side blocks hold their
@@ -493,9 +514,11 @@ static_assert(dynamic_solve_certificate<double, 1, 1>(123, 1e-9));
 // The static/dynamic bitwise bridge, at compile time.
 static_assert(bridge_certificate<double, 5, 3>(124));
 static_assert(bridge_certificate<double, 4, 2>(125));
-// The column-major layout, bitwise against row-major on transposed
-// storage, both solvers.
-static_assert(colmajor_certificate<double, 5, 3>(140));
+// The column-major layout: the row-major factorization of the stored
+// array (A^T), bitwise, and a solve of A x = b, both solvers.
+static_assert(colmajor_certificate<double, 5, 3>(140, 1e-9));
+static_assert(colmajor_certificate<double, 6, 3>(141, 1e-9));
+static_assert(colmajor_certificate<double, 6, 3, tdls::Schedule::LeftLooking>(142, 1e-9));
 // The multi right-hand-side blocks, on both solvers.
 static_assert(multirhs_certificate<double, 5, 3, 2>(130));
 static_assert(multirhs_certificate<double, 4, 2, 4>(131));
@@ -524,7 +547,9 @@ TDLS_TEST_CASE("tiledlupp/constexpr/certificates-also-hold-at-run-time") {
     TDLS_CHECK((dynamic_solve_certificate<double, 1, 1>(123, 1e-9)));
     TDLS_CHECK((bridge_certificate<double, 5, 3>(124)));
     TDLS_CHECK((bridge_certificate<double, 4, 2>(125)));
-    TDLS_CHECK((colmajor_certificate<double, 5, 3>(140)));
+    TDLS_CHECK((colmajor_certificate<double, 5, 3>(140, 1e-9)));
+    TDLS_CHECK((colmajor_certificate<double, 6, 3>(141, 1e-9)));
+    TDLS_CHECK((colmajor_certificate<double, 6, 3, tdls::Schedule::LeftLooking>(142, 1e-9)));
     TDLS_CHECK((multirhs_certificate<double, 5, 3, 2>(130)));
     TDLS_CHECK((multirhs_certificate<double, 4, 2, 4>(131)));
 }

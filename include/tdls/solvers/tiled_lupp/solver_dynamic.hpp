@@ -28,7 +28,8 @@
 ///     unrolling, the internal residency mode degenerates into "external
 ///     with stride 1", so every array is plain pointer + stride. The
 ///     predicated register gathers/swaps of the static TiledLUpp solver become
-///     direct indexed accesses (same values, simpler code).
+///     direct indexed accesses or in-place cycle walks (same values,
+///     simpler code).
 ///   - substitute_inplace dispatches at runtime (warp-uniform: n is the
 ///     same for every lane): a 64-bit visited bitmask up to n = 64, a
 ///     cycle-leader scan beyond: zero extra storage and no ceiling on n.
@@ -42,8 +43,10 @@
 /// flexibility path (dimensions unknown at compile time, fast builds).
 ///
 /// The matrix layout follows Config.layout, exactly as in the
-/// compile-time solver: row-major by default, the flat index remapped
-/// for column-major storage, resolved at compile time.
+/// compile-time solver: the solver factors S, the stored matrix read
+/// row-major, S = A under the row-major layout and S = A^T under the
+/// column-major one, whose solve runs with the transposed factors
+/// (U^T z = b, L^T w = z, x = P^T w; see solver_static.hpp).
 ///
 /// Preconditions: n >= 1. tile_size may exceed n (the grid is then a single
 /// partial tile). Offsets are computed in 32-bit arithmetic: the flat
@@ -92,9 +95,9 @@ namespace tdls {
    of this header. */
 
 /// \def TDLS_LUPP_DYN_A
-/// \brief Strided element (r, c) of the factor matrix, flat index
-/// remapped by Config.layout.
-#define TDLS_LUPP_DYN_A(r, c) A[TDLS_LAYOUT_INDEX(r, c, n) * unsigned(A_stride)]
+/// \brief Strided element (r, c) of S, the stored matrix read row-major
+/// (A or A^T, see the file documentation).
+#define TDLS_LUPP_DYN_A(r, c) A[unsigned((r) * n + (c)) * unsigned(A_stride)]
 /// \def TDLS_LUPP_DYN_PIV
 /// \brief Strided pivot entry i.
 #define TDLS_LUPP_DYN_PIV(i) piv[unsigned(i) * unsigned(piv_stride)]
@@ -133,6 +136,10 @@ namespace tdls {
 ///   - solve:                 factorize + substitute
 ///   - solve_inplace:         factorize with the forward pass folded in
 ///
+/// These are the row-major formulas. Under the column-major layout every
+/// substitution computes x := P^T L^-T U^-T b instead (see the layout
+/// documentation of the compile-time solver).
+///
 /// Each substitution and solve entry point has a _multirhs twin taking
 /// nrhs right-hand-side columns per call (substitute_multirhs,
 /// substitute_canonical_multirhs, substitute_inplace_multirhs,
@@ -168,6 +175,10 @@ struct TiledLUppSolverDynamic {
     /// \brief Singularity floor of the out-of-tile recovery, read once
     /// from the configuration (see TiledLUppConfig::singular_floor).
     static constexpr T singular_floor = Config.singular_floor;
+    /// \brief Whether the solve uses the transpose of the factored matrix:
+    /// S = A^T under the column-major layout (see the file documentation of
+    /// solver_static.hpp).
+    static constexpr bool transposed = Config.layout == MatrixLayout::ColMajor;
 
     static_assert(
         Config.oot_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
@@ -385,7 +396,8 @@ struct TiledLUppSolverDynamic {
     }
 
     /// \brief Triangular variant of the diagonal-tile load for the forward
-    /// substitution: only the strict lower triangle of L\\U is read.
+    /// substitution (the backward one under the column-major layout): only
+    /// the strict lower triangle of L\\U is read.
     /// \param[in]  n          system dimension
     /// \param[in]  A          matrix (caller-pre-offset)
     /// \param[in]  A_stride   element stride of A
@@ -407,8 +419,8 @@ struct TiledLUppSolverDynamic {
     }
 
     /// \brief Triangular variant of the diagonal-tile load for the
-    /// backward substitution: only the upper triangle including the
-    /// diagonal is read.
+    /// backward substitution (the forward one under the column-major
+    /// layout): only the upper triangle including the diagonal is read.
     /// \param[in]  n          system dimension
     /// \param[in]  A          matrix (caller-pre-offset)
     /// \param[in]  A_stride   element stride of A
@@ -440,6 +452,7 @@ struct TiledLUppSolverDynamic {
     /// row swap or cross-tile pull, column elimination.
     /// \tparam oot_diagnostics compile the out-of-tile counter in or out
     /// \tparam fuse_rhs apply the pivot swaps to the fused RHS y
+    ///         (row-major layout; the column-major one swaps nothing)
     /// \param[in]     n          system dimension
     /// \param[in,out] A          matrix (caller-pre-offset)
     /// \param[in]     A_stride   element stride of A
@@ -545,8 +558,10 @@ struct TiledLUppSolverDynamic {
             TDLS_LUPP_DYN_PIV(gc)      = TDLS_LUPP_DYN_PIV(piv_row);
             TDLS_LUPP_DYN_PIV(piv_row) = tmp;
 
-            if constexpr (fuse_rhs) {
-                // The fused RHS follows the rows through pivoting.
+            if constexpr (fuse_rhs && !transposed) {
+                // The fused RHS follows the rows through pivoting (row-major
+                // layout; under the column-major one y is indexed by the
+                // columns of S, which pivoting never moves).
                 const T ty               = TDLS_LUPP_DYN_Y(gc);
                 TDLS_LUPP_DYN_Y(gc)      = TDLS_LUPP_DYN_Y(piv_row);
                 TDLS_LUPP_DYN_Y(piv_row) = ty;
@@ -596,6 +611,7 @@ struct TiledLUppSolverDynamic {
     /// factor_diag_column).
     /// \tparam oot_diagnostics compile the out-of-tile counter in or out
     /// \tparam fuse_rhs apply the pivot swaps to the fused RHS y
+    ///         (row-major layout; the column-major one swaps nothing)
     /// \param[in]     n          system dimension
     /// \param[in,out] A          matrix (caller-pre-offset)
     /// \param[in]     A_stride   element stride of A
@@ -644,6 +660,33 @@ struct TiledLUppSolverDynamic {
         load_tile(n, A, A_stride, pk, j0, Akj, ke, je);
         ops_trsm_left_unit(tile, Akj, ke, je);
         store_tile(n, A, A_stride, pk, j0, Akj, ke, je);
+    }
+
+    /// \brief RL, column-major layout, solve_inplace: rl_trsm_right_one,
+    /// then the fused U^T forward push. Akj is then the final U(k,j)
+    /// tile: the solved z_k segment is pushed into the y_j segment while
+    /// the tile sits in registers.
+    /// \param[in]     n          system dimension
+    /// \param[in,out] A          matrix (caller-pre-offset)
+    /// \param[in]     A_stride   element stride of A
+    /// \param[in]     pk         physical rows of the diagonal block row
+    /// \param[in]     tile       factored diagonal tile
+    /// \param[in]     j0         first global column of the updated tile
+    /// \param[in]     ke         extent of the factored diagonal tile
+    /// \param[in]     je         column extent of the updated tile
+    /// \param[in]     k0         first global row/column of the step
+    /// \param[in,out] y          fused right-hand side
+    /// \param[in]     rhs_stride element stride of y
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    rl_trsm_right_push_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
+                           const int* TDLS_RESTRICT pk, const T* TDLS_RESTRICT tile, const int j0,
+                           const int ke, const int je, const int k0, T* TDLS_RESTRICT y,
+                           const int rhs_stride) noexcept {
+        T Akj[tile_size * tile_size];
+        load_tile(n, A, A_stride, pk, j0, Akj, ke, je);
+        ops_trsm_left_unit(tile, Akj, ke, je);
+        store_tile(n, A, A_stride, pk, j0, Akj, ke, je);
+        transposed_push_one(Akj, y, rhs_stride, 0, 1, k0, j0, ke, je);
     }
 
     /// \brief RL: one Schur-complement tile update, Aij -= Aik * Akj,
@@ -716,8 +759,9 @@ struct TiledLUppSolverDynamic {
         store_tile(n, A, A_stride, pi, k0, Aik, ie, ke);
 
         // Fused forward substitution: push the solved y_k segment into
-        // this row block while its L panel sits in registers.
-        if constexpr (fuse_rhs) {
+        // this row block while its L panel sits in registers (row-major
+        // layout; the column-major one pushes from the U row panel).
+        if constexpr (fuse_rhs && !transposed) {
             for (int r = 0; r < ie; ++r) {
                 T sum = T(0);
                 for (int j = 0; j < ke; ++j)
@@ -770,18 +814,27 @@ struct TiledLUppSolverDynamic {
         store_tile(n, A, A_stride, pk, k0, tile, ke, ke);
 
         // Fused forward substitution: this tile's y segment is final from
-        // here on: unit-lower-solve it while the tile is in registers.
-        if constexpr (fuse_rhs) {
+        // here on: solve it while the tile is in registers, unit-lower
+        // (row-major layout) or with U^T (column-major layout).
+        if constexpr (fuse_rhs && transposed) {
+            transposed_solve_tile_upper(tile, y, rhs_stride, 0, 1, k0, ke);
+        } else if constexpr (fuse_rhs) {
             for (int kk = 0; kk < ke; ++kk) {
                 for (int i = kk + 1; i < ke; ++i)
                     TDLS_LUPP_DYN_Y(k0 + i) -= tile[i * tile_size + kk] * TDLS_LUPP_DYN_Y(k0 + kk);
             }
         }
 
-        // TRSM right over the row panel
-        for (int tj = k + 1; tj < nt; ++tj)
-            rl_trsm_right_one(n, A, A_stride, pk, tile, tj * tile_size, ke,
-                              tile_size_at(tj * tile_size, n));
+        // TRSM right over the row panel; under the column-major layout,
+        // solve_inplace pushes the solved z_k segment along
+        for (int tj = k + 1; tj < nt; ++tj) {
+            if constexpr (fuse_rhs && transposed)
+                rl_trsm_right_push_one(n, A, A_stride, pk, tile, tj * tile_size, ke,
+                                       tile_size_at(tj * tile_size, n), k0, y, rhs_stride);
+            else
+                rl_trsm_right_one(n, A, A_stride, pk, tile, tj * tile_size, ke,
+                                  tile_size_at(tj * tile_size, n));
+        }
 
         // TRSM down + Schur over the rows below
         for (int ti = k + 1; ti < nt; ++ti)
@@ -850,8 +903,9 @@ struct TiledLUppSolverDynamic {
         store_tile_piv(n, A, A_stride, piv, piv_stride, i0, k0, B, ie, ke);
 
         // Fused forward substitution: B is the final L(i,k) panel, so push
-        // the solved y_k segment into this row block.
-        if constexpr (fuse_rhs) {
+        // the solved y_k segment into this row block (row-major layout; the
+        // column-major one pushes from the U row panel).
+        if constexpr (fuse_rhs && !transposed) {
             for (int r = 0; r < ie; ++r) {
                 T sum = T(0);
                 for (int j = 0; j < ke; ++j)
@@ -882,6 +936,35 @@ struct TiledLUppSolverDynamic {
         ll_correct_tile(n, A, A_stride, piv, piv_stride, k0, j0, k0, B, ke, je);
         ops_trsm_left_unit(tile, B, ke, je);
         store_tile_piv(n, A, A_stride, piv, piv_stride, k0, j0, B, ke, je);
+    }
+
+    /// \brief LL, column-major layout, solve_inplace: ll_update_right_one,
+    /// then the fused U^T forward push. B is then the final U(k,j) tile:
+    /// the solved z_k segment is pushed into the y_j segment while the
+    /// tile sits in registers.
+    /// \param[in]     n          system dimension
+    /// \param[in,out] A          matrix (caller-pre-offset)
+    /// \param[in]     A_stride   element stride of A
+    /// \param[in]     piv        permutation (logical -> physical row)
+    /// \param[in]     piv_stride element stride of piv
+    /// \param[in]     tile       factored diagonal tile
+    /// \param[in]     k0         first global row/column of the step
+    /// \param[in]     j0         first global column of the updated tile
+    /// \param[in]     ke         extent of the diagonal tile
+    /// \param[in]     je         column extent of the updated tile
+    /// \param[in,out] y          fused right-hand side
+    /// \param[in]     rhs_stride element stride of y
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    ll_update_right_push_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
+                             const int* TDLS_RESTRICT piv, const int piv_stride,
+                             const T* TDLS_RESTRICT tile, const int k0, const int j0, const int ke,
+                             const int je, T* TDLS_RESTRICT y, const int rhs_stride) noexcept {
+        T B[tile_size * tile_size];
+        load_tile_piv(n, A, A_stride, piv, piv_stride, k0, j0, B, ke, je);
+        ll_correct_tile(n, A, A_stride, piv, piv_stride, k0, j0, k0, B, ke, je);
+        ops_trsm_left_unit(tile, B, ke, je);
+        store_tile_piv(n, A, A_stride, piv, piv_stride, k0, j0, B, ke, je);
+        transposed_push_one(B, y, rhs_stride, 0, 1, k0, j0, ke, je);
     }
 
     /// \brief LL: one full factorization step (correct + factor the
@@ -918,8 +1001,11 @@ struct TiledLUppSolverDynamic {
         store_tile_piv(n, A, A_stride, piv, piv_stride, k0, k0, tile, ke, ke);
 
         // Fused forward substitution: this tile's y segment is final from
-        // here on: unit-lower-solve it while the tile is in registers.
-        if constexpr (fuse_rhs) {
+        // here on: solve it while the tile is in registers, unit-lower
+        // (row-major layout) or with U^T (column-major layout).
+        if constexpr (fuse_rhs && transposed) {
+            transposed_solve_tile_upper(tile, y, rhs_stride, 0, 1, k0, ke);
+        } else if constexpr (fuse_rhs) {
             for (int kk = 0; kk < ke; ++kk) {
                 for (int i = kk + 1; i < ke; ++i)
                     TDLS_LUPP_DYN_Y(k0 + i) -= tile[i * tile_size + kk] * TDLS_LUPP_DYN_Y(k0 + kk);
@@ -931,10 +1017,16 @@ struct TiledLUppSolverDynamic {
             ll_update_below_one<fuse_rhs>(n, A, A_stride, piv, piv_stride, tile, k0, ti * tile_size,
                                           ke, tile_size_at(ti * tile_size, n), y, rhs_stride);
 
-        // U row panel right of the diagonal
-        for (int tj = k + 1; tj < nt; ++tj)
-            ll_update_right_one(n, A, A_stride, piv, piv_stride, tile, k0, tj * tile_size, ke,
-                                tile_size_at(tj * tile_size, n));
+        // U row panel right of the diagonal; under the column-major layout,
+        // solve_inplace pushes the solved z_k segment along
+        for (int tj = k + 1; tj < nt; ++tj) {
+            if constexpr (fuse_rhs && transposed)
+                ll_update_right_push_one(n, A, A_stride, piv, piv_stride, tile, k0, tj * tile_size,
+                                         ke, tile_size_at(tj * tile_size, n), y, rhs_stride);
+            else
+                ll_update_right_one(n, A, A_stride, piv, piv_stride, tile, k0, tj * tile_size, ke,
+                                    tile_size_at(tj * tile_size, n));
+        }
         return true;
     }
 
@@ -1253,12 +1345,263 @@ struct TiledLUppSolverDynamic {
     }
 
     /* =====================================================================
+       TRANSPOSED SUBSTITUTION - column-major layout, as in the
+       compile-time solver: A = U^T L^T P, so A x = b is U^T z = b, then
+       L^T w = z, then x = P^T w, with the same tile kernels for the fused
+       forward pass of solve_inplace and for the separate passes.
+       ===================================================================== */
+
+    /// \brief In-tile forward solve with U^T (the diagonal of the tile holds
+    /// the pivot reciprocals).
+    /// \param[in]     t           factored diagonal tile
+    /// \param[in,out] x           right-hand side column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     k0          first global index of the segment
+    /// \param[in]     ke          extent of the diagonal tile
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_solve_tile_upper(const T* TDLS_RESTRICT t, T* TDLS_RESTRICT x, const int rhs_stride,
+                                const int xcol_stride, const int nrhs, const int k0,
+                                const int ke) noexcept {
+        for (int kk = 0; kk < ke; ++kk) {
+            for (int w = 0; w < nrhs; ++w)
+                TDLS_LUPP_DYN_XW(w, k0 + kk) *= t[kk * tile_size + kk]; // diag holds 1/pivot
+            for (int i = kk + 1; i < ke; ++i) {
+                for (int w = 0; w < nrhs; ++w)
+                    TDLS_LUPP_DYN_XW(w, k0 + i) -=
+                        t[kk * tile_size + i] * TDLS_LUPP_DYN_XW(w, k0 + kk);
+            }
+        }
+    }
+
+    /// \brief Forward push with U^T: x_m segment -= U(k,m)^T * x_k.
+    /// \param[in]     u           U(k,m) tile (ke rows, me columns)
+    /// \param[in,out] x           right-hand side column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     k0          first global index of the solved segment
+    /// \param[in]     m0          first global index of the target segment
+    /// \param[in]     ke          extent of the solved segment's tile
+    /// \param[in]     me          extent of the target segment's tile
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_push_one(const T* TDLS_RESTRICT u, T* TDLS_RESTRICT x, const int rhs_stride,
+                        const int xcol_stride, const int nrhs, const int k0, const int m0,
+                        const int ke, const int me) noexcept {
+        for (int i = 0; i < me; ++i) {
+            for (int w = 0; w < nrhs; ++w) {
+                T sum = T(0);
+                for (int j = 0; j < ke; ++j)
+                    sum += u[j * tile_size + i] * TDLS_LUPP_DYN_XW(w, k0 + j);
+                TDLS_LUPP_DYN_XW(w, m0 + i) -= sum;
+            }
+        }
+    }
+
+    /// \brief Backward pull with L^T: x_k segment -= L(m,k)^T * x_m.
+    /// \param[in]     l           L(m,k) tile (me rows, ke columns)
+    /// \param[in,out] x           solution column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     k0          first global index of the updated segment
+    /// \param[in]     m0          first global index of the trailing segment
+    /// \param[in]     ke          extent of the updated segment's tile
+    /// \param[in]     me          extent of the trailing segment's tile
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_pull_one(const T* TDLS_RESTRICT l, T* TDLS_RESTRICT x, const int rhs_stride,
+                        const int xcol_stride, const int nrhs, const int k0, const int m0,
+                        const int ke, const int me) noexcept {
+        for (int i = 0; i < ke; ++i) {
+            for (int w = 0; w < nrhs; ++w) {
+                T sum = T(0);
+                for (int j = 0; j < me; ++j)
+                    sum += l[j * tile_size + i] * TDLS_LUPP_DYN_XW(w, m0 + j);
+                TDLS_LUPP_DYN_XW(w, k0 + i) -= sum;
+            }
+        }
+    }
+
+    /// \brief In-tile backward solve with L^T (unit diagonal).
+    /// \param[in]     l           strictly lower part of the diagonal tile
+    /// \param[in,out] x           solution column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     k0          first global index of the segment
+    /// \param[in]     ke          extent of the diagonal tile
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_solve_tile_lower_unit(const T* TDLS_RESTRICT l, T* TDLS_RESTRICT x,
+                                     const int rhs_stride, const int xcol_stride, const int nrhs,
+                                     const int k0, const int ke) noexcept {
+        for (int kk = ke - 1; kk > 0; --kk) {
+            for (int i = 0; i < kk; ++i) {
+                for (int w = 0; w < nrhs; ++w)
+                    TDLS_LUPP_DYN_XW(w, k0 + i) -=
+                        l[kk * tile_size + i] * TDLS_LUPP_DYN_XW(w, k0 + kk);
+            }
+        }
+    }
+
+    /// \brief Transposed forward step: U^T-solve the diagonal tile's
+    /// segment, then push it into the following segments.
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     A           factored matrix (caller-pre-offset)
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation from factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           right-hand side column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     k           step index (k0 = k*tile_size)
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_fwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                        const int rhs_stride, const int xcol_stride, const int k) noexcept {
+        const int k0 = k * tile_size;
+        const int nt = num_tiles(n);
+        const int ke = tile_size_at(k0, n);
+        T Ukk[tile_size * tile_size];
+        load_tile_piv_upper(n, A, A_stride, piv, piv_stride, k0, k0, Ukk, ke);
+        transposed_solve_tile_upper(Ukk, x, rhs_stride, xcol_stride, nrhs, k0, ke);
+        for (int m = k + 1; m < nt; ++m) {
+            const int me = tile_size_at(m * tile_size, n);
+            T Ukm[tile_size * tile_size];
+            load_tile_piv(n, A, A_stride, piv, piv_stride, k0, m * tile_size, Ukm, ke, me);
+            transposed_push_one(Ukm, x, rhs_stride, xcol_stride, nrhs, k0, m * tile_size, ke, me);
+        }
+    }
+
+    /// \brief Transposed backward step: pull the trailing contributions
+    /// with L^T, then L^T-solve the diagonal tile's segment.
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     A           factored matrix (caller-pre-offset)
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation from factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           solution column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     k           step index (k0 = k*tile_size)
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_bwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                        const int rhs_stride, const int xcol_stride, const int k) noexcept {
+        const int k0 = k * tile_size;
+        const int nt = num_tiles(n);
+        const int ke = tile_size_at(k0, n);
+        for (int m = k + 1; m < nt; ++m) {
+            const int me = tile_size_at(m * tile_size, n);
+            T Lmk[tile_size * tile_size];
+            load_tile_piv(n, A, A_stride, piv, piv_stride, m * tile_size, k0, Lmk, me, ke);
+            transposed_pull_one(Lmk, x, rhs_stride, xcol_stride, nrhs, k0, m * tile_size, ke, me);
+        }
+        T Lkk[tile_size * tile_size];
+        load_tile_piv_lower(n, A, A_stride, piv, piv_stride, k0, k0, Lkk, ke);
+        transposed_solve_tile_lower_unit(Lkk, x, rhs_stride, xcol_stride, nrhs, k0, ke);
+    }
+
+    /// \brief Transposed backward pass alone, used by transposed_fwd_bwd and by
+    /// solve_inplace (whose forward pass happens inside the factorization).
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     A           factored matrix (caller-pre-offset)
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation from factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           solution column(s)
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_bwd_only(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                        const int rhs_stride, const int xcol_stride) noexcept {
+        for (int k = num_tiles(n) - 1; k >= 0; --k)
+            transposed_bwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride,
+                                k);
+    }
+
+    /// \brief Transposed triangular sweeps on unpermuted column(s) x:
+    /// U^T z = x, then L^T w = z, w left in x (x = P^T w is the caller's
+    /// last step).
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns processed together
+    /// \param[in]     A           factored matrix (caller-pre-offset)
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation from factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           right-hand side column(s) on entry, w on exit
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    transposed_fwd_bwd(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                       const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                       const int rhs_stride, const int xcol_stride) noexcept {
+        const int nt = num_tiles(n);
+        for (int k = 0; k < nt; ++k)
+            transposed_fwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride,
+                                k);
+        transposed_bwd_only(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+    }
+
+    /// \brief x := P^T x in place for one strided column (x[piv[i]]
+    /// receives x[i]): the inverse rotation of permute_inplace, each cycle
+    /// carried once from its smallest index, a 64-bit bitmask up to n = 64,
+    /// a cycle-leader scan beyond. Values are moved, never computed.
+    /// \param[in]     n          system dimension
+    /// \param[in]     piv        permutation from factorize
+    /// \param[in]     piv_stride element stride of piv
+    /// \param[in,out] x          w on entry, the solution on exit
+    /// \param[in]     rhs_stride element stride of x
+    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    unpermute_inplace(const int n, const int* TDLS_RESTRICT piv, const int piv_stride,
+                      T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
+        if (n <= 64) {
+            unsigned long long visited = 0ull;
+            for (int s = 0; s < n; ++s) {
+                if ((visited >> s) & 1ull) continue;
+                T carry = TDLS_LUPP_DYN_X(s);
+                int dst = TDLS_LUPP_DYN_PIV(s);
+                while (dst != s) {
+                    const T displaced    = TDLS_LUPP_DYN_X(dst);
+                    TDLS_LUPP_DYN_X(dst) = carry;
+                    carry                = displaced;
+                    visited |= 1ull << dst;
+                    dst = TDLS_LUPP_DYN_PIV(dst);
+                }
+                TDLS_LUPP_DYN_X(s) = carry;
+                visited |= 1ull << s;
+            }
+        } else {
+            for (int s = 0; s < n; ++s) {
+                int probe = TDLS_LUPP_DYN_PIV(s);
+                while (probe > s)
+                    probe = TDLS_LUPP_DYN_PIV(probe);
+                if (probe != s) continue;
+
+                T carry = TDLS_LUPP_DYN_X(s);
+                int dst = TDLS_LUPP_DYN_PIV(s);
+                while (dst != s) {
+                    const T displaced    = TDLS_LUPP_DYN_X(dst);
+                    TDLS_LUPP_DYN_X(dst) = carry;
+                    carry                = displaced;
+                    dst                  = TDLS_LUPP_DYN_PIV(dst);
+                }
+                TDLS_LUPP_DYN_X(s) = carry;
+            }
+        }
+    }
+
+    /* =====================================================================
        SUBSTITUTION - public entry points.
        ===================================================================== */
 
-    /// \brief Solve x := U^-1 L^-1 P b from a prior factorize. b and x
-    /// must not alias (use substitute_inplace for the aliased
-    /// single-buffer pattern).
+    /// \brief Solve x := U^-1 L^-1 P b from a prior factorize (column-major
+    /// layout: x := P^T L^-T U^-T b). b and x must not alias (use
+    /// substitute_inplace for the aliased single-buffer pattern).
     /// \param[in]  n          system dimension
     /// \param[in]  A          factored matrix produced by factorize
     /// \param[in]  A_stride   element stride of A
@@ -1271,9 +1614,17 @@ struct TiledLUppSolverDynamic {
     substitute(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
-        for (int i = 0; i < n; ++i)
-            TDLS_LUPP_DYN_X(i) = TDLS_LUPP_DYN_B(TDLS_LUPP_DYN_PIV(i));
-        fwd_bwd(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+        if constexpr (transposed) {
+            // Column-major layout: b consumed unpermuted, x = P^T w at the end.
+            for (int i = 0; i < n; ++i)
+                TDLS_LUPP_DYN_X(i) = TDLS_LUPP_DYN_B(i);
+            transposed_fwd_bwd(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            unpermute_inplace(n, piv, piv_stride, x, rhs_stride);
+        } else {
+            for (int i = 0; i < n; ++i)
+                TDLS_LUPP_DYN_X(i) = TDLS_LUPP_DYN_B(TDLS_LUPP_DYN_PIV(i));
+            fwd_bwd(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+        }
     }
 
     /// \brief Solve with b = e_col generated on the fly: the
@@ -1301,7 +1652,9 @@ struct TiledLUppSolverDynamic {
     /// \brief One pass of the canonical multi right-hand-side
     /// substitution: nrhs canonical columns e_col0 .. e_{col0+nrhs-1}
     /// generated in permuted order into x, then one triangular sweep
-    /// for all nrhs columns together. Internal engine of
+    /// for all nrhs columns together. Under the column-major layout the
+    /// columns are generated unpermuted, swept through U^T then L^T, then
+    /// permuted (x = P^T w). Internal engine of
     /// substitute_canonical_multirhs.
     /// \param[in]  n           system dimension
     /// \param[in]  nrhs        number of columns of this pass
@@ -1318,12 +1671,23 @@ struct TiledLUppSolverDynamic {
                                        const int A_stride, const int* TDLS_RESTRICT piv,
                                        const int piv_stride, const int col0, T* TDLS_RESTRICT x,
                                        const int rhs_stride, const int xcol_stride) noexcept {
-        for (int i = 0; i < n; ++i) {
-            const int p = TDLS_LUPP_DYN_PIV(i);
+        if constexpr (transposed) {
+            // Column-major layout: e_col unpermuted, x = P^T w at the end.
+            for (int i = 0; i < n; ++i)
+                for (int w = 0; w < nrhs; ++w)
+                    TDLS_LUPP_DYN_XW(w, i) = (i == col0 + w) ? T(1) : T(0);
+            transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                TDLS_LUPP_DYN_XW(w, i) = (p == col0 + w) ? T(1) : T(0);
+                unpermute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
+                                  rhs_stride);
+        } else {
+            for (int i = 0; i < n; ++i) {
+                const int p = TDLS_LUPP_DYN_PIV(i);
+                for (int w = 0; w < nrhs; ++w)
+                    TDLS_LUPP_DYN_XW(w, i) = (p == col0 + w) ? T(1) : T(0);
+            }
+            fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
         }
-        fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
     }
 
     /// \brief nrhs canonical columns e_col0 .. e_{col0+nrhs-1} solved from
@@ -1373,7 +1737,9 @@ struct TiledLUppSolverDynamic {
 
     /// \brief One pass of the multi right-hand-side substitution: nrhs
     /// columns of b gathered in permuted order into x, then one
-    /// triangular sweep for all nrhs columns together. Internal engine
+    /// triangular sweep for all nrhs columns together. Under the
+    /// column-major layout the columns are copied unpermuted, swept
+    /// through U^T then L^T, then permuted (x = P^T w). Internal engine
     /// of substitute_multirhs.
     /// \param[in]  n           system dimension
     /// \param[in]  nrhs        number of columns of this pass
@@ -1391,16 +1757,28 @@ struct TiledLUppSolverDynamic {
                              const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
                              const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
                              const int xcol_stride) noexcept {
-        for (int i = 0; i < n; ++i) {
-            const int p = TDLS_LUPP_DYN_PIV(i);
+        if constexpr (transposed) {
+            // Column-major layout, as in substitute.
+            for (int i = 0; i < n; ++i)
+                for (int w = 0; w < nrhs; ++w)
+                    TDLS_LUPP_DYN_XW(w, i) = TDLS_LUPP_DYN_BW(w, i);
+            transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                TDLS_LUPP_DYN_XW(w, i) = TDLS_LUPP_DYN_BW(w, p);
+                unpermute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
+                                  rhs_stride);
+        } else {
+            for (int i = 0; i < n; ++i) {
+                const int p = TDLS_LUPP_DYN_PIV(i);
+                for (int w = 0; w < nrhs; ++w)
+                    TDLS_LUPP_DYN_XW(w, i) = TDLS_LUPP_DYN_BW(w, p);
+            }
+            fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
         }
-        fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
     }
 
     /// \brief Solve nrhs right-hand-side columns from a prior factorize:
-    /// X := U^-1 L^-1 P B, column by column. b and x must not alias (use
+    /// X := U^-1 L^-1 P B (column-major layout: X := P^T L^-T U^-T B),
+    /// column by column. b and x must not alias (use
     /// substitute_inplace_multirhs for the aliased single-buffer
     /// pattern).
     ///
@@ -1451,7 +1829,9 @@ struct TiledLUppSolverDynamic {
     /// and the solution on exit.
     ///
     /// The permutation is applied in place by cycle decomposition (see
-    /// permute_inplace).
+    /// permute_inplace). Under the column-major layout, the sweeps run
+    /// first on the unpermuted x and the inverse rotation (x = P^T w)
+    /// comes last (see unpermute_inplace).
     /// \param[in]     n          system dimension
     /// \param[in]     A          factored matrix produced by factorize
     /// \param[in]     A_stride   element stride of A
@@ -1463,14 +1843,23 @@ struct TiledLUppSolverDynamic {
     substitute_inplace(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride) noexcept {
-        permute_inplace(n, piv, piv_stride, x, rhs_stride);
-        fwd_bwd(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+        if constexpr (transposed) {
+            // Column-major layout: the sweeps on the unpermuted x, then the
+            // inverse cycle rotation (x = P^T w).
+            transposed_fwd_bwd(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            unpermute_inplace(n, piv, piv_stride, x, rhs_stride);
+        } else {
+            permute_inplace(n, piv, piv_stride, x, rhs_stride);
+            fwd_bwd(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+        }
     }
 
     /// \brief One pass of the in-place multi right-hand-side
     /// substitution: nrhs columns of x permuted by the cycle
     /// decomposition of permute_inplace, then one triangular sweep for
-    /// all nrhs columns together. Internal engine of
+    /// all nrhs columns together. Under the column-major layout the
+    /// sweeps come first, then the cycle decomposition of
+    /// unpermute_inplace applies x = P^T w. Internal engine of
     /// substitute_inplace_multirhs.
     /// \param[in]     n           system dimension
     /// \param[in]     nrhs        number of columns of this pass
@@ -1487,17 +1876,26 @@ struct TiledLUppSolverDynamic {
                                      const int A_stride, const int* TDLS_RESTRICT piv,
                                      const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
                                      const int xcol_stride) noexcept {
-        for (int w = 0; w < nrhs; ++w)
-            permute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
-                            rhs_stride);
-        fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+        if constexpr (transposed) {
+            // Column-major layout, as in substitute_inplace.
+            transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            for (int w = 0; w < nrhs; ++w)
+                unpermute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
+                                  rhs_stride);
+        } else {
+            for (int w = 0; w < nrhs; ++w)
+                permute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
+                                rhs_stride);
+            fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+        }
     }
 
     /// \brief nrhs columns solved in place: x holds the nrhs unpermuted
     /// right-hand-side columns on entry and the nrhs solutions on exit.
     ///
     /// The permutation is applied to each column by the cycle
-    /// decomposition of permute_inplace. The columns are solved in
+    /// decomposition of permute_inplace (under the column-major layout,
+    /// after the sweeps, by that of unpermute_inplace). The columns are solved in
     /// passes of pass_width columns; within a pass, every L/U tile is
     /// loaded once for all the columns of the pass. Per-column values
     /// are identical whatever the cutting, and match nrhs separate
@@ -1658,7 +2056,12 @@ struct TiledLUppSolverDynamic {
     /// its tile reloads with it; only the backward pass remains. y follows the
     /// rows through pivoting (swap hook in factor_diag_column), which
     /// makes the result bitwise-identical to factorize +
-    /// substitute_inplace.
+    /// substitute_inplace. Under the column-major layout, the U panels
+    /// are applied instead (U^T z = b, each diagonal tile solved as soon
+    /// as it is factored), y is not swapped, and the backward pass
+    /// L^T w = z is followed by x = P^T w: the same sweep kernels as
+    /// substitute_inplace, and a final permutation that only moves
+    /// values, hence the same bitwise identity.
     /// \tparam oot_diagnostics compile the out-of-tile counter in or out
     /// \param[in]     n          system dimension (n >= 1)
     /// \param[in,out] A          on entry the matrix (pre-offset by the
@@ -1681,7 +2084,13 @@ struct TiledLUppSolverDynamic {
             return false;
 
         // Backward pass only: the forward one happened inside factorize.
-        bwd_only(n, 1, A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+        if constexpr (transposed) {
+            // Column-major layout: L^T w = z, then x = P^T w.
+            transposed_bwd_only(n, 1, A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+            unpermute_inplace(n, piv, piv_stride, y, rhs_stride);
+        } else {
+            bwd_only(n, 1, A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+        }
         return true;
     }
 

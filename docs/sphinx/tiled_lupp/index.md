@@ -43,6 +43,29 @@ The factored matrix holds L and U in place. Its diagonal holds the
 reciprocals of the pivots, not the pivots: the factors are consumed by
 the substitutions of TDLS, not by LAPACK routines.
 
+## The layout picks the factored matrix
+
+The solver always reads the stored matrix row-major, and factors that
+matrix, called S here. A tile is thus read in address order in both
+layouts, and the factorization is the same code for both.
+
+- Row-major layout (`RowMajor`), the TFEL convention and the default:
+  S = A. P A = L U, the forward pass L y = P b folded into the
+  factorization by `solve_inplace`, then U x = y.
+- Column-major layout (`ColMajor`): S = A^T. The pivoting interchanges
+  columns of A, which is partial pivoting of A^T, as stable. Since
+  A = U^T L^T P, the solve runs through the transposed factors:
+  U^T z = b, folded into the factorization by `solve_inplace`, then
+  L^T w = z, then x = P^T w. L has a unit diagonal, so the backward
+  pass divides by nothing. The right-hand side is never permuted
+  before the sweeps; the solution is permuted once, at the end.
+
+The layout is a compile-time knob: the choice costs nothing at run
+time, and the row-major code is untouched by the column-major one. A
+matrix stored column-major and its transpose stored row-major are the
+same array: both configurations factor it the same way, bit for bit,
+and solve A x = b and A^T x = b respectively.
+
 ## Compile-time and runtime dimension
 
 `TiledLUppSolverStatic<T, N, Config>` takes the dimension N at compile
@@ -75,7 +98,7 @@ individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 | `oot_first_acceptable` | `true` | the search below the tile stops at the first candidate reaching `oot_pivot_threshold` |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in a trailing tile; positive, at most `oot_pivot_threshold` |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops, whose unrolling keeps the tiles in registers on GPU; the tile sweeps never carry a pragma; ignored by the runtime solver |
-| `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; results are bitwise identical |
+| `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; column-major factors A^T and solves through the transposed factors (see above) |
 
 The two thresholds are written as plain `T` values. They are stored
 exactly, as `StructuralReal` values, so that a configuration remains a

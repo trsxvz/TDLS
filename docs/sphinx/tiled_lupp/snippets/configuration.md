@@ -222,23 +222,25 @@ $$
 ## Column-major layout
 
 The matrix stored column by column, as one system of a batch of 3:
-the layout knob remaps the flat index, the stride does the rest.
+the solver factors the stored array, A^T, and solves through the
+transposed factors; the stride does the rest. A is not symmetric here,
+so the solve of A^T x = b would give another x.
 
 $$
 A = \left(\begin{array}{cc|cc}
 4 & 1 & 0 & 2 \\
-1 & 5 & 1 & 0 \\ \hline
+2 & 5 & 1 & 0 \\ \hline
 0 & 1 & 6 & 1 \\
-2 & 0 & 1 & 7
+1 & 0 & 3 & 7
 \end{array}\right)
 \ \text{stored as}\ 
 \begin{pmatrix}
-4 & 1 & 0 & 2 \\
+4 & 2 & 0 & 1 \\
 1 & 5 & 1 & 0 \\
-0 & 1 & 6 & 1 \\
+0 & 1 & 6 & 3 \\
 2 & 0 & 1 & 7
 \end{pmatrix}^{\mathsf T}, \quad
-b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad
+b = \begin{pmatrix} 14 \\ 15 \\ 24 \\ 38 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 

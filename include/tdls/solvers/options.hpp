@@ -61,16 +61,4 @@ enum class MatrixLayout {
 
 
 
-/// \def TDLS_LAYOUT_INDEX
-/// \brief Flat index of matrix element (r, c) under the configured
-/// layout: r * dim + c row-major, c * dim + r column-major.
-///
-/// Expands inside solver member functions, where a constexpr `Config`
-/// value carrying a `layout` member is in scope.
-#define TDLS_LAYOUT_INDEX(r, c, dim)                                                               \
-    (Config.layout == tdls::MatrixLayout::RowMajor ? unsigned((r) * (dim) + (c))                   \
-                                                   : unsigned((c) * (dim) + (r)))
-
-
-
 #endif // TDLS_SOLVERS_OPTIONS_HPP

@@ -14,7 +14,9 @@
 /// substitute(), and the static and dynamic in-place results must be
 /// bitwise identical to each other. The dimensions bracket every
 /// mechanism boundary: 31/32/33 and 63/64/65, plus 100 deep in the
-/// cycle-leader domain.
+/// cycle-leader domain. The column-major layout applies x = P^T w by
+/// the same three mechanisms, after the sweeps; its cells bracket the
+/// same boundaries.
 
 #include <algorithm>
 #include <cstdint>
@@ -33,12 +35,13 @@ namespace {
 /// \tparam T         scalar type
 /// \tparam N         system dimension
 /// \tparam tile_size tile size
+/// \tparam Layout    matrix layout
 /// \param[in] count number of systems
 /// \param[in] bound half-width of the entry distribution
 /// \param[in] seed  generator seed
-template<typename T, int N, int tile_size>
+template<typename T, int N, int tile_size, tdls::MatrixLayout Layout = tdls::MatrixLayout::RowMajor>
 void inplace_case(const int count, const double bound, const std::uint64_t seed) {
-    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size};
+    constexpr auto config = tdls::TiledLUppConfig<T>{.tile_size = tile_size, .layout = Layout};
     using Static          = tdls::TiledLUppSolverStatic<T, N, config>;
     using Dynamic         = tdls::TiledLUppSolverDynamic<T, config>;
     const auto batch      = tdls_tests::make_batch<T>(N, count, seed, bound);
@@ -82,6 +85,13 @@ void inplace_case(const int count, const double bound, const std::uint64_t seed)
         inplace_case<double, N, TILE_SIZE>(COUNT, BOUND, SEED);                                    \
     }
 
+/// Emits the column-major in-place bridge case of one (N, tile_size, regime) cell.
+#define TDLS_INPLACE_COLMAJOR_CASE(N, TILE_SIZE, REGIME, COUNT, BOUND, SEED)                       \
+    TDLS_TEST_CASE("tiledlupp/bridge/inplace/colmajor/double/N=" #N ",tile_size=" #TILE_SIZE       \
+                   "," REGIME) {                                                                   \
+        inplace_case<double, N, TILE_SIZE, tdls::MatrixLayout::ColMajor>(COUNT, BOUND, SEED);      \
+    }
+
 // The 32-bit mask domain and its upper boundary.
 TDLS_INPLACE_CASE(31, 4, "default", 150, 0.5, 160310)
 TDLS_INPLACE_CASE(32, 4, "default", 150, 0.5, 160320)
@@ -94,5 +104,11 @@ TDLS_INPLACE_CASE(64, 8, "stress", 100, 5e-10, 160641)
 // The cycle-leader domain.
 TDLS_INPLACE_CASE(65, 5, "default", 100, 0.5, 160650)
 TDLS_INPLACE_CASE(100, 5, "default", 60, 0.5, 161000)
+// Column-major: the 32-bit and 64-bit mask boundaries, then the
+// cycle-leader domain.
+TDLS_INPLACE_COLMAJOR_CASE(32, 4, "default", 150, 0.5, 162320)
+TDLS_INPLACE_COLMAJOR_CASE(33, 5, "default", 150, 0.5, 162330)
+TDLS_INPLACE_COLMAJOR_CASE(64, 8, "default", 100, 0.5, 162640)
+TDLS_INPLACE_COLMAJOR_CASE(65, 5, "default", 100, 0.5, 162650)
 
 TDLS_TEST_MAIN
