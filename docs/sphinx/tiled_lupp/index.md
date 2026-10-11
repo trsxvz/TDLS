@@ -45,26 +45,26 @@ the substitutions of TDLS, not by LAPACK routines.
 
 ## The layout picks the factored matrix
 
-The solver always reads the stored matrix row-major, and factors that
+The solver always reads the stored matrix row-major. It factors that
 matrix, called S here. A tile is thus read in address order in both
-layouts, and the factorization is the same code for both.
+layouts, and both layouts run the same factorization code.
 
 - Row-major layout (`RowMajor`), the TFEL convention and the default:
-  S = A. P A = L U, the forward pass L y = P b folded into the
-  factorization by `solve_inplace`, then U x = y.
+  S = A and P A = L U. The forward pass L y = P b is folded into the
+  factorization by `solve_inplace`. Then comes U x = y.
 - Column-major layout (`ColMajor`): S = A^T. The pivoting interchanges
-  columns of A, which is partial pivoting of A^T, as stable. Since
-  A = U^T L^T P, the solve runs through the transposed factors:
-  U^T z = b, folded into the factorization by `solve_inplace`, then
-  L^T w = z, then x = P^T w. L has a unit diagonal, so the backward
-  pass divides by nothing. The right-hand side is never permuted
-  before the sweeps; the solution is permuted once, at the end.
+  columns of A. This is partial pivoting of A^T, as stable. Since
+  A = U^T L^T P, the solve runs through the transposed factors. First
+  U^T z = b, folded into the factorization by `solve_inplace`. Then
+  L^T w = z, and x = P^T w. L has a unit diagonal, so the backward
+  pass divides by nothing. The right-hand side is not permuted before
+  the sweeps. The solution is permuted once, at the end.
 
-The layout is a compile-time knob: the choice costs nothing at run
-time, and the row-major code is untouched by the column-major one. A
+The layout is a compile-time knob. The choice costs nothing at run
+time, and the column-major code leaves the row-major one untouched. A
 matrix stored column-major and its transpose stored row-major are the
-same array: both configurations factor it the same way, bit for bit,
-and solve A x = b and A^T x = b respectively.
+same array. Both configurations factor it the same way, bit for bit.
+The first solves A x = b, the second A^T x = b.
 
 ## Compile-time and runtime dimension
 

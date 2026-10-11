@@ -111,21 +111,22 @@ struct TiledLUppConfig {
     bool unroll_loops = true;
 
     /// Memory layout of the matrix, in both solvers and both residency
-    /// modes. The solver adapts its design to it, at compile time: it
+    /// modes. The solver adapts its design to it, at compile time. It
     /// factors S, the stored matrix read row-major, so that the tiles are
     /// read in address order in both layouts. Row-major, the TFEL
-    /// convention and the default: S = A, P A = L U, the forward pass
-    /// folded into the factorization by solve_inplace, then U x = y.
-    /// Column-major: S = A^T, the pivoting interchanges columns of A
-    /// (partial pivoting of A^T, as stable), and since A = U^T L^T P the
-    /// solve runs through the transposed factors: U^T z = b, folded into
-    /// the factorization by solve_inplace, then L^T w = z, which divides
-    /// by nothing, then x = P^T w. A matrix stored column-major and its
-    /// transpose stored row-major are thus the same array, factored the
-    /// same way bit for bit, while the first solves A x = b and the second
-    /// A^T x = b. A factorization keeps the layout of its configuration,
-    /// so its substitutions share it by construction. The vector operands
-    /// and the pivot are one-dimensional and unaffected.
+    /// convention and the default: S = A and P A = L U. The forward pass
+    /// is folded into the factorization by solve_inplace, then U x = y.
+    /// Column-major: S = A^T, and the pivoting interchanges columns of A.
+    /// This is partial pivoting of A^T, as stable. Since A = U^T L^T P,
+    /// the solve runs through the transposed factors. First U^T z = b,
+    /// folded into the factorization by solve_inplace. Then L^T w = z,
+    /// which divides by nothing, and x = P^T w. A matrix stored
+    /// column-major and its transpose stored row-major are thus the same
+    /// array, factored the same way bit for bit. The first solves
+    /// A x = b, the second A^T x = b. A factorization keeps the layout of
+    /// its configuration, so its substitutions share it by construction.
+    /// The vector operands and the pivot are one-dimensional and
+    /// unaffected.
     MatrixLayout layout = MatrixLayout::RowMajor;
 };
 

@@ -94,7 +94,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `static_vs_dynamic` | bitwise equality of the two variants |
 | `residencies` | every residency combination reproduces the anchored path bitwise |
 | `layouts` | AoS, SoA and AoSoA addressing, bitwise |
-| `colmajor` | the column-major factorization against the row-major one of the same array, bitwise, each solution checked by its backward error; `solve` and `solve_inplace` of both solvers, both schedules, the internal residency, the `unroll_loops` knob off and a strided arena, bitwise |
+| `colmajor` | the column-major factorization against the row-major one of the same array, bitwise, and each solution by its backward error. Covered: `solve` and `solve_inplace` of both solvers, both schedules, the internal residency, the `unroll_loops` knob off, a strided arena |
 | `entry_points` | the documented entry point equivalences, bitwise |
 | `inplace_paths` | the two in-place substitution algorithms around their switchover dimensions, in both layouts |
 | `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers and in both layouts |

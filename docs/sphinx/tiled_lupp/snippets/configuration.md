@@ -221,10 +221,10 @@ $$
 
 ## Column-major layout
 
-The matrix stored column by column, as one system of a batch of 3:
-the solver factors the stored array, A^T, and solves through the
-transposed factors; the stride does the rest. A is not symmetric here,
-so the solve of A^T x = b would give another x.
+The matrix stored column by column, as one system of a batch of 3.
+The solver factors the stored array, A^T, and solves through the
+transposed factors. The stride does the rest. A is not symmetric here:
+a solve of A^T x = b would give another x.
 
 $$
 A = \left(\begin{array}{cc|cc}

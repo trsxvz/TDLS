@@ -43,10 +43,11 @@
 /// flexibility path (dimensions unknown at compile time, fast builds).
 ///
 /// The matrix layout follows Config.layout, exactly as in the
-/// compile-time solver: the solver factors S, the stored matrix read
-/// row-major, S = A under the row-major layout and S = A^T under the
-/// column-major one, whose solve runs with the transposed factors
-/// (U^T z = b, L^T w = z, x = P^T w; see solver_static.hpp).
+/// compile-time solver. The solver factors S, the stored matrix read
+/// row-major: S = A under the row-major layout, S = A^T under the
+/// column-major one. The column-major solve runs through the transposed
+/// factors: U^T z = b, L^T w = z, then x = P^T w (see
+/// solver_static.hpp).
 ///
 /// Preconditions: n >= 1. tile_size may exceed n (the grid is then a single
 /// partial tile). Offsets are computed in 32-bit arithmetic: the flat

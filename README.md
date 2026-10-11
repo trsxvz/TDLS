@@ -50,7 +50,8 @@ constexpr tdls::TiledLUppConfig<double> config{
     .singular_floor = std::numeric_limits<double>::min(),
     // bool: forced unrolling of the in-tile loops, the ones where it pays
     .unroll_loops = true,
-    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor
+    // tdls::MatrixLayout: matrix layout, RowMajor or ColMajor; ColMajor
+    // factors A^T and solves through the transposed factors
     .layout = tdls::MatrixLayout::RowMajor};
 
 // LU solver for systems of dimension 9: the 9 x 9 matrix is cut

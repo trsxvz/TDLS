@@ -26,18 +26,18 @@
 ///
 /// **Layout.** The solver factors S, the stored matrix read row-major:
 /// element (r,c) of S lives at `A[((r)*N+(c))*A_stride]`. S = A under the
-/// row-major layout, the default, and S = A^T under the column-major one,
-/// so that the tiles are read in address order whatever the layout.
-/// Under the row-major layout, P A = L U and the solve is L y = P b,
-/// folded into the factorization by solve_inplace, then U x = y. Under
-/// the column-major layout, P A^T = L U, so A = U^T L^T P: the pivoting
-/// interchanges columns of A, which is partial pivoting of A^T and as
-/// stable, and the solve is the mirror of the row-major one: U^T z = b,
-/// folded into the factorization by solve_inplace, then L^T w = z, which
+/// row-major layout, the default, and S = A^T under the column-major one.
+/// The tiles are thus read in address order whatever the layout. Under
+/// the row-major layout, P A = L U and the solve is L y = P b, folded
+/// into the factorization by solve_inplace, then U x = y. Under the
+/// column-major layout, P A^T = L U, so A = U^T L^T P. The pivoting
+/// interchanges columns of A: this is partial pivoting of A^T, as
+/// stable. The solve is the mirror of the row-major one. First U^T z = b,
+/// folded into the factorization by solve_inplace. Then L^T w = z, which
 /// divides by nothing since L has a unit diagonal, and x = P^T w. Both
-/// layouts run the same factorization on the same bytes: A stored
+/// layouts run the same factorization on the same bytes. A stored
 /// column-major gives, bitwise, the factored array and the pivots of the
-/// row-major solver given A^T. The layout is a compile-time choice; the
+/// row-major solver given A^T. The layout is a compile-time choice. The
 /// rest of this documentation speaks of the rows of S.
 ///
 /// **Addressing convention (backend-agnostic, no accessor objects).**
