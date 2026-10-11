@@ -5,7 +5,7 @@ All notable changes to TDLS are recorded here. The format follows
 versions follow [Semantic Versioning](https://semver.org/). Until 1.0.0
 the API may change between minor versions.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-11
 
 ### Added
 
@@ -165,5 +165,5 @@ from device code.
 - Documentation site with the Doxygen reference and a snippet gallery.
 - CMake package for `find_package(tdls)` and the Spack package `tdls`.
 
-[Unreleased]: https://github.com/trsxvz/TDLS/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/trsxvz/TDLS/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/trsxvz/TDLS/releases/tag/v0.1.0
