@@ -121,7 +121,9 @@ TDLS_HOST_DEVICE inline Material calibrate() {
     Material mat{};
     const double q = std::pow(gamma_last / gamma_first, 1.0 / surfaces);
     for (int j = 0; j <= surfaces; ++j) {
-        mat.gamma[j] = gamma_first * std::pow(q, j);
+        // A double exponent: pow(double, int) is device only in the cmath
+        // of HIP, and this function runs on the host too.
+        mat.gamma[j] = gamma_first * std::pow(q, static_cast<double>(j));
         mat.tau[j]   = hyperbola(mat.gamma[j]);
     }
     mat.mu          = mat.tau[0] / mat.gamma[0];
