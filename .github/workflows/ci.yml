@@ -306,7 +306,10 @@ jobs:
             tdls_example_tiledlupp_norton_law_batch_sycl \
             tdls_example_cooperativelupp_implicit_ode_batch_sycl \
             tdls_example_cooperativelupp_integral_equation_batch_sycl \
-            tdls_example_cooperativelupp_norton_law_batch_sycl
+            tdls_example_cooperativelupp_norton_law_batch_sycl \
+            tdls_example_arrowheadlupp_aggregate_batch_sycl \
+            tdls_example_arrowheadlupp_iwan_batch_sycl \
+            tdls_example_arrowheadlupp_polycrystal_batch_sycl
 
   gpu-stdpar-nvhpc:
     # Build-only check of the parallel STL offload with nvc++. The HPC
@@ -345,6 +348,9 @@ jobs:
           tdls_example_cooperativelupp_integral_equation_batch_stdpar_gpu
           tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu
           tdls_example_cooperativelupp_norton_law_batch_stdpar_groups_gpu
+          tdls_example_arrowheadlupp_aggregate_batch_stdpar_gpu
+          tdls_example_arrowheadlupp_iwan_batch_stdpar_gpu
+          tdls_example_arrowheadlupp_polycrystal_batch_stdpar_gpu
 
   gpu-stdpar-hip:
     # Build-only check of the parallel STL offload with the ROCm clang
@@ -391,6 +397,9 @@ jobs:
           tdls_example_cooperativelupp_implicit_ode_batch_stdpar_gpu
           tdls_example_cooperativelupp_integral_equation_batch_stdpar_gpu
           tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu
+          tdls_example_arrowheadlupp_aggregate_batch_stdpar_gpu
+          tdls_example_arrowheadlupp_iwan_batch_stdpar_gpu
+          tdls_example_arrowheadlupp_polycrystal_batch_stdpar_gpu
 
   gpu-stdpar-oneapi:
     # Build-only check of the parallel STL offload with icpx through
@@ -423,7 +432,10 @@ jobs:
             tdls_example_tiledlupp_norton_law_batch_stdpar_gpu \
             tdls_example_cooperativelupp_implicit_ode_batch_stdpar_gpu \
             tdls_example_cooperativelupp_integral_equation_batch_stdpar_gpu \
-            tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu
+            tdls_example_cooperativelupp_norton_law_batch_stdpar_gpu \
+            tdls_example_arrowheadlupp_aggregate_batch_stdpar_gpu \
+            tdls_example_arrowheadlupp_iwan_batch_stdpar_gpu \
+            tdls_example_arrowheadlupp_polycrystal_batch_stdpar_gpu
 
   format:
     runs-on: ubuntu-latest

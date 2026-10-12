@@ -67,6 +67,10 @@ on the solver.
   behaviour. A Newton iteration on a fresh jacobian, then the tangent
   operator from a factorization of the converged one.
 
+For ArrowheadLUpp, the shape of the matrix stands for the dimension.
+Its solvers have no separate factorization, so its MFront pattern is
+the Newton iteration alone.
+
 Each problem is declined on every execution scale: sequential, OpenMP,
 parallel STL, SYCL, and CUDA or HIP with the systems on chip or in
 device memory. Moving from one scale to the next changes the
@@ -326,3 +330,115 @@ every batch.
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in
 `tests/solvers/arrowhead_lupp/`.
+
+### Example programs
+
+| | CPU, sequential | CPU, OpenMP | parallel STL | SYCL | CUDA or HIP, thread-local memory | CUDA or HIP, device memory |
+|---|---|---|---|---|---|---|
+| **Compile-time shape** (Iwan multisurface plasticity, 24 surfaces, N = 30) | `iwan` | `iwan_batch_omp` | `iwan_batch_stdpar` | `iwan_batch_sycl` | `iwan_batch_gpu` | `iwan_batch_gpu_soa` |
+| **Runtime shape** (Berveiller-Zaoui aggregate, grains chosen at launch, 240 by default, n = 1452) | `aggregate` | `aggregate_batch_omp` | `aggregate_batch_stdpar` | `aggregate_batch_sycl` | `aggregate_batch_gpu` (device memory, AoS) | `aggregate_batch_gpu_soa` |
+| **Compile-time shape, MFront pattern** (Berveiller-Zaoui polycrystal, 12 grains, N = 84) | `polycrystal` | `polycrystal_batch_omp` | `polycrystal_batch_stdpar` | `polycrystal_batch_sycl` | `polycrystal_batch_gpu` | `polycrystal_batch_gpu_soa` |
+
+The sources live under `examples/arrowhead_lupp/`, with the layout and
+the build options of the TiledLUpp examples, and the physics under
+`examples/common/` (`iwan.hpp`, `polycrystal.hpp`). The three problems
+are implicit integrations of behaviours whose Newton systems are
+arrowhead matrices: a few global unknowns, the border, and many local
+ones, the blocks. Every Newton iteration assembles the jacobian
+straight into the Packed storage, through `ArrowheadStorageMap`, then
+solves it in place. Every program reports its Newton iterations and
+the blocks the pivot check refused.
+
+#### Compile-time shape
+
+The Iwan model of the cyclic behaviour of soils, integrated as the Iwan
+behaviour of the MFront gallery does it. The unknowns are the elastic
+strain increment (the border, 6 unknowns) and the plastic multiplier of
+each of the 24 surfaces (a block of one unknown each). The flow
+direction of a surface couples its multiplier to every component of the
+elastic strain: the dense coupling. The status of the surfaces comes
+from the elastic prediction and is corrected at convergence.
+
+The surfaces are calibrated on a hyperbolic skeleton curve in simple
+shear. The model then follows the piecewise linear skeleton exactly
+under monotonic loading, and Masing's rule exactly under reversals,
+which gives exact references. The sequential program drives a closed
+simple shear cycle through the corners of the curve and checks the
+stress at every step. In the batches, each point takes its own
+deviatoric direction and amplitude, in uniform steps that cross several
+corners at once; its stress must reach the skeleton at the peak, its
+opposite at the end, and stay along the direction.
+
+The outer surfaces of a soil have hardening moduli far below the Young
+modulus, while their couplings are of order one. Their blocks fail the
+pivot check, and the second pass of the solver eliminates them with the
+border rows: the sequential cycle refuses about 2000 blocks over 531
+Newton iterations. On GPU, the two residency choices:
+
+- `iwan_batch_gpu`: residency booleans set to true, the jacobian, the
+  workspace and the residual are local arrays of the thread;
+- `iwan_batch_gpu_soa`: residency booleans set to false, the operands
+  are materialized in device memory structure-of-arrays and walked
+  with the batch stride. The 30 x 30 system is small, and the
+  thread-local variant is the faster one.
+
+#### Runtime shape
+
+The physics of the polycrystal below, with a number of grains read on
+the command line: 240 by default, 1452 unknowns. The shape is a datum of
+the computation, so `ArrowheadLUppSolverDynamic` applies, its workspace
+and pivots sized by `workspace_size(shape)` and `pivot_size(shape)`.
+The sequential program times the loading history, then the first step
+again by a dense LU of the whole jacobian (`TiledLUppSolverDynamic` on
+the full matrix): on one CPU core, the 20 steps of the history take
+0.02 s, the first step alone 1.4 s by the dense LU. Both first steps
+must agree.
+
+The OpenMP program allocates the operands once per thread, sized from
+the shape. The parallel STL and SYCL programs give every operand of a
+point its slice of a batch, structure-of-arrays. On GPU, no thread holds
+a local array of runtime size, so both variants keep the operands in
+device memory, and differ by their layout:
+
+- `aggregate_batch_gpu`: each point owns a contiguous slice of each
+  batch (array of structures), walked with a stride of 1;
+- `aggregate_batch_gpu_soa`: structure-of-arrays, walked with the batch
+  stride, every access of a warp coalesced.
+
+Both print the time of their kernel. A point holds about 280 KB of
+operands: the batches that fit in device memory hold far fewer points
+than the device holds threads, and the SoA layout gains only 6 to 8 %.
+The self-checks are those of the polycrystal, the sampled points being
+integrated again on the host by the same runtime solver.
+
+#### Compile-time shape, MFront pattern
+
+A Berveiller-Zaoui polycrystal of 12 face-centred cubic grains with
+random orientations, each flowing on its 12 slip systems by a Norton
+law, integrated by the implicit Euler scheme as the polycrystal
+behaviours of MFront do. The unknowns are the macroscopic elastic and
+viscoplastic strains (the border, 12 unknowns) and the viscoplastic
+strain of each grain (a block of 6 unknowns). A grain meets the border
+only through the average that defines the macroscopic viscoplastic
+strain: the diagonal coupling, from `coupling_row` 6. The number of
+grains belongs to the behaviour, so `ArrowheadLUppSolverStatic`
+applies.
+
+The sequential program integrates the loading history twice, by
+`ArrowheadLUppSolverStatic` and by a dense LU of the whole jacobian,
+and both must agree. At every step, the viscoplastic strain must stay
+deviatoric, since the Schmid tensors are, and every grain must
+dissipate, since every slip rate has the sign of its resolved shear
+stress. The batches check the last step of every point the same way,
+and a sample of points against their whole history integrated again
+with the dense LU. On GPU, the two residency choices:
+
+- `polycrystal_batch_gpu`: residency booleans set to true, the state,
+  the jacobian (1512 entries), the workspace and the residual are local
+  arrays of the thread, in its local memory;
+- `polycrystal_batch_gpu_soa`: residency booleans set to false, every
+  operand is materialized in device memory structure-of-arrays.
+
+Both run at the same speed here: the assembly of the jacobian, 144 slip
+systems and as many powers per iteration, outweighs the placement of
+the operands.

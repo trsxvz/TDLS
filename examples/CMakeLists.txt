@@ -22,3 +22,4 @@ endfunction()
 
 add_subdirectory(tiled_lupp)
 add_subdirectory(cooperative_lupp)
+add_subdirectory(arrowhead_lupp)
