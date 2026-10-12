@@ -177,6 +177,33 @@ $$
 :dedent: 4
 ```
 
+## Factorize, then substitute a block in two stages
+
+The same block, one buffer, in two stages: `forward_inplace_multirhs`
+leaves $L^{-1} P B$ in the buffer ($U^{-T} B$ under the column-major
+layout), which the caller may read or update, then
+`backward_inplace_multirhs` completes the solve. The two stages in a row
+match `substitute_inplace_multirhs` bit for bit; it calls the same
+sweeps.
+
+
+$$
+A X = B, \quad A = \left(\begin{array}{cc|cc}
+4 & 1 & 0 & 2 \\
+1 & 5 & 1 & 0 \\ \hline
+0 & 1 & 6 & 1 \\
+2 & 0 & 1 & 7
+\end{array}\right), \quad B = \begin{pmatrix} 14 & 7 & 8 \\ 14 & 7 & 3 \\ 24 & 8 & 6 \\ 33 & 10 & 5 \end{pmatrix}, \quad
+X = \begin{pmatrix} 1 & 1 & 2 \\ 2 & 1 & 0 \\ 3 & 1 & 1 \\ 4 & 1 & 0 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/tiled_lupp/static_multirhs_stages.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## Solve a block
 
 Factorization and block substitution in one call, two buffers.

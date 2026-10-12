@@ -16,12 +16,21 @@ the API may change between minor versions.
   out-of-tile recovery keeps its absolute trigger. The in-tile
   multipliers stay bounded by its inverse, and the solvers enforce the
   range (0, 1] at compile time.
+- `forward_inplace_multirhs` and `backward_inplace_multirhs` in both
+  TiledLUpp solvers: the two stages of `substitute_inplace_multirhs`
+  (L^-1 P B, then U^-1; under the column-major layout U^-T B, then
+  P^T L^-T), so that the caller can read or update the intermediate
+  columns. In a row they match `substitute_inplace_multirhs` bit for bit.
+  It is built from the same sweeps; existing calls keep their results
+  and their speed.
+- `TDLS_FORCE_INLINE_ALL`, inlining forced on every backend, CPU
+  included, for helpers factored out of a solver routine.
 
 ### Changed
 
-- `TDLS_FORCEINLINE` is renamed `TDLS_FORCE_INLINE_GPU`: the suffix says
-  where the inlining is forced. A command-line override of the macro
-  must use the new name.
+- `TDLS_FORCEINLINE` is renamed `TDLS_FORCE_INLINE_GPU`, the pair of
+  `TDLS_FORCE_INLINE_ALL`: the suffix says where the inlining is forced.
+  A command-line override of the macro must use the new name.
 - Element offsets in remote memory, index times stride, are computed in
   64-bit arithmetic (`TDLS_STRIDED`) by every solver. They were 32-bit:
   a batch over 2^32 elements, a SoA batch over 32 GiB of doubles on a

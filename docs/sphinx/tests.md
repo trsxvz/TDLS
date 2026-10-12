@@ -97,7 +97,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `colmajor` | the column-major factorization against the row-major one of the same array, bitwise, and each solution by its backward error. Covered: `solve` and `solve_inplace` of both solvers, both schedules, the internal residency, the `unroll_loops` knob off, a strided arena |
 | `entry_points` | the documented entry point equivalences, bitwise |
 | `inplace_paths` | the two in-place substitution algorithms around their switchover dimensions, in both layouts |
-| `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers and in both layouts |
+| `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers and in both layouts; the two stages `forward_inplace_multirhs` then `backward_inplace_multirhs` against the in-place block |
 | `tile_sizes` | every tile size against the anchored one, including unit tiles (tile size 1) and tile sizes exceeding the dimension |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the in-tile pivot choice under a relative threshold, which leaves the out-of-tile search to its absolute trigger |

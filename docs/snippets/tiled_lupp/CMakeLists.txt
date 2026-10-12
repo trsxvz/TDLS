@@ -23,6 +23,7 @@ foreach(snippet
         static_canonical_block
         static_multirhs
         static_multirhs_inplace
+        static_multirhs_stages
         static_solve_multirhs
         static_solve_inplace_multirhs
         static_pass_cutting
@@ -38,6 +39,7 @@ foreach(snippet
         dynamic_canonical_block
         dynamic_multirhs
         dynamic_multirhs_inplace
+        dynamic_multirhs_stages
         dynamic_solve_multirhs
         dynamic_solve_inplace_multirhs
         dynamic_pass_cutting

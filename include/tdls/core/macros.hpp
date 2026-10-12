@@ -61,6 +61,7 @@
 /// CPU a register spill to the stack is cheap and the heuristic inliner
 /// makes better calls than a blanket `always_inline` (which also bloats
 /// debug builds and compile times), so a plain `inline` hint is kept there.
+/// Its pair TDLS_FORCE_INLINE_ALL forces the inlining on CPU too.
 
 #ifndef TDLS_FORCE_INLINE_GPU
 #if defined(__HIPCC__) || defined(__HIP__)
@@ -69,6 +70,30 @@
 #define TDLS_FORCE_INLINE_GPU __forceinline__
 #else
 #define TDLS_FORCE_INLINE_GPU inline
+#endif
+#endif
+
+
+
+/// \def TDLS_FORCE_INLINE_ALL
+/// \brief Inlining forced on every backend, CPU included:
+/// TDLS_FORCE_INLINE_GPU on GPU, `__forceinline` under MSVC,
+/// `always_inline` under the GNU dialect, plain `inline` elsewhere.
+///
+/// Reserved for the few helpers whose body was factored out of a solver
+/// routine: inlined, they leave its generated code as it was, while a call
+/// the CPU inliner may decline costs time (see
+/// TiledLUppSolverStatic::permute_cycles).
+
+#ifndef TDLS_FORCE_INLINE_ALL
+#if defined(__HIPCC__) || defined(__HIP__) || defined(__CUDACC__) || defined(__CUDA__)
+#define TDLS_FORCE_INLINE_ALL TDLS_FORCE_INLINE_GPU
+#elif defined(_MSC_VER) && !defined(__clang__)
+#define TDLS_FORCE_INLINE_ALL __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define TDLS_FORCE_INLINE_ALL inline __attribute__((always_inline))
+#else
+#define TDLS_FORCE_INLINE_ALL inline
 #endif
 #endif
 

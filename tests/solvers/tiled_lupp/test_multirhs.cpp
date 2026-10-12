@@ -12,8 +12,9 @@
 /// both solvers: substitute_multirhs against nrhs separate substitute
 /// calls (the baseline, itself anchored by the oracle suites), the
 /// pass_width cuttings against the single pass, the in-place twins
-/// against the two-buffer forms, the canonical block against single
-/// canonical columns, the solve_multirhs /
+/// against the two-buffer forms, the two stages forward_inplace_multirhs
+/// then backward_inplace_multirhs against the in-place block, the
+/// canonical block against single canonical columns, the solve_multirhs /
 /// solve_inplace_multirhs wrappers against their split forms, the
 /// diagnostics-free overloads against the counting ones, and the
 /// runtime solver against the compile-time one on the same systems.
@@ -155,6 +156,49 @@ void multirhs_case(const int count, const double bound, const std::uint64_t seed
             Static::template substitute_inplace_multirhs<nrhs, true, true, false>(
                 A_split.data(), 1, piv_split, 1, Y, 1, 0);
             TDLS_CHECK_BITWISE(X_ref, Y, static_cast<std::size_t>(nrhs) * N);
+        }
+
+        // The two stages, forward_inplace_multirhs then
+        // backward_inplace_multirhs, must reproduce the block bitwise, in
+        // one pass and under a pass cutting, internal and external
+        // residency, on both solvers.
+        {
+            T Y[nrhs * N], Yc[nrhs * N], Yd[nrhs * N], Ydc[nrhs * N];
+            for (int e = 0; e < nrhs * N; ++e)
+                Y[e] = Yc[e] = Yd[e] = Ydc[e] = B[e];
+            Static::template forward_inplace_multirhs<nrhs, true, true, false>(
+                A_split.data(), 1, piv_split, 1, Y, 1, 0);
+            Static::template backward_inplace_multirhs<nrhs, true, true, false>(
+                A_split.data(), 1, piv_split, 1, Y, 1, 0);
+            TDLS_CHECK_BITWISE(X_ref, Y, static_cast<std::size_t>(nrhs) * N);
+            Static::template forward_inplace_multirhs<nrhs, true, true, false, 2>(
+                A_split.data(), 1, piv_split, 1, Yc, 1, 0);
+            Static::template backward_inplace_multirhs<nrhs, true, true, false, 2>(
+                A_split.data(), 1, piv_split, 1, Yc, 1, 0);
+            TDLS_CHECK_BITWISE(X_ref, Yc, static_cast<std::size_t>(nrhs) * N);
+            Dynamic::forward_inplace_multirhs(N, nrhs, A_split.data(), 1, piv_split, 1, Yd, 1, N);
+            Dynamic::backward_inplace_multirhs(N, nrhs, A_split.data(), 1, piv_split, 1, Yd, 1, N);
+            TDLS_CHECK_BITWISE(X_ref, Yd, static_cast<std::size_t>(nrhs) * N);
+            Dynamic::template forward_inplace_multirhs<2>(N, nrhs, A_split.data(), 1, piv_split, 1,
+                                                          Ydc, 1, N);
+            Dynamic::template backward_inplace_multirhs<2>(N, nrhs, A_split.data(), 1, piv_split, 1,
+                                                           Ydc, 1, N);
+            TDLS_CHECK_BITWISE(X_ref, Ydc, static_cast<std::size_t>(nrhs) * N);
+
+            // External residency, interleaved columns (element stride
+            // nrhs, column stride 1).
+            std::vector<T> Yx(static_cast<std::size_t>(nrhs) * N);
+            for (int w = 0; w < nrhs; ++w)
+                for (int i = 0; i < N; ++i)
+                    Yx[static_cast<std::size_t>(i) * nrhs + w] = B[w * N + i];
+            Static::template forward_inplace_multirhs<nrhs, false, true, false, 2>(
+                A_split.data(), 1, piv_split, 1, Yx.data(), nrhs, 1);
+            Static::template backward_inplace_multirhs<nrhs, false, true, false, 2>(
+                A_split.data(), 1, piv_split, 1, Yx.data(), nrhs, 1);
+            for (int w = 0; w < nrhs; ++w)
+                for (int i = 0; i < N; ++i)
+                    TDLS_CHECK_BITWISE(&X_ref[w * N + i],
+                                       &Yx[static_cast<std::size_t>(i) * nrhs + w], 1);
         }
 
         // solve_multirhs and solve_inplace_multirhs must reproduce factorize +

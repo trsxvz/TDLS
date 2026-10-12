@@ -2613,6 +2613,99 @@ struct TiledLUppSolverStatic {
         }
     }
 
+    /// \brief x := P x in place for pass_width columns (row i receives row
+    /// piv[i]), by the cycle decomposition of substitute_inplace, each move
+    /// carrying the pass_width column entries of its row: the permutation of
+    /// substitute_inplace_multirhs_pass and forward_inplace_multirhs, the
+    /// inverse of unpermute_cycles. Forced inline on CPU too
+    /// (TDLS_FORCE_INLINE_ALL): an out-of-line call costs 20 to 27 % under
+    /// gcc -O2, and inlined it leaves the code of
+    /// substitute_inplace_multirhs as it was when these lines sat in it.
+    /// \tparam pass_width   number of columns of x
+    /// \tparam internal_rhs residency of x
+    /// \tparam internal_piv residency of piv
+    /// \param[in]     piv         permutation from factorize
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           right-hand side column(s)
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int pass_width, bool internal_rhs, bool internal_piv>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr void
+    permute_cycles(const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                   const int rhs_stride, const int xcol_stride) noexcept {
+        if constexpr (N <= 64) {
+            // Bitmask cycle decomposition, as in substitute_inplace; tmp
+            // widens to one entry per column.
+            using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
+            mask_t visited = mask_t(0);
+            if constexpr (Config.unroll_loops) {
+                TDLS_UNROLL_FORCE
+                for (int s = 0; s < N; ++s) {
+                    if ((visited >> s) & mask_t(1)) continue;
+                    T tmp[pass_width];
+                    TDLS_UNROLL_FORCE
+                    for (int w = 0; w < pass_width; ++w)
+                        tmp[w] = TDLS_LUPP_XW(w, s);
+                    int cur = s;
+                    int nxt = TDLS_LUPP_PIV(cur);
+                    while (nxt != s) {
+                        TDLS_UNROLL_FORCE
+                        for (int w = 0; w < pass_width; ++w)
+                            TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
+                        visited |= mask_t(1) << cur;
+                        cur = nxt;
+                        nxt = TDLS_LUPP_PIV(cur);
+                    }
+                    TDLS_UNROLL_FORCE
+                    for (int w = 0; w < pass_width; ++w)
+                        TDLS_LUPP_XW(w, cur) = tmp[w];
+                    visited |= mask_t(1) << cur;
+                }
+            } else {
+                for (int s = 0; s < N; ++s) {
+                    if ((visited >> s) & mask_t(1)) continue;
+                    T tmp[pass_width];
+                    for (int w = 0; w < pass_width; ++w)
+                        tmp[w] = TDLS_LUPP_XW(w, s);
+                    int cur = s;
+                    int nxt = TDLS_LUPP_PIV(cur);
+                    while (nxt != s) {
+                        for (int w = 0; w < pass_width; ++w)
+                            TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
+                        visited |= mask_t(1) << cur;
+                        cur = nxt;
+                        nxt = TDLS_LUPP_PIV(cur);
+                    }
+                    for (int w = 0; w < pass_width; ++w)
+                        TDLS_LUPP_XW(w, cur) = tmp[w];
+                    visited |= mask_t(1) << cur;
+                }
+            }
+        } else {
+            // Cycle-leader scan, as in substitute_inplace.
+            for (int s = 0; s < N; ++s) {
+                int probe = TDLS_LUPP_PIV(s);
+                while (probe > s)
+                    probe = TDLS_LUPP_PIV(probe);
+                if (probe != s) continue;
+
+                T tmp[pass_width];
+                for (int w = 0; w < pass_width; ++w)
+                    tmp[w] = TDLS_LUPP_XW(w, s);
+                int cur = s;
+                int nxt = TDLS_LUPP_PIV(cur);
+                while (nxt != s) {
+                    for (int w = 0; w < pass_width; ++w)
+                        TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
+                    cur = nxt;
+                    nxt = TDLS_LUPP_PIV(cur);
+                }
+                for (int w = 0; w < pass_width; ++w)
+                    TDLS_LUPP_XW(w, cur) = tmp[w];
+            }
+        }
+    }
+
     /// \brief One pass of the in-place multi right-hand-side
     /// substitution: pass_width columns of x permuted by the cycle decomposition
     /// of substitute_inplace (each move carrying the pass_width column entries of
@@ -2646,78 +2739,61 @@ struct TiledLUppSolverStatic {
             unpermute_cycles<pass_width, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride,
                                                                      xcol_stride);
         } else {
-            if constexpr (N <= 64) {
-                // Bitmask cycle decomposition, as in substitute_inplace; tmp
-                // widens to one entry per column.
-                using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
-                mask_t visited = mask_t(0);
-                if constexpr (Config.unroll_loops) {
-                    TDLS_UNROLL_FORCE
-                    for (int s = 0; s < N; ++s) {
-                        if ((visited >> s) & mask_t(1)) continue;
-                        T tmp[pass_width];
-                        TDLS_UNROLL_FORCE
-                        for (int w = 0; w < pass_width; ++w)
-                            tmp[w] = TDLS_LUPP_XW(w, s);
-                        int cur = s;
-                        int nxt = TDLS_LUPP_PIV(cur);
-                        while (nxt != s) {
-                            TDLS_UNROLL_FORCE
-                            for (int w = 0; w < pass_width; ++w)
-                                TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
-                            visited |= mask_t(1) << cur;
-                            cur = nxt;
-                            nxt = TDLS_LUPP_PIV(cur);
-                        }
-                        TDLS_UNROLL_FORCE
-                        for (int w = 0; w < pass_width; ++w)
-                            TDLS_LUPP_XW(w, cur) = tmp[w];
-                        visited |= mask_t(1) << cur;
-                    }
-                } else {
-                    for (int s = 0; s < N; ++s) {
-                        if ((visited >> s) & mask_t(1)) continue;
-                        T tmp[pass_width];
-                        for (int w = 0; w < pass_width; ++w)
-                            tmp[w] = TDLS_LUPP_XW(w, s);
-                        int cur = s;
-                        int nxt = TDLS_LUPP_PIV(cur);
-                        while (nxt != s) {
-                            for (int w = 0; w < pass_width; ++w)
-                                TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
-                            visited |= mask_t(1) << cur;
-                            cur = nxt;
-                            nxt = TDLS_LUPP_PIV(cur);
-                        }
-                        for (int w = 0; w < pass_width; ++w)
-                            TDLS_LUPP_XW(w, cur) = tmp[w];
-                        visited |= mask_t(1) << cur;
-                    }
-                }
-            } else {
-                // Cycle-leader scan, as in substitute_inplace.
-                for (int s = 0; s < N; ++s) {
-                    int probe = TDLS_LUPP_PIV(s);
-                    while (probe > s)
-                        probe = TDLS_LUPP_PIV(probe);
-                    if (probe != s) continue;
-
-                    T tmp[pass_width];
-                    for (int w = 0; w < pass_width; ++w)
-                        tmp[w] = TDLS_LUPP_XW(w, s);
-                    int cur = s;
-                    int nxt = TDLS_LUPP_PIV(cur);
-                    while (nxt != s) {
-                        for (int w = 0; w < pass_width; ++w)
-                            TDLS_LUPP_XW(w, cur) = TDLS_LUPP_XW(w, nxt);
-                        cur = nxt;
-                        nxt = TDLS_LUPP_PIV(cur);
-                    }
-                    for (int w = 0; w < pass_width; ++w)
-                        TDLS_LUPP_XW(w, cur) = tmp[w];
-                }
-            }
+            permute_cycles<pass_width, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride,
+                                                                   xcol_stride);
             fwd_bwd<pass_width, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+        }
+    }
+
+    /// \brief Forward stage of one pass of substitute_inplace_multirhs: the
+    /// permutation and the sweep with L under the row-major layout
+    /// (x := L^-1 P x), the sweep with U^T under the column-major one
+    /// (x := U^-T x). Internal engine of forward_inplace_multirhs.
+    template<int pass_width, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    forward_inplace_multirhs_pass(const T* TDLS_RESTRICT A, const int A_stride,
+                                  const int* TDLS_RESTRICT piv, const int piv_stride,
+                                  T* TDLS_RESTRICT x, const int rhs_stride,
+                                  const int xcol_stride) noexcept {
+        if constexpr (transposed) {
+            for (int k = 0; k < full_tiles; ++k)
+                transposed_fwd_step<tile_size, pass_width, internal_rhs, internal_piv,
+                                    internal_matrix>(A, A_stride, piv, piv_stride, x, rhs_stride,
+                                                     xcol_stride, k);
+            if constexpr (last_tile_tail > 0)
+                transposed_fwd_step<last_tile_tail, pass_width, internal_rhs, internal_piv,
+                                    internal_matrix>(A, A_stride, piv, piv_stride, x, rhs_stride,
+                                                     xcol_stride, full_tiles);
+        } else {
+            permute_cycles<pass_width, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride,
+                                                                   xcol_stride);
+            for (int k = 0; k < full_tiles; ++k)
+                fwd_step<tile_size, pass_width, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, k);
+            if constexpr (last_tile_tail > 0)
+                fwd_step<last_tile_tail, pass_width, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, full_tiles);
+        }
+    }
+
+    /// \brief Backward stage of one pass of substitute_inplace_multirhs: the
+    /// sweep with U under the row-major layout (x := U^-1 x), the sweep with
+    /// L^T then the inverse permutation under the column-major one
+    /// (x := P^T L^-T x). Internal engine of backward_inplace_multirhs.
+    template<int pass_width, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    backward_inplace_multirhs_pass(const T* TDLS_RESTRICT A, const int A_stride,
+                                   const int* TDLS_RESTRICT piv, const int piv_stride,
+                                   T* TDLS_RESTRICT x, const int rhs_stride,
+                                   const int xcol_stride) noexcept {
+        if constexpr (transposed) {
+            transposed_bwd_only<pass_width, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            unpermute_cycles<pass_width, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride,
+                                                                     xcol_stride);
+        } else {
+            bwd_only<pass_width, internal_rhs, internal_piv, internal_matrix>(
                 A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
         }
     }
@@ -2772,6 +2848,70 @@ struct TiledLUppSolverStatic {
             substitute_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
                                              internal_matrix>(A, A_stride, piv, piv_stride, x + off,
                                                               rhs_stride, xcol_stride);
+        }
+    }
+
+    /// \brief First of the two stages of substitute_inplace_multirhs, in
+    /// passes of pass_width columns: x := L^-1 P x under the row-major
+    /// layout, x := U^-T x under the column-major one. The caller may read
+    /// or update the intermediate columns, then backward_inplace_multirhs
+    /// completes the solve; the two stages in a row match
+    /// substitute_inplace_multirhs bitwise.
+    template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int pass_width = 0>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    forward_inplace_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
+                             const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                             const int rhs_stride, const int xcol_stride) noexcept {
+        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+        constexpr int columns_per_pass =
+            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
+            forward_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                          internal_matrix>(A, A_stride, piv, piv_stride, x + off,
+                                                           rhs_stride, xcol_stride);
+        }
+        if constexpr (nrhs % columns_per_pass > 0) {
+            constexpr int c0 = nrhs - nrhs % columns_per_pass;
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
+            forward_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
+                                          internal_matrix>(A, A_stride, piv, piv_stride, x + off,
+                                                           rhs_stride, xcol_stride);
+        }
+    }
+
+    /// \brief Second of the two stages of substitute_inplace_multirhs, in
+    /// passes of pass_width columns: x := U^-1 x under the row-major
+    /// layout, x := P^T L^-T x under the column-major one.
+    template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int pass_width = 0>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    backward_inplace_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
+                              const int* TDLS_RESTRICT piv, const int piv_stride,
+                              T* TDLS_RESTRICT x, const int rhs_stride,
+                              const int xcol_stride) noexcept {
+        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+        constexpr int columns_per_pass =
+            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
+            backward_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                           internal_matrix>(A, A_stride, piv, piv_stride, x + off,
+                                                            rhs_stride, xcol_stride);
+        }
+        if constexpr (nrhs % columns_per_pass > 0) {
+            constexpr int c0 = nrhs - nrhs % columns_per_pass;
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
+            backward_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
+                                           internal_matrix>(A, A_stride, piv, piv_stride, x + off,
+                                                            rhs_stride, xcol_stride);
         }
     }
 

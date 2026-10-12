@@ -1904,6 +1904,64 @@ struct TiledLUppSolverDynamic {
         }
     }
 
+    /// \brief Forward stage of one pass of substitute_inplace_multirhs: the
+    /// permutation and the sweep with L under the row-major layout
+    /// (x := L^-1 P x), the sweep with U^T under the column-major one
+    /// (x := U^-T x). Internal engine of forward_inplace_multirhs.
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns of this pass
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           nrhs columns
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    forward_inplace_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
+                                  const int A_stride, const int* TDLS_RESTRICT piv,
+                                  const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
+                                  const int xcol_stride) noexcept {
+        const int nt = num_tiles(n);
+        if constexpr (transposed) {
+            for (int k = 0; k < nt; ++k)
+                transposed_fwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                    xcol_stride, k);
+        } else {
+            for (int w = 0; w < nrhs; ++w)
+                permute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+            for (int k = 0; k < nt; ++k)
+                fwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, k);
+        }
+    }
+
+    /// \brief Backward stage of one pass of substitute_inplace_multirhs: the
+    /// sweep with U under the row-major layout (x := U^-1 x), the sweep with
+    /// L^T then the inverse permutation under the column-major one
+    /// (x := P^T L^-T x). Internal engine of backward_inplace_multirhs.
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns of this pass
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           nrhs columns
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    backward_inplace_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
+                                   const int A_stride, const int* TDLS_RESTRICT piv,
+                                   const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
+                                   const int xcol_stride) noexcept {
+        if constexpr (transposed) {
+            transposed_bwd_only(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            for (int w = 0; w < nrhs; ++w)
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+        } else {
+            bwd_only(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+        }
+    }
+
     /// \brief nrhs columns solved in place: x holds the nrhs unpermuted
     /// right-hand-side columns on entry and the nrhs solutions on exit.
     ///
@@ -1946,6 +2004,77 @@ struct TiledLUppSolverDynamic {
                 const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
                 substitute_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
                                                  rhs_stride, xcol_stride);
+            }
+        }
+    }
+
+    /// \brief First of the two stages of substitute_inplace_multirhs, in
+    /// passes of pass_width columns: x := L^-1 P x under the row-major
+    /// layout, x := U^-T x under the column-major one. The caller may read
+    /// or update the intermediate columns, then backward_inplace_multirhs
+    /// completes the solve; the two stages in a row match
+    /// substitute_inplace_multirhs bitwise.
+    /// \tparam pass_width columns per pass, as in substitute_inplace_multirhs
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        total number of right-hand-side columns
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           nrhs right-hand-side columns on entry,
+    ///                the intermediate columns on exit
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int pass_width = 0>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    forward_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
+                             const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
+                             T* TDLS_RESTRICT x, const int rhs_stride,
+                             const int xcol_stride) noexcept {
+        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+        if constexpr (pass_width == 0) {
+            forward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                          xcol_stride);
+        } else {
+            for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
+                const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
+                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                forward_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
+                                              rhs_stride, xcol_stride);
+            }
+        }
+    }
+
+    /// \brief Second of the two stages of substitute_inplace_multirhs, in
+    /// passes of pass_width columns: x := U^-1 x under the row-major
+    /// layout, x := P^T L^-T x under the column-major one.
+    /// \tparam pass_width columns per pass, as in substitute_inplace_multirhs
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        total number of right-hand-side columns
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           the intermediate columns on entry, the
+    ///                nrhs solutions on exit
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int pass_width = 0>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    backward_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
+                              const int A_stride, const int* TDLS_RESTRICT piv,
+                              const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
+                              const int xcol_stride) noexcept {
+        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+        if constexpr (pass_width == 0) {
+            backward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                           xcol_stride);
+        } else {
+            for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
+                const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
+                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                backward_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
+                                               rhs_stride, xcol_stride);
             }
         }
     }
