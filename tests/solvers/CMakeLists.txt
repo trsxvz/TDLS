@@ -170,7 +170,8 @@ tdls_add_solver_suites(
         entry_points
         config_knobs
         wide_offsets
-        constexpr)
+        constexpr
+        multirhs)
 
 tdls_add_reject_cases(
     FAMILY arrowheadlupp
@@ -183,6 +184,8 @@ tdls_add_reject_cases(
         reject_config_condensation_threshold
         reject_config_condensation_threshold_dynamic
         reject_config_pass_width
+        reject_multirhs_none
+        reject_canonical_beyond_border
     DIAGNOSTICS
         "border, block and blocks must be >= 1"
         "coupling_row applies to the diagonal coupling only"
@@ -190,7 +193,9 @@ tdls_add_reject_cases(
         "the Bsr storage needs a border"
         "ArrowheadLUppSolverStatic: condensation_pivot_threshold must be in"
         "ArrowheadLUppSolverDynamic: condensation_pivot_threshold must be in"
-        "rhs_pass_width must be in")
+        "rhs_pass_width must be in"
+        "ArrowheadLUppSolverStatic: nrhs must be >= 1"
+        "ArrowheadLUppSolverStatic: nrhs must be in")
 
 tdls_add_solver_suites(
     FAMILY cooperativelupp

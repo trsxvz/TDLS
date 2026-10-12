@@ -61,6 +61,17 @@ constexpr double A_singular_block[n * n] = {6, 1, 1, 0, 2, 0, //
                                             0, 1, 0, 0, 1, 1};
 constexpr double b_singular_block[n]     = {21, 25, 20, 23, 15, 13}; ///< A_singular_block x
 
+/// A second right-hand side of the base matrix, for the snippets of
+/// several right-hand sides.
+constexpr double b_second[n]        = {49, 45, 29, 26, 31, 12}; ///< A x_second
+constexpr double expected_second[n] = {6, 5, 4, 3, 2, 1};       ///< x_second
+
+/// The border block of the inverse of the base matrix (its first two rows
+/// and columns), the inverse of the Schur complement of the border; column
+/// m from m * 2.
+constexpr double inverse_border[4] = {3349.0 / 16464, -598.0 / 16464, -474.0 / 16464,
+                                      2700.0 / 16464};
+
 constexpr int count = 3; ///< systems of the batch snippets
 
 /// \brief Element k of the full matrix of system s of the batch: A + s I.

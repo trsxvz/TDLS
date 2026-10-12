@@ -170,6 +170,35 @@ faster builds.
 At equal shape and configuration, the two solvers execute the same
 arithmetic and produce bitwise identical results.
 
+## Several right-hand sides
+
+`solve_inplace_multirhs` and `solve_multirhs` solve `nrhs` right-hand
+sides through one condensation: each block solves its coupling columns
+and its `nrhs` right-hand-side columns together, $[A_{kb} \mid Y_k]$,
+and the border system `nrhs` columns. Column m comes out bit for bit as
+`solve_inplace` gives it alone. It starts at m `xcol_stride` (m times
+the dimension under the internal residency). The compile-time solver
+takes `nrhs` as a template argument, the runtime solver as an argument.
+The workspace grows with it: `multirhs_workspace_size<nrhs>` entries
+for the compile-time solver (`workspace_size` is
+`multirhs_workspace_size<1>`), `workspace_size(shape, nrhs)` for the
+runtime one.
+
+`solve_border_canonical_multirhs` returns columns `col0` to
+`col0 + nrhs - 1` of the border block of $A^{-1}$, the inverse of the
+Schur complement of the border: the border rows of the solutions for
+the unit columns of the border, `border` entries per column. These
+right-hand sides vanish on the blocks, which are condensed without
+right-hand side, and nothing is recovered. It is the tangent operator
+of a behaviour loaded through the border equations only, the
+macroscopic strain of a polycrystal for instance. `nrhs` is in
+[1, `border`].
+
+Six right-hand sides cost 1.2 to 2.9 times one, against 6 for six
+solves; six unit columns of the border cost 0.65 to 1.4 times one
+solve (polycrystals of 30 and 240 grains, dense couplings, Iwan
+plasticity; both solvers, gcc and clang on CPU, an RTX 5080).
+
 ## Configuration
 
 `ArrowheadLUppConfig<T>` is an aggregate of twelve knobs, passed to the

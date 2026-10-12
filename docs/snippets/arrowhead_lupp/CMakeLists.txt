@@ -6,9 +6,17 @@ foreach(snippet
         static_solve
         static_refused
         static_constexpr
+        static_solve_inplace_multirhs
+        static_solve_multirhs
+        static_border_canonical
+        static_border_canonical_block
         dynamic_solve_inplace
         dynamic_solve
         dynamic_vs_static
+        dynamic_solve_inplace_multirhs
+        dynamic_solve_multirhs
+        dynamic_border_canonical
+        dynamic_border_canonical_block
         storage_full
         storage_packed
         storage_csr

@@ -325,7 +325,8 @@ every batch.
 | `config_knobs` | the performance knobs keep the arithmetic, bitwise: every pass width, the gather, the Schur complement in place, the unroll policy; the refusals grow with `condensation_pivot_threshold`, 0 refusing only the singular blocks, and every threshold of the check and of the blocks keeps the backward error |
 | `wide_offsets` | element offsets beyond 2^32, as in the other families, a refused block making the second pass use the workspace |
 | `constexpr` | compile-time certificates on both solvers, through every path and the second pass, and their bitwise agreement |
-| `reject_*` | the compile-time contracts: a shape with an empty part, a `coupling_row` under the dense coupling, diagonal coupling rows past the border, a Bsr border that is not a multiple of the block, a `condensation_pivot_threshold` out of [0, 1] on both solvers, an `rhs_pass_width` above border + 1 |
+| `multirhs` | every column of `solve_inplace_multirhs` and `solve_multirhs` against `solve_inplace` on it alone, bitwise, the matrix they leave included: both solvers, internal and strided right-hand sides (the gaps untouched), refused blocks, passes, the gather, the Schur complement in place; `solve_border_canonical_multirhs` against the border rows of `solve_inplace` on the unit columns, in value (a zero may differ in sign) |
+| `reject_*` | the compile-time contracts: a shape with an empty part, a `coupling_row` under the dense coupling, diagonal coupling rows past the border, a Bsr border that is not a multiple of the block, a `condensation_pivot_threshold` out of [0, 1] on both solvers, an `rhs_pass_width` above border + 1, no right-hand side, more unit columns than the border |
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in

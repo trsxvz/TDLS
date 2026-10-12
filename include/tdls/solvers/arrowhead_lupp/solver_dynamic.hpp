@@ -65,6 +65,13 @@ namespace tdls {
 /// \def TDLS_ARROW_LUPP_DYN_Y
 /// \brief Strided entry i of the right-hand side and solution.
 #define TDLS_ARROW_LUPP_DYN_Y(i) y[TDLS_STRIDED(i, rhs_stride)]
+/// \def TDLS_ARROW_LUPP_DYN_YW
+/// \brief Strided entry i of column m of the right-hand sides and
+/// solutions. The function declares ycols, its number of columns when
+/// fixed at compile time (0 otherwise): with one, m is ignored and the
+/// macro is TDLS_ARROW_LUPP_DYN_Y exactly.
+#define TDLS_ARROW_LUPP_DYN_YW(m, i)                                                               \
+    y[TDLS_STRIDED(i, rhs_stride) + (ycols == 1 ? std::size_t(0) : TDLS_STRIDED(m, xcol_stride))]
 /// \def TDLS_ARROW_LUPP_DYN_W
 /// \brief Strided entry e of the workspace.
 #define TDLS_ARROW_LUPP_DYN_W(e) work[TDLS_STRIDED(e, work_stride)]
@@ -105,7 +112,8 @@ struct ArrowheadLUppSolverDynamic {
     using BlockSolver  = TiledLUppSolverDynamic<T, detail::arrowhead_block_config(Config)>;
     using BorderSolver = TiledLUppSolverDynamic<T, detail::arrowhead_border_config(Config)>;
 
-    /// \brief Sizes of a shape, the names of the compile-time solver.
+    /// \brief Sizes of a shape, the names of the compile-time solver, for a
+    /// number of right-hand sides (front_cols, pass_width).
     struct Sizes {
         int B, S, NB, R, R0, front_rows, front_cols, extra_cols, pass_width;
     };
@@ -117,10 +125,12 @@ struct ArrowheadLUppSolverDynamic {
 
     /// \brief The sizes of a shape.
     /// \param[in] shape shape of the matrix
+    /// \param[in] nc    number of right-hand sides
+    /// \param[in] ny    right-hand sides carried through the blocks
     /// \return the border, block and coupling sizes, the front and the
     ///         pass width
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr Sizes
-    sizes(const ArrowheadShape& shape) noexcept {
+    sizes(const ArrowheadShape& shape, const int nc, const int ny) noexcept {
         Sizes z{};
         z.B          = shape.border;
         z.S          = shape.block;
@@ -128,22 +138,23 @@ struct ArrowheadLUppSolverDynamic {
         z.R          = diag ? z.S : z.B;
         z.R0         = diag ? shape.coupling_row : 0;
         z.front_rows = z.S + z.B;
-        z.front_cols = z.S + z.B + z.R + 1;
+        z.front_cols = z.S + z.B + z.R + nc;
         z.extra_cols = z.R > z.S ? z.R - z.S : 0;
-        z.pass_width = Config.rhs_pass_width == 0 || Config.rhs_pass_width > z.B + 1
-                           ? z.B + 1
+        z.pass_width = Config.rhs_pass_width == 0 || Config.rhs_pass_width > z.B + ny
+                           ? z.B + ny
                            : Config.rhs_pass_width;
         return z;
     }
 
     /// \brief The offsets of the temporaries: the front and the columns of
     /// H_k beyond S first, as in the compile-time solver, then the arrays
-    /// that solver keeps local.
+    /// that solver keeps local, sized for nc right-hand sides.
     /// \param[in] shape shape of the matrix
+    /// \param[in] nc    number of right-hand sides
     /// \return the offsets and the total
-    [[nodiscard]] TDLS_HOST_DEVICE static constexpr Offsets
-    offsets(const ArrowheadShape& shape) noexcept {
-        const Sizes z = sizes(shape);
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr Offsets offsets(const ArrowheadShape& shape,
+                                                                    const int nc) noexcept {
+        const Sizes z = sizes(shape, nc, nc);
         Offsets o{};
         int e   = z.front_rows * z.front_cols;
         o.extra = e;
@@ -153,9 +164,9 @@ struct ArrowheadLUppSolverDynamic {
         o.U = e;
         e += z.S * z.S;
         o.W = e;
-        e += (z.B + 1) * z.S;
+        e += (z.B + nc) * z.S;
         o.X = e;
-        e += (z.B + 1) * z.S;
+        e += (z.B + nc) * z.S;
         o.Mb = e;
         e += z.R * z.S;
         o.m = e;
@@ -167,15 +178,15 @@ struct ArrowheadLUppSolverDynamic {
         o.Sacc = e;
         e += z.R * z.B;
         o.racc = e;
-        e += z.R;
+        e += z.R * nc;
         o.Sbb = e;
         e += z.B * z.B;
         o.rb = e;
-        e += z.B;
+        e += z.B * nc;
         o.w = e;
-        e += z.R;
+        e += z.R * nc;
         o.s = e;
-        e += z.S;
+        e += z.S * nc;
         o.refused = e;
         e += z.NB;
         o.block_row = e;
@@ -185,12 +196,23 @@ struct ArrowheadLUppSolverDynamic {
     }
 
   public:
-    /// \brief Entries of the workspace.
+    /// \brief Entries of the workspace of solve_inplace and solve.
     /// \param[in] shape shape of the matrix
     /// \return the number of workspace entries a call needs
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr int
     workspace_size(const ArrowheadShape& shape) noexcept {
-        return offsets(shape).total;
+        return offsets(shape, 1).total;
+    }
+
+    /// \brief Entries of the workspace of the entry points with nrhs
+    /// right-hand sides: the temporaries of the right-hand sides and one
+    /// column of the front per right-hand side.
+    /// \param[in] shape shape of the matrix
+    /// \param[in] nrhs  number of right-hand sides
+    /// \return the number of workspace entries a call needs
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr int workspace_size(const ArrowheadShape& shape,
+                                                                       const int nrhs) noexcept {
+        return offsets(shape, nrhs).total;
     }
 
     /// \brief Entries of the pivot array: the pivots of a block, then of
@@ -222,45 +244,8 @@ struct ArrowheadLUppSolverDynamic {
                   int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
                   const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& refused_count) noexcept {
-        const Sizes z   = sizes(shape);
-        const Offsets o = offsets(shape);
-        const int B = z.B, R = z.R, R0 = z.R0, NB = z.NB;
-        if constexpr (!in_place) {
-            for (int r = 0; r < R; ++r) {
-                for (int c = 0; c < B; ++c)
-                    TDLS_ARROW_LUPP_DYN_W(o.Sacc + r * B + c) =
-                        TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, R0 + r, c));
-                TDLS_ARROW_LUPP_DYN_W(o.racc + r) = TDLS_ARROW_LUPP_DYN_Y(R0 + r);
-            }
-        }
-        refused_count = 0;
-        for (int k = 0; k < NB; ++k) {
-            const bool ok = condense(shape, z, o, A, A_stride, piv, piv_stride, work, work_stride,
-                                     y, rhs_stride, k);
-            TDLS_ARROW_LUPP_DYN_W(o.refused + k) = ok ? T(0) : T(1);
-            if (!ok) ++refused_count;
-        }
-        // The border system: the accumulated rows, the others as stored.
-        for (int r = 0; r < B; ++r) {
-            const bool acc = !in_place && r >= R0 && r < R0 + R;
-            for (int c = 0; c < B; ++c)
-                TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
-                    acc ? TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c)
-                        : TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
-            TDLS_ARROW_LUPP_DYN_W(o.rb + r) =
-                acc ? TDLS_ARROW_LUPP_DYN_W(o.racc + r - R0) : TDLS_ARROW_LUPP_DYN_Y(r);
-        }
-        if (refused_count > 0 &&
-            !second_pass(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride))
-            return false;
-        if (!BorderSolver::solve_inplace(B, work + TDLS_STRIDED(o.Sbb, work_stride), work_stride,
-                                         piv, piv_stride, work + TDLS_STRIDED(o.rb, work_stride),
-                                         work_stride))
-            return false;
-        for (int r = 0; r < B; ++r)
-            TDLS_ARROW_LUPP_DYN_Y(r) = TDLS_ARROW_LUPP_DYN_W(o.rb + r);
-        recover(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride);
-        return true;
+        return solve_core<1, false>(shape, 1, A, A_stride, piv, piv_stride, work, work_stride, y,
+                                    rhs_stride, 0, 0, refused_count);
     }
 
     /// \brief Solves A x = y in place.
@@ -334,7 +319,275 @@ struct ArrowheadLUppSolverDynamic {
                      refused_count);
     }
 
+    /// \brief Solves A X = Y in place for nrhs right-hand sides, counting
+    /// the refused blocks. The right-hand sides ride along the
+    /// condensation, which runs once. Column m comes out bitwise identical
+    /// to solve_inplace on it alone, and to the compile-time solver.
+    /// \param[in]     shape         shape of the matrix (valid)
+    /// \param[in]     nrhs          number of right-hand sides, >= 1
+    /// \param[in,out] A             matrix in its storage (pattern entries
+    ///                              only); recovery data on exit
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    piv           pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace of workspace_size(shape, nrhs)
+    ///                              entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             nrhs right-hand-side columns on entry,
+    ///                              the solutions on exit
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     xcol_stride   element stride between columns of y
+    /// \param[out]    refused_count number of blocks refused by the pivot
+    ///                              check, eliminated by the second pass
+    /// \return false when the matrix is singular
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    solve_inplace_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
+                           const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
+                           T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
+                           const int rhs_stride, const int xcol_stride,
+                           int& refused_count) noexcept {
+        return solve_core<0, false>(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, y,
+                                    rhs_stride, xcol_stride, 0, refused_count);
+    }
+
+    /// \brief Solves A X = Y in place for nrhs right-hand sides.
+    /// \param[in]     shape       shape of the matrix (valid)
+    /// \param[in]     nrhs        number of right-hand sides, >= 1
+    /// \param[in,out] A           matrix in its storage; recovery data on exit
+    /// \param[in]     A_stride    element stride of A
+    /// \param[out]    piv         pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[out]    work        workspace of workspace_size(shape, nrhs)
+    ///                            entries
+    /// \param[in]     work_stride element stride of work
+    /// \param[in,out] y           nrhs right-hand-side columns on entry, the
+    ///                            solutions on exit
+    /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
+    /// \return false when the matrix is singular
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    solve_inplace_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
+                           const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
+                           T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
+                           const int rhs_stride, const int xcol_stride) noexcept {
+        int refused_count = 0;
+        return solve_inplace_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride,
+                                      y, rhs_stride, xcol_stride, refused_count);
+    }
+
+    /// \brief Solves A X = B for nrhs right-hand sides, B left untouched,
+    /// counting the refused blocks: B is copied into X, then solved in
+    /// place.
+    /// \param[in]     shape         shape of the matrix (valid)
+    /// \param[in]     nrhs          number of right-hand sides, >= 1
+    /// \param[in,out] A             matrix in its storage; recovery data on
+    ///                              exit
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    piv           pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace of workspace_size(shape, nrhs)
+    ///                              entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in]     b             nrhs right-hand-side columns
+    /// \param[out]    x             the nrhs solutions
+    /// \param[in]     rhs_stride    element stride of b and x
+    /// \param[in]     xcol_stride   element stride between columns of b and x
+    /// \param[out]    refused_count number of blocks refused by the pivot
+    ///                              check
+    /// \return false when the matrix is singular
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    solve_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
+                   const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
+                   T* TDLS_RESTRICT work, const int work_stride, const T* TDLS_RESTRICT b,
+                   T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
+                   int& refused_count) noexcept {
+        const int n = shape.n();
+        for (int m = 0; m < nrhs; ++m)
+            for (int i = 0; i < n; ++i)
+                x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(m, xcol_stride)] =
+                    b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(m, xcol_stride)];
+        return solve_inplace_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride,
+                                      x, rhs_stride, xcol_stride, refused_count);
+    }
+
+    /// \brief Solves A X = B for nrhs right-hand sides, B left untouched.
+    /// \param[in]     shape       shape of the matrix (valid)
+    /// \param[in]     nrhs        number of right-hand sides, >= 1
+    /// \param[in,out] A           matrix in its storage; recovery data on exit
+    /// \param[in]     A_stride    element stride of A
+    /// \param[out]    piv         pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[out]    work        workspace of workspace_size(shape, nrhs)
+    ///                            entries
+    /// \param[in]     work_stride element stride of work
+    /// \param[in]     b           nrhs right-hand-side columns
+    /// \param[out]    x           the nrhs solutions
+    /// \param[in]     rhs_stride  element stride of b and x
+    /// \param[in]     xcol_stride element stride between columns of b and x
+    /// \return false when the matrix is singular
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    solve_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
+                   const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
+                   T* TDLS_RESTRICT work, const int work_stride, const T* TDLS_RESTRICT b,
+                   T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride) noexcept {
+        int refused_count = 0;
+        return solve_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, b, x,
+                              rhs_stride, xcol_stride, refused_count);
+    }
+
+    /// \brief Columns col0 .. col0 + nrhs - 1 of the border block of A^-1
+    /// (col0 + nrhs <= border), counting the refused blocks; see
+    /// ArrowheadLUppSolverStatic::solve_border_canonical_multirhs.
+    /// \param[in]     shape         shape of the matrix (valid)
+    /// \param[in]     nrhs          number of unit columns, in [1, border]
+    /// \param[in,out] A             matrix in its storage; overwritten
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    piv           pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace of workspace_size(shape, nrhs)
+    ///                              entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in]     col0          first unit column, col0 + nrhs <= border
+    /// \param[out]    x             the border rows, border entries per
+    ///                              column
+    /// \param[in]     rhs_stride    element stride of x
+    /// \param[in]     xcol_stride   element stride between columns of x
+    /// \param[out]    refused_count number of blocks refused by the pivot
+    ///                              check
+    /// \return false when the matrix is singular
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs(
+        const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
+        int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
+        const int col0, T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
+        int& refused_count) noexcept {
+        return solve_core<0, true>(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, x,
+                                   rhs_stride, xcol_stride, col0, refused_count);
+    }
+
+    /// \brief Columns col0 .. col0 + nrhs - 1 of the border block of A^-1
+    /// (col0 + nrhs <= border).
+    /// \param[in]     shape       shape of the matrix (valid)
+    /// \param[in]     nrhs        number of unit columns, in [1, border]
+    /// \param[in,out] A           matrix in its storage; overwritten
+    /// \param[in]     A_stride    element stride of A
+    /// \param[out]    piv         pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[out]    work        workspace of workspace_size(shape, nrhs)
+    ///                            entries
+    /// \param[in]     work_stride element stride of work
+    /// \param[in]     col0        first unit column, col0 + nrhs <= border
+    /// \param[out]    x           the border rows, border entries per column
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \return false when the matrix is singular
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs(
+        const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
+        int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
+        const int col0, T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride) noexcept {
+        int refused_count = 0;
+        return solve_border_canonical_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work,
+                                               work_stride, col0, x, rhs_stride, xcol_stride,
+                                               refused_count);
+    }
+
   private:
+    /// \brief The solve shared by every entry point; the arithmetic of
+    /// ArrowheadLUppSolverStatic::solve_core.
+    /// \tparam NC        number of right-hand sides when fixed (1 for
+    ///                   solve_inplace), 0 when given by nrhs
+    /// \tparam canonical unit columns col0 .. col0 + nc - 1, border rows
+    ///                   written to y (B rows per column)
+    /// \param[in]     shape         shape of the matrix
+    /// \param[in]     nrhs          number of right-hand sides when NC is 0
+    /// \param[in,out] A             matrix in its storage
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    piv           pivot array
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             right-hand sides on entry, solutions on
+    ///                              exit (canonical: the border rows, out)
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     xcol_stride   element stride between columns of y
+    /// \param[in]     col0          first unit column (canonical)
+    /// \param[out]    refused_count number of refused blocks
+    /// \return false when the matrix is singular
+    template<int NC, bool canonical>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr bool
+    solve_core(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
+               int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
+               const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+               [[maybe_unused]] const int xcol_stride, [[maybe_unused]] const int col0,
+               int& refused_count) noexcept {
+        const int nc = NC > 0 ? NC : nrhs;
+        const int ny = canonical ? 0 : nc;
+        // Columns of y when fixed, for TDLS_ARROW_LUPP_DYN_YW.
+        [[maybe_unused]] constexpr int ycols = NC;
+        const Sizes z                        = sizes(shape, nc, ny);
+        const Offsets o                      = offsets(shape, nc);
+        const int B = z.B, R = z.R, R0 = z.R0, NB = z.NB;
+        if constexpr (!in_place) {
+            for (int r = 0; r < R; ++r) {
+                for (int c = 0; c < B; ++c)
+                    TDLS_ARROW_LUPP_DYN_W(o.Sacc + r * B + c) =
+                        TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, R0 + r, c));
+                for (int m = 0; m < ny; ++m)
+                    TDLS_ARROW_LUPP_DYN_W(o.racc + m * R + r) = TDLS_ARROW_LUPP_DYN_YW(m, R0 + r);
+            }
+        }
+        refused_count = 0;
+        for (int k = 0; k < NB; ++k) {
+            const bool ok = condense<NC, canonical>(shape, z, o, A, A_stride, piv, piv_stride, work,
+                                                    work_stride, y, rhs_stride, xcol_stride, k, nc);
+            TDLS_ARROW_LUPP_DYN_W(o.refused + k) = ok ? T(0) : T(1);
+            if (!ok) ++refused_count;
+        }
+        // The border system: the accumulated rows, the others as stored;
+        // column m of its right-hand sides at m * B.
+        for (int r = 0; r < B; ++r) {
+            const bool acc = !in_place && r >= R0 && r < R0 + R;
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
+                    acc ? TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c)
+                        : TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
+            for (int m = 0; m < nc; ++m) {
+                if constexpr (canonical)
+                    TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) = r == col0 + m ? T(1) : T(0);
+                else
+                    TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) =
+                        acc ? TDLS_ARROW_LUPP_DYN_W(o.racc + m * R + r - R0)
+                            : TDLS_ARROW_LUPP_DYN_YW(m, r);
+            }
+        }
+        if (refused_count > 0 &&
+            !second_pass<NC, canonical>(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride,
+                                        xcol_stride, nc))
+            return false;
+        if (nc == 1) {
+            if (!BorderSolver::solve_inplace(B, work + TDLS_STRIDED(o.Sbb, work_stride),
+                                             work_stride, piv, piv_stride,
+                                             work + TDLS_STRIDED(o.rb, work_stride), work_stride))
+                return false;
+        } else {
+            if (!BorderSolver::solve_inplace_multirhs(
+                    B, nc, work + TDLS_STRIDED(o.Sbb, work_stride), work_stride, piv, piv_stride,
+                    work + TDLS_STRIDED(o.rb, work_stride), work_stride, B * work_stride))
+                return false;
+        }
+        for (int m = 0; m < nc; ++m)
+            for (int r = 0; r < B; ++r) {
+                if constexpr (canonical)
+                    y[TDLS_STRIDED(r, rhs_stride) + TDLS_STRIDED(m, xcol_stride)] =
+                        TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
+                else
+                    TDLS_ARROW_LUPP_DYN_YW(m, r) = TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
+            }
+        if constexpr (!canonical)
+            recover<NC>(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride, xcol_stride,
+                        nc);
+        return true;
+    }
+
     /// \brief Condenses block k into the accumulated rows of the border
     /// system; false when the block fails the pivot check, then left
     /// untouched. The arithmetic of ArrowheadLUppSolverStatic::condense,
@@ -348,20 +601,28 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     piv_stride  element stride of piv
     /// \param[in,out] work        workspace
     /// \param[in]     work_stride element stride of work
-    /// \param[in,out] y           right-hand side
+    /// \tparam NC        number of right-hand sides when fixed, 0 otherwise
+    /// \tparam canonical no right-hand side in the blocks
+    /// \param[in,out] y           right-hand sides
     /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
     /// \param[in]     k           block
+    /// \param[in]     nrhs        number of right-hand sides when NC is 0
     /// \return true when the block is condensed
-    TDLS_HOST_DEVICE static constexpr bool condense(const ArrowheadShape& shape, const Sizes& z,
-                                                    const Offsets& o, T* TDLS_RESTRICT A,
-                                                    const int A_stride, int* TDLS_RESTRICT piv,
-                                                    const int piv_stride, T* TDLS_RESTRICT work,
-                                                    const int work_stride, T* TDLS_RESTRICT y,
-                                                    const int rhs_stride, const int k) noexcept {
+    template<int NC, bool canonical>
+    TDLS_HOST_DEVICE static constexpr bool
+    condense(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
+             const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
+             T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+             [[maybe_unused]] const int xcol_stride, const int k,
+             [[maybe_unused]] const int nrhs) noexcept {
         const int B = z.B, S = z.S;
-        const T u   = condensation_pivot_threshold;
-        T* const Dl = work + TDLS_STRIDED(o.Dl, work_stride);
-        T* const W  = work + TDLS_STRIDED(o.W, work_stride);
+        // Right-hand sides carried through the blocks.
+        const int ny                         = canonical ? 0 : NC > 0 ? NC : nrhs;
+        [[maybe_unused]] constexpr int ycols = NC;
+        const T u                            = condensation_pivot_threshold;
+        T* const Dl                          = work + TDLS_STRIDED(o.Dl, work_stride);
+        T* const W                           = work + TDLS_STRIDED(o.W, work_stride);
         // The block, in the order of its storage.
         for (int i = 0; i < S; ++i)
             for (int j = 0; j < S; ++j)
@@ -373,7 +634,7 @@ struct ArrowheadLUppSolverDynamic {
                 TDLS_ARROW_LUPP_DYN_W(o.acoef + i) =
                     TDLS_ARROW_LUPP_DYN_A(storage_map::abk_diag(shape, k, i));
         }
-        const bool forward_check = col && z.pass_width == B + 1;
+        const bool forward_check = col && z.pass_width == B + ny;
         // The multipliers L, and U in logical row order unless the forward
         // stage of the solve gives the border multipliers.
         bool ok = true;
@@ -393,18 +654,20 @@ struct ArrowheadLUppSolverDynamic {
                 for (int c = 0; c < B; ++c)
                     TDLS_ARROW_LUPP_DYN_W(o.W + c * S + i) =
                         TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c));
-                TDLS_ARROW_LUPP_DYN_W(o.W + B * S + i) = TDLS_ARROW_LUPP_DYN_Y(B + k * S + i);
+                for (int m = 0; m < ny; ++m)
+                    TDLS_ARROW_LUPP_DYN_W(o.W + (B + m) * S + i) =
+                        TDLS_ARROW_LUPP_DYN_YW(m, B + k * S + i);
             }
-            BlockSolver::forward_inplace_multirhs(S, B + 1, Dl, work_stride, piv, piv_stride, W,
+            BlockSolver::forward_inplace_multirhs(S, B + ny, Dl, work_stride, piv, piv_stride, W,
                                                   work_stride, S * work_stride);
             // Column c of U^-T A_kb is row c of the border multipliers.
             for (int e = 0; e < B * S; ++e)
                 ok = ok && u * detail::abs(TDLS_ARROW_LUPP_DYN_W(o.W + e)) <= T(1);
             if (!ok) return false;
-            BlockSolver::backward_inplace_multirhs(S, B + 1, Dl, work_stride, piv, piv_stride, W,
+            BlockSolver::backward_inplace_multirhs(S, B + ny, Dl, work_stride, piv, piv_stride, W,
                                                    work_stride, S * work_stride);
-            condense_pass(shape, z, o, A, A_stride, piv, piv_stride, work, work_stride, y,
-                          rhs_stride, k, 0, B + 1, true);
+            condense_pass<NC>(shape, z, o, A, A_stride, piv, piv_stride, work, work_stride, y,
+                              rhs_stride, xcol_stride, k, 0, B + ny, true);
         } else {
             ok = border_multipliers(shape, z, o, A, A_stride, work, work_stride, k) && ok;
             if (!ok) return false;
@@ -414,10 +677,10 @@ struct ArrowheadLUppSolverDynamic {
                         TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, l, j)) =
                             TDLS_ARROW_LUPP_DYN_W(o.U + l * S + j);
             }
-            for (int c0 = 0; c0 < B + 1; c0 += z.pass_width) {
-                const int w = B + 1 - c0 < z.pass_width ? B + 1 - c0 : z.pass_width;
-                condense_pass(shape, z, o, A, A_stride, piv, piv_stride, work, work_stride, y,
-                              rhs_stride, k, c0, w, false);
+            for (int c0 = 0; c0 < B + ny; c0 += z.pass_width) {
+                const int w = B + ny - c0 < z.pass_width ? B + ny - c0 : z.pass_width;
+                condense_pass<NC>(shape, z, o, A, A_stride, piv, piv_stride, work, work_stride, y,
+                                  rhs_stride, xcol_stride, k, c0, w, false);
             }
         }
         return true;
@@ -502,27 +765,31 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     A_stride    element stride of A
     /// \param[in,out] work        workspace
     /// \param[in]     work_stride element stride of work
-    /// \param[in,out] y           right-hand side
+    /// \param[in,out] y           right-hand sides
     /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
     /// \param[in]     r           accumulated row
-    /// \param[in]     c           border column, or B for the right-hand side
+    /// \param[in]     c           border column, or B + m for right-hand side m
     /// \param[in]     v           value subtracted
+    template<int NC>
     TDLS_HOST_DEVICE static constexpr void
     schur_sub([[maybe_unused]] const ArrowheadShape& shape, const Sizes& z,
               [[maybe_unused]] const Offsets& o, [[maybe_unused]] T* TDLS_RESTRICT A,
               [[maybe_unused]] const int A_stride, [[maybe_unused]] T* TDLS_RESTRICT work,
               [[maybe_unused]] const int work_stride, [[maybe_unused]] T* TDLS_RESTRICT y,
-              [[maybe_unused]] const int rhs_stride, const int r, const int c, const T v) noexcept {
+              [[maybe_unused]] const int rhs_stride, [[maybe_unused]] const int xcol_stride,
+              const int r, const int c, const T v) noexcept {
+        [[maybe_unused]] constexpr int ycols = NC;
         if constexpr (in_place) {
             if (c < z.B)
                 TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, z.R0 + r, c)) -= v;
             else
-                TDLS_ARROW_LUPP_DYN_Y(z.R0 + r) -= v;
+                TDLS_ARROW_LUPP_DYN_YW(c - z.B, z.R0 + r) -= v;
         } else {
             if (c < z.B)
                 TDLS_ARROW_LUPP_DYN_W(o.Sacc + r * z.B + c) -= v;
             else
-                TDLS_ARROW_LUPP_DYN_W(o.racc + r) -= v;
+                TDLS_ARROW_LUPP_DYN_W(o.racc + (NC == 1 ? 0 : (c - z.B) * z.R) + r) -= v;
         }
     }
 
@@ -538,19 +805,22 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     piv_stride  element stride of piv
     /// \param[in,out] work        workspace
     /// \param[in]     work_stride element stride of work
-    /// \param[in,out] y           right-hand side
+    /// \param[in,out] y           right-hand sides
     /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
     /// \param[in]     k           block
     /// \param[in]     c0          first column of the pass
     /// \param[in]     w           columns of the pass
     /// \param[in]     solved      whether the workspace holds the solved
     ///                            columns already
+    template<int NC>
     TDLS_HOST_DEVICE static constexpr void
     condense_pass(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
                   const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
                   T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
-                  const int rhs_stride, const int k, const int c0, const int w,
-                  const bool solved) noexcept {
+                  const int rhs_stride, [[maybe_unused]] const int xcol_stride, const int k,
+                  const int c0, const int w, const bool solved) noexcept {
+        [[maybe_unused]] constexpr int ycols = NC;
         const int B = z.B, S = z.S, R = z.R;
         const T* const Dl = work + TDLS_STRIDED(o.Dl, work_stride);
         T* const W        = work + TDLS_STRIDED(o.W, work_stride);
@@ -559,7 +829,7 @@ struct ArrowheadLUppSolverDynamic {
                 for (int j = 0; j < w; ++j)
                     TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i) =
                         c0 + j < B ? TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c0 + j))
-                                   : TDLS_ARROW_LUPP_DYN_Y(B + k * S + i);
+                                   : TDLS_ARROW_LUPP_DYN_YW(c0 + j - B, B + k * S + i);
             if constexpr (multiplier_update) {
                 BlockSolver::forward_inplace_multirhs(S, w, Dl, work_stride, piv, piv_stride, W,
                                                       work_stride, S * work_stride);
@@ -580,7 +850,8 @@ struct ArrowheadLUppSolverDynamic {
                     TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c0 + j)) =
                         TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i);
                 else
-                    TDLS_ARROW_LUPP_DYN_Y(B + k * S + i) = TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i);
+                    TDLS_ARROW_LUPP_DYN_YW(c0 + j - B, B + k * S + i) =
+                        TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i);
             }
         if constexpr (multiplier_update) {
             for (int r = 0; r < R; ++r)
@@ -589,15 +860,16 @@ struct ArrowheadLUppSolverDynamic {
                     for (int l = 0; l < S; ++l)
                         sum += TDLS_ARROW_LUPP_DYN_W(o.Mb + r * S + l) *
                                TDLS_ARROW_LUPP_DYN_W(o.W + j * S + l);
-                    schur_sub(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride, r, c0 + j,
-                              sum);
+                    schur_sub<NC>(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride,
+                                  xcol_stride, r, c0 + j, sum);
                 }
         } else if constexpr (diag) {
             for (int i = 0; i < S; ++i)
                 for (int j = 0; j < w; ++j)
-                    schur_sub(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride, i, c0 + j,
-                              TDLS_ARROW_LUPP_DYN_W(o.acoef + i) *
-                                  TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i));
+                    schur_sub<NC>(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride,
+                                  xcol_stride, i, c0 + j,
+                                  TDLS_ARROW_LUPP_DYN_W(o.acoef + i) *
+                                      TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i));
         } else {
             for (int r = 0; r < B; ++r) {
                 for (int i = 0; i < S; ++i)
@@ -608,15 +880,16 @@ struct ArrowheadLUppSolverDynamic {
                     for (int i = 0; i < S; ++i)
                         sum +=
                             TDLS_ARROW_LUPP_DYN_W(o.a + i) * TDLS_ARROW_LUPP_DYN_W(o.W + j * S + i);
-                    schur_sub(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride, r, c0 + j,
-                              sum);
+                    schur_sub<NC>(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride,
+                                  xcol_stride, r, c0 + j, sum);
                 }
             }
         }
     }
 
-    /// \brief Recovers the blocks from the border solution, the last block
+    /// \brief Recovers the blocks from the border solutions, the last block
     /// first. The arithmetic of ArrowheadLUppSolverStatic::recover.
+    /// \tparam NC number of right-hand sides when fixed, 0 otherwise
     /// \param[in]     shape       shape of the matrix
     /// \param[in]     z           its sizes
     /// \param[in]     o           the offsets of the workspace
@@ -625,64 +898,89 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in,out] work        workspace (rb, refused flags, H_k)
     /// \param[in]     work_stride element stride of work
     /// \param[in,out] y           the recovery right-hand sides on entry,
-    ///                            the solution on exit
+    ///                            the solutions on exit
     /// \param[in]     rhs_stride  element stride of y
-    TDLS_HOST_DEVICE static constexpr void recover(const ArrowheadShape& shape, const Sizes& z,
-                                                   const Offsets& o, const T* TDLS_RESTRICT A,
-                                                   const int A_stride, T* TDLS_RESTRICT work,
-                                                   const int work_stride, T* TDLS_RESTRICT y,
-                                                   const int rhs_stride) noexcept {
+    /// \param[in]     xcol_stride element stride between columns of y
+    /// \param[in]     nrhs        number of right-hand sides when NC is 0
+    template<int NC>
+    TDLS_HOST_DEVICE static constexpr void
+    recover(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, const T* TDLS_RESTRICT A,
+            const int A_stride, T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
+            const int rhs_stride, [[maybe_unused]] const int xcol_stride,
+            [[maybe_unused]] const int nrhs) noexcept {
         const int B = z.B, S = z.S, NB = z.NB, R = z.R;
-        for (int a = 0; a < R; ++a)
-            TDLS_ARROW_LUPP_DYN_W(o.w + a) = T(0);
+        const int nc                         = NC > 0 ? NC : nrhs;
+        [[maybe_unused]] constexpr int ycols = NC;
+        // w and s: column m at m * R and m * S.
+        for (int e = 0; e < R * nc; ++e)
+            TDLS_ARROW_LUPP_DYN_W(o.w + e) = T(0);
         for (int k = NB - 1; k >= 0; --k) {
             for (int i = 0; i < S; ++i) {
-                TDLS_ARROW_LUPP_DYN_W(o.s + i) = TDLS_ARROW_LUPP_DYN_Y(B + k * S + i);
-                for (int c = 0; c < B; ++c)
-                    TDLS_ARROW_LUPP_DYN_W(o.s + i) -=
-                        TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c)) *
-                        TDLS_ARROW_LUPP_DYN_W(o.rb + c);
+                for (int m = 0; m < nc; ++m)
+                    TDLS_ARROW_LUPP_DYN_W(o.s + m * S + i) =
+                        TDLS_ARROW_LUPP_DYN_YW(m, B + k * S + i);
+                for (int c = 0; c < B; ++c) {
+                    const T a = TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c));
+                    for (int m = 0; m < nc; ++m)
+                        TDLS_ARROW_LUPP_DYN_W(o.s + m * S + i) -=
+                            a * TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + c);
+                }
             }
             if (TDLS_ARROW_LUPP_DYN_W(o.refused + k) != T(0)) {
                 // x_k = c_k - G_k xb - H_k w, then w += A_bk x_k.
                 for (int i = 0; i < S; ++i)
-                    for (int a = 0; a < R; ++a)
-                        TDLS_ARROW_LUPP_DYN_W(o.s + i) -=
-                            (a < S ? TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, i, a))
-                                   : TDLS_ARROW_LUPP_DYN_W(o.extra + (k * S + i) * z.extra_cols +
-                                                           a - S)) *
-                            TDLS_ARROW_LUPP_DYN_W(o.w + a);
+                    for (int a = 0; a < R; ++a) {
+                        const T h = a < S ? TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, i, a))
+                                          : TDLS_ARROW_LUPP_DYN_W(
+                                                o.extra + (k * S + i) * z.extra_cols + a - S);
+                        for (int m = 0; m < nc; ++m)
+                            TDLS_ARROW_LUPP_DYN_W(o.s + m * S + i) -=
+                                h * TDLS_ARROW_LUPP_DYN_W(o.w + m * R + a);
+                    }
                 if constexpr (diag) {
-                    for (int i = 0; i < S; ++i)
-                        TDLS_ARROW_LUPP_DYN_W(o.w + i) +=
-                            TDLS_ARROW_LUPP_DYN_A(storage_map::abk_diag(shape, k, i)) *
-                            TDLS_ARROW_LUPP_DYN_W(o.s + i);
+                    for (int i = 0; i < S; ++i) {
+                        const T coef = TDLS_ARROW_LUPP_DYN_A(storage_map::abk_diag(shape, k, i));
+                        for (int m = 0; m < nc; ++m)
+                            TDLS_ARROW_LUPP_DYN_W(o.w + m * R + i) +=
+                                coef * TDLS_ARROW_LUPP_DYN_W(o.s + m * S + i);
+                    }
                 } else {
                     for (int r = 0; r < B; ++r)
-                        for (int i = 0; i < S; ++i)
-                            TDLS_ARROW_LUPP_DYN_W(o.w + r) +=
-                                TDLS_ARROW_LUPP_DYN_A(storage_map::abk(shape, k, r, i)) *
-                                TDLS_ARROW_LUPP_DYN_W(o.s + i);
+                        for (int i = 0; i < S; ++i) {
+                            const T coef = TDLS_ARROW_LUPP_DYN_A(storage_map::abk(shape, k, r, i));
+                            for (int m = 0; m < nc; ++m)
+                                TDLS_ARROW_LUPP_DYN_W(o.w + m * R + r) +=
+                                    coef * TDLS_ARROW_LUPP_DYN_W(o.s + m * S + i);
+                        }
                 }
             } else if constexpr (multiplier_update) {
                 // x_k = U^-1 s, U in the upper triangle of D_k.
                 for (int l = S - 1; l >= 0; --l) {
-                    for (int j = l + 1; j < S; ++j)
-                        TDLS_ARROW_LUPP_DYN_W(o.s + l) -=
-                            TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, l, j)) *
-                            TDLS_ARROW_LUPP_DYN_W(o.s + j);
-                    TDLS_ARROW_LUPP_DYN_W(o.s + l) *=
-                        TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, l, l));
+                    for (int j = l + 1; j < S; ++j) {
+                        const T ulj = TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, l, j));
+                        for (int m = 0; m < nc; ++m)
+                            TDLS_ARROW_LUPP_DYN_W(o.s + m * S + l) -=
+                                ulj * TDLS_ARROW_LUPP_DYN_W(o.s + m * S + j);
+                    }
+                    const T ull = TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, l, l));
+                    for (int m = 0; m < nc; ++m)
+                        TDLS_ARROW_LUPP_DYN_W(o.s + m * S + l) *= ull;
                 }
             }
             for (int i = 0; i < S; ++i)
-                TDLS_ARROW_LUPP_DYN_Y(B + k * S + i) = TDLS_ARROW_LUPP_DYN_W(o.s + i);
+                for (int m = 0; m < nc; ++m)
+                    TDLS_ARROW_LUPP_DYN_YW(m, B + k * S + i) =
+                        TDLS_ARROW_LUPP_DYN_W(o.s + m * S + i);
         }
     }
 
     /// \brief Second pass: eliminates every refused block together with the
-    /// border rows, in the front at the start of the workspace. The
-    /// arithmetic of ArrowheadLUppSolverStatic::second_pass.
+    /// border rows, in the front at the start of the workspace, the
+    /// right-hand sides in its last columns. The arithmetic of
+    /// ArrowheadLUppSolverStatic::second_pass.
+    /// \tparam NC        number of right-hand sides when fixed, 0 otherwise
+    /// \tparam canonical right-hand sides zero on the rows of the blocks,
+    ///                   and no recovery data
     /// \param[in]     shape       shape of the matrix
     /// \param[in]     z           its sizes
     /// \param[in]     o           the offsets of the workspace
@@ -690,23 +988,31 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     A_stride    element stride of A
     /// \param[in,out] work        workspace (front, H_k, Sbb, rb, flags)
     /// \param[in]     work_stride element stride of work
-    /// \param[in,out] y           right-hand side
+    /// \param[in,out] y           right-hand sides
     /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
+    /// \param[in]     nrhs        number of right-hand sides when NC is 0
     /// \return false when a column of a refused block has no nonzero
     ///         candidate: the matrix is singular
+    template<int NC, bool canonical>
     TDLS_HOST_DEVICE TDLS_NO_INLINE static constexpr bool
     second_pass(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
                 const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
-                T* TDLS_RESTRICT y, const int rhs_stride) noexcept {
+                T* TDLS_RESTRICT y, const int rhs_stride, [[maybe_unused]] const int xcol_stride,
+                [[maybe_unused]] const int nrhs) noexcept {
         const int B = z.B, S = z.S, NB = z.NB, R = z.R, R0 = z.R0;
         const int front_rows = z.front_rows, front_cols = z.front_cols;
-        const T u = condensation_pivot_threshold;
+        const int nc                         = NC > 0 ? NC : nrhs;
+        const int rhs0                       = S + B + R;
+        [[maybe_unused]] constexpr int ycols = NC;
+        const T u                            = condensation_pivot_threshold;
         for (int r = 0; r < B; ++r) {
             for (int c = 0; c < B; ++c)
                 TDLS_ARROW_LUPP_DYN_F(S + r, S + c) = TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c);
             for (int a = 0; a < R; ++a)
                 TDLS_ARROW_LUPP_DYN_F(S + r, S + B + a) = r == R0 + a ? T(1) : T(0);
-            TDLS_ARROW_LUPP_DYN_F(S + r, front_cols - 1) = TDLS_ARROW_LUPP_DYN_W(o.rb + r);
+            for (int m = 0; m < nc; ++m)
+                TDLS_ARROW_LUPP_DYN_F(S + r, rhs0 + m) = TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
         }
         for (int k = 0; k < NB; ++k) {
             if (TDLS_ARROW_LUPP_DYN_W(o.refused + k) == T(0)) continue;
@@ -719,7 +1025,13 @@ struct ArrowheadLUppSolverDynamic {
                         TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c));
                 for (int a = 0; a < R; ++a)
                     TDLS_ARROW_LUPP_DYN_F(i, S + B + a) = T(0);
-                TDLS_ARROW_LUPP_DYN_F(i, front_cols - 1) = TDLS_ARROW_LUPP_DYN_Y(B + k * S + i);
+                for (int m = 0; m < nc; ++m) {
+                    if constexpr (canonical)
+                        TDLS_ARROW_LUPP_DYN_F(i, rhs0 + m) = T(0);
+                    else
+                        TDLS_ARROW_LUPP_DYN_F(i, rhs0 + m) =
+                            TDLS_ARROW_LUPP_DYN_YW(m, B + k * S + i);
+                }
             }
             for (int r = 0; r < B; ++r) {
                 for (int j = 0; j < S; ++j) {
@@ -772,33 +1084,38 @@ struct ArrowheadLUppSolverDynamic {
                         TDLS_ARROW_LUPP_DYN_F(e, c) -= l * TDLS_ARROW_LUPP_DYN_F(j, c);
                 }
             }
-            for (int c = S; c < front_cols; ++c) {
-                for (int i = S - 1; i >= 0; --i) {
-                    T t = TDLS_ARROW_LUPP_DYN_F(i, c);
-                    for (int m = i + 1; m < S; ++m)
-                        t -= TDLS_ARROW_LUPP_DYN_F(i, m) * TDLS_ARROW_LUPP_DYN_F(m, c);
-                    TDLS_ARROW_LUPP_DYN_F(i, c) = t * TDLS_ARROW_LUPP_DYN_F(i, i);
+            if constexpr (!canonical) {
+                for (int c = S; c < front_cols; ++c) {
+                    for (int i = S - 1; i >= 0; --i) {
+                        T t = TDLS_ARROW_LUPP_DYN_F(i, c);
+                        for (int m = i + 1; m < S; ++m)
+                            t -= TDLS_ARROW_LUPP_DYN_F(i, m) * TDLS_ARROW_LUPP_DYN_F(m, c);
+                        TDLS_ARROW_LUPP_DYN_F(i, c) = t * TDLS_ARROW_LUPP_DYN_F(i, i);
+                    }
                 }
-            }
-            for (int i = 0; i < S; ++i) {
-                for (int c = 0; c < B; ++c)
-                    TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c)) =
-                        TDLS_ARROW_LUPP_DYN_F(i, S + c);
-                for (int a = 0; a < R; ++a) {
-                    if (a < S)
-                        TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, i, a)) =
-                            TDLS_ARROW_LUPP_DYN_F(i, S + B + a);
-                    else
-                        TDLS_ARROW_LUPP_DYN_W(o.extra + (k * S + i) * z.extra_cols + a - S) =
-                            TDLS_ARROW_LUPP_DYN_F(i, S + B + a);
+                for (int i = 0; i < S; ++i) {
+                    for (int c = 0; c < B; ++c)
+                        TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c)) =
+                            TDLS_ARROW_LUPP_DYN_F(i, S + c);
+                    for (int a = 0; a < R; ++a) {
+                        if (a < S)
+                            TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, i, a)) =
+                                TDLS_ARROW_LUPP_DYN_F(i, S + B + a);
+                        else
+                            TDLS_ARROW_LUPP_DYN_W(o.extra + (k * S + i) * z.extra_cols + a - S) =
+                                TDLS_ARROW_LUPP_DYN_F(i, S + B + a);
+                    }
+                    for (int m = 0; m < nc; ++m)
+                        TDLS_ARROW_LUPP_DYN_YW(m, B + k * S + i) =
+                            TDLS_ARROW_LUPP_DYN_F(i, rhs0 + m);
                 }
-                TDLS_ARROW_LUPP_DYN_Y(B + k * S + i) = TDLS_ARROW_LUPP_DYN_F(i, front_cols - 1);
             }
         }
         for (int r = 0; r < B; ++r) {
             for (int c = 0; c < B; ++c)
                 TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) = TDLS_ARROW_LUPP_DYN_F(S + r, S + c);
-            TDLS_ARROW_LUPP_DYN_W(o.rb + r) = TDLS_ARROW_LUPP_DYN_F(S + r, front_cols - 1);
+            for (int m = 0; m < nc; ++m)
+                TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) = TDLS_ARROW_LUPP_DYN_F(S + r, rhs0 + m);
         }
         return true;
     }

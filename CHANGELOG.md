@@ -21,8 +21,13 @@ the API may change between minor versions.
   runtime shape one, bitwise identical; four storages (Full, Packed,
   Csr, Bsr) addressed through `ArrowheadStorageMap`, without index
   arrays at run time; dense or diagonal couplings; both layouts, each
-  with its condensation path. Tests, documentation pages, snippets and
-  examples.
+  with its condensation path. Several right-hand sides through one
+  condensation (`solve_inplace_multirhs`, `solve_multirhs`), each
+  column bitwise identical to `solve_inplace` on it alone, and the
+  border block of the inverse by unit columns of the border
+  (`solve_border_canonical_multirhs`), the tangent operator of a
+  behaviour loaded through the border. Tests, documentation pages,
+  snippets and examples.
 - `relative_pivot_threshold` in TiledLUppConfig, the knob of
   CooperativeLUpp applied to the diagonal tile: the row in place keeps
   the pivot when it reaches this fraction of the best in-tile candidate
