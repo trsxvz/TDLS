@@ -19,10 +19,13 @@
 /// plain host memory), walked with a stride, or be a caller-local array
 /// that the residency booleans keep in registers too. Pivoting is
 /// logical: piv[] maps logical row -> physical row, rows are physically
-/// swapped only inside the diagonal tile. When the best in-tile pivot falls
-/// below Config.oot_pivot_threshold, the search extends below the tile
-/// (out-of-tile pivoting) and candidate values are corrected on the fly
-/// for the eliminations they have not received yet.
+/// swapped only inside the diagonal tile. Inside the tile, the row in
+/// place keeps the pivot while it reaches Config.relative_pivot_threshold
+/// times the best in-tile candidate (threshold pivoting, in-tile only).
+/// When the best in-tile pivot falls below Config.oot_pivot_threshold, the
+/// search extends below the tile (out-of-tile pivoting) and candidate
+/// values are corrected on the fly for the eliminations they have not
+/// received yet.
 ///
 /// **Layout.** The solver factors S, the stored matrix read row-major:
 /// element (r,c) of S lives at `A[((r)*N+(c))*A_stride]`. S = A under the
@@ -222,6 +225,9 @@ struct TiledLUppSolverStatic {
     /// \brief Acceptable-pivot threshold of the out-of-tile search, read
     /// once from the configuration (see TiledLUppConfig::oot_pivot_threshold).
     static constexpr T oot_pivot_threshold = Config.oot_pivot_threshold;
+    /// \brief Relative threshold of the in-tile pivot choice, read once
+    /// from the configuration (see TiledLUppConfig::relative_pivot_threshold).
+    static constexpr T relative_pivot_threshold = Config.relative_pivot_threshold;
     /// \brief Singularity floor of the out-of-tile recovery, read once
     /// from the configuration (see TiledLUppConfig::singular_floor).
     static constexpr T singular_floor = Config.singular_floor;
@@ -238,6 +244,11 @@ struct TiledLUppSolverStatic {
         Config.oot_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
         "TiledLUppSolverStatic: oot_pivot_threshold and singular_floor must be finite (and fit a "
         "63-bit mantissa)");
+    static_assert(Config.relative_pivot_threshold.is_finite(),
+                  "TiledLUppSolverStatic: relative_pivot_threshold must be finite (and fit a "
+                  "63-bit mantissa)");
+    static_assert(relative_pivot_threshold > T(0) && relative_pivot_threshold <= T(1),
+                  "TiledLUppSolverStatic: relative_pivot_threshold must be in (0, 1]");
     static_assert(singular_floor > T(0), "TiledLUppSolverStatic: singular_floor must be positive");
     static_assert(singular_floor <= oot_pivot_threshold,
                   "TiledLUppSolverStatic: singular_floor must not exceed oot_pivot_threshold (the "
@@ -525,6 +536,17 @@ struct TiledLUppSolverStatic {
             }
         }
 
+        // Threshold pivoting inside the tile: the row in place keeps the
+        // pivot when it reaches both relative_pivot_threshold times the
+        // best in-tile candidate and oot_pivot_threshold. The out-of-tile
+        // recovery below keeps its own absolute trigger. A threshold of 1
+        // compiles the test out: the best in-tile candidate wins.
+        if constexpr (relative_pivot_threshold < T(1)) {
+            const T in_place = detail::abs(tile[c * tile_size + c]);
+            if (in_place >= relative_pivot_threshold * best && in_place >= oot_pivot_threshold)
+                best_r = c;
+        }
+
         int piv_row; // winning global (logical) row
 
         if (best >= oot_pivot_threshold) {
@@ -596,8 +618,8 @@ struct TiledLUppSolverStatic {
             // Swap the permutation entries unconditionally: when
             // piv_row == gc the exchanges write back the same values
             // (bitwise no-ops), and removing the comparison removes a
-            // divergent branch from the hot path (lanes of a warp pick
-            // different pivots almost every column).
+            // divergent branch from the hot path (the lanes of a warp can
+            // pick different pivots).
             const int tmp          = TDLS_LUPP_PIV(gc);
             TDLS_LUPP_PIV(gc)      = TDLS_LUPP_PIV(piv_row);
             TDLS_LUPP_PIV(piv_row) = tmp;

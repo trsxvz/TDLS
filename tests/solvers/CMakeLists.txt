@@ -131,6 +131,8 @@ tdls_add_reject_cases(
     CASES
         reject_config_floor_above_threshold
         reject_config_zero_floor
+        reject_config_pivot_threshold_zero
+        reject_config_pivot_threshold_above_one
         reject_adaptors_gather_view
         reject_adaptors_const_matrix
         reject_adaptors_const_pivot
@@ -142,6 +144,8 @@ tdls_add_reject_cases(
     DIAGNOSTICS
         "singular_floor must not exceed oot_pivot_threshold"
         "singular_floor must be positive"
+        "TiledLUppSolverStatic: relative_pivot_threshold must be in"
+        "TiledLUppSolverDynamic: relative_pivot_threshold must be in"
         "A must be a dense object"
         "A must not be const here"
         "the pivot must be mutable here"

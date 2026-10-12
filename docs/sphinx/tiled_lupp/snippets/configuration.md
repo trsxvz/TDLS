@@ -196,6 +196,32 @@ $$
 :dedent: 4
 ```
 
+## Relative pivot threshold
+
+Column 0 of the first tile holds 3 in place, below the 4 of row 1. A
+threshold of 1 takes the largest in-tile candidate and swaps the two
+rows. The default threshold 0.1 keeps the row in place, since 3
+reaches a tenth of 4: no row moves at all. The threshold governs this
+in-tile choice only: the out-of-tile search keeps its absolute trigger.
+
+$$
+A = \left(\begin{array}{cc|cc}
+\textcolor{red}{3} & 1 & 0 & 0 \\
+4 & 6 & 1 & 0 \\ \hline
+0 & 1 & 5 & 1 \\
+0 & 0 & 1 & 4
+\end{array}\right), \quad
+b = \begin{pmatrix} 5 \\ 19 \\ 21 \\ 19 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/tiled_lupp/config_pivot_threshold.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## No forced unrolling
 
 The same solve with and without the unroll pragmas: bitwise identical

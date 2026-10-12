@@ -100,11 +100,11 @@ The oracle of the family is a naive LU with physical row swaps
 | `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers and in both layouts |
 | `tile_sizes` | every tile size against the anchored one, including unit tiles (tile size 1) and tile sizes exceeding the dimension |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
-| `config_knobs` | each configuration knob changes what it should and nothing else |
+| `config_knobs` | each configuration knob changes what it should and nothing else, including the in-tile pivot choice under a relative threshold, which leaves the out-of-tile search to its absolute trigger |
 | `constexpr` | compile-time certificates on both solvers |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
-| `reject_config_*` | the threshold contracts of the configuration: ordering and positivity |
+| `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1] |
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in

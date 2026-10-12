@@ -5,6 +5,27 @@ All notable changes to TDLS are recorded here. The format follows
 versions follow [Semantic Versioning](https://semver.org/). Until 1.0.0
 the API may change between minor versions.
 
+## [Unreleased]
+
+### Added
+
+- `relative_pivot_threshold` in TiledLUppConfig, the knob of
+  CooperativeLUpp applied to the diagonal tile: the row in place keeps
+  the pivot when it reaches this fraction of the best in-tile candidate
+  and `oot_pivot_threshold`. It governs the in-tile choice only: the
+  out-of-tile recovery keeps its absolute trigger. The in-tile
+  multipliers stay bounded by its inverse, and the solvers enforce the
+  range (0, 1] at compile time.
+
+### Changed
+
+- TiledLUpp now keeps the row in place by default
+  (`relative_pivot_threshold` = 0.1). Fewer rows move, and the pivot
+  arrays stay alike across the threads of a warp, whose pivot-driven
+  reads then hit the same offsets. The pivots, and the results in their
+  last bits, may differ from 0.2.0; a threshold of 1 restores the
+  previous choice, the largest in-tile candidate, bit for bit.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
@@ -165,5 +186,6 @@ from device code.
 - Documentation site with the Doxygen reference and a snippet gallery.
 - CMake package for `find_package(tdls)` and the Spack package `tdls`.
 
+[Unreleased]: https://github.com/trsxvz/TDLS/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/trsxvz/TDLS/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/trsxvz/TDLS/releases/tag/v0.1.0

@@ -10,6 +10,7 @@ foreach(snippet
         config_schedules
         config_thresholds
         config_first_acceptable
+        config_pivot_threshold
         config_unroll
         config_layout
         config_scalar_types

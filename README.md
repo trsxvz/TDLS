@@ -45,6 +45,10 @@ constexpr tdls::TiledLUppConfig<double> config{
     .oot_pivot_threshold = 1e-10,
     // bool: the out-of-tile search stops at the first acceptable pivot
     .oot_first_acceptable = true,
+    // double (the scalar type T): in the diagonal tile only, the row in
+    // place keeps the pivot when it reaches this fraction of the best
+    // in-tile candidate; 1 takes the best in-tile candidate
+    .relative_pivot_threshold = 0.1,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
     .singular_floor = std::numeric_limits<double>::min(),

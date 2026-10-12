@@ -24,9 +24,12 @@ operation runs on them. The compile-time solver bounds its loops by
 the extent of each tile at compile time, the runtime solver at run
 time.
 
-The pivot is searched inside the diagonal tile first. When the best
-in-tile candidate falls below `oot_pivot_threshold`, the search extends to
-the rows under the tile: out-of-tile pivoting. Each candidate is
+The pivot is searched inside the diagonal tile first. There, the row
+in place keeps the pivot while it reaches `relative_pivot_threshold`
+times the best in-tile candidate; otherwise the best in-tile candidate
+wins. This relative threshold governs the in-tile choice only. When the
+best in-tile candidate falls below `oot_pivot_threshold`, the search
+extends to the rows under the tile: out-of-tile pivoting. Each candidate is
 corrected on the fly for the eliminations it has not received yet.
 With `oot_first_acceptable`, the scan stops at the first candidate
 reaching the threshold. Below `singular_floor`, the factorization is
@@ -86,7 +89,7 @@ arithmetic and produce bitwise identical results.
 
 ## Configuration
 
-`TiledLUppConfig<T>` is an aggregate of seven knobs, passed to the
+`TiledLUppConfig<T>` is an aggregate of eight knobs, passed to the
 solvers as a constexpr value. Designated initializers override
 individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 
@@ -96,11 +99,12 @@ individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 | `schedule` | `RightLooking` | elimination schedule, `RightLooking` or `LeftLooking` |
 | `oot_pivot_threshold` | 1e-10 for `double` and `long double`<br>1e-4 for `float` | an in-tile pivot at least this large is accepted without searching below the tile |
 | `oot_first_acceptable` | `true` | the search below the tile stops at the first candidate reaching `oot_pivot_threshold` |
+| `relative_pivot_threshold` | 0.1 | in the diagonal tile only, the row in place keeps the pivot when it reaches this fraction of the best in-tile candidate and `oot_pivot_threshold`; 1 takes the best in-tile candidate; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in a trailing tile; positive, at most `oot_pivot_threshold` |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops, whose unrolling keeps the tiles in registers on GPU; the tile sweeps never carry a pragma; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; column-major factors A^T and solves through the transposed factors (see above) |
 
-The two thresholds are written as plain `T` values. They are stored
+The floating-point knobs are written as plain `T` values. They are stored
 exactly, as `StructuralReal` values, so that a configuration remains a
 template argument on every compiler.
 

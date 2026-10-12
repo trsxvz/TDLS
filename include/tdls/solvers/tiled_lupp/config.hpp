@@ -21,7 +21,7 @@
 ///
 /// The aggregate is a structural type, as class-type non-type template
 /// parameters require: every member is public, and two configurations
-/// with equal members name the same solver instantiation. The two
+/// with equal members name the same solver instantiation. The
 /// floating-point knobs are held as tdls::StructuralReal values: exact,
 /// built and read back implicitly, and admissible as template arguments
 /// on every compiler supporting class-type template parameters (a
@@ -61,8 +61,8 @@ struct TiledLUppConfig {
     /// Elimination schedule of the tiled factorization, see Schedule.
     Schedule schedule = Schedule::RightLooking;
 
-    /// Acceptable-pivot threshold of the out-of-tile search. Both
-    /// thresholds carry the scalar type T by construction, stored
+    /// Acceptable-pivot threshold of the out-of-tile search. The
+    /// floating-point knobs carry the scalar type T by construction, stored
     /// exactly as tdls::StructuralReal values so that the configuration
     /// stays a template argument everywhere; write them as plain T
     /// values, the conversions are implicit (a long double value must
@@ -82,6 +82,24 @@ struct TiledLUppConfig {
     /// the cost of a possibly smaller (but still >= oot_pivot_threshold) pivot.
     /// Set false to restore the full-panel partial-pivoting scan.
     bool oot_first_acceptable = true;
+
+    /// Relative threshold of the pivot choice inside the diagonal tile,
+    /// in (0, 1]. At each column, the row in place keeps the pivot when
+    /// its magnitude reaches both this fraction of the largest in-tile
+    /// candidate and oot_pivot_threshold. Otherwise the largest in-tile
+    /// candidate wins, the first one on ties. This threshold governs the
+    /// in-tile choice only: the out-of-tile recovery keeps its absolute
+    /// trigger, oot_pivot_threshold. The in-tile multipliers stay bounded
+    /// by its inverse.
+    ///
+    /// The default 0.1 is the one of CooperativeLUpp. It keeps most rows
+    /// in place: fewer row swaps, and pivot arrays that stay alike across
+    /// the threads of a warp, whose pivot-driven reads then hit the same
+    /// offsets. A value of 1 takes the largest in-tile candidate, the
+    /// choice of TiledLUpp up to version 0.2.0, and the solvers then
+    /// compile the test out. The solvers enforce the range at compile
+    /// time.
+    StructuralReal<T> relative_pivot_threshold = T(0.1);
 
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it, or

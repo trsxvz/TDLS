@@ -10,6 +10,9 @@
 /// unroll_loops never changes any value (bitwise equivalence of both
 /// settings); oot_first_acceptable changes which acceptable pivot wins
 /// but keeps both settings anchored on the backward error;
+/// relative_pivot_threshold keeps the row in place in the tile, never a
+/// pivot below oot_pivot_threshold, and keeps both 1 and the default
+/// anchored on the backward error;
 /// the out-of-tile counter stays at zero in the default regime, fires in
 /// the stress regime, and counts every column when the threshold is
 /// raised above any entry; a raised singular_floor turns tiny-pivot
@@ -17,6 +20,7 @@
 /// its thresholds as double literals, stored exactly.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -132,6 +136,123 @@ TDLS_TEST_CASE("tiledlupp/config/oot_first_acceptable-both-anchored/N=25,tile_si
     TDLS_CHECK(solved_scan == batch.count);
     TDLS_CHECK_LE(be_first, 1e-9);
     TDLS_CHECK_LE(be_max_scan, 1e-9);
+}
+
+namespace {
+
+/// \brief Configuration taking the largest in-tile candidate, the choice
+/// of TiledLUpp up to version 0.2.0.
+template<typename T, int tile_size>
+constexpr auto largest_in_tile_config =
+    tdls::TiledLUppConfig<T>{.tile_size = tile_size, .relative_pivot_threshold = T(1)};
+
+} // namespace
+
+TDLS_TEST_CASE("tiledlupp/config/relative_pivot_threshold-keeps-row-in-place/N=4,tile_size=2") {
+    // Column 0 of the first tile holds 3 in place and 4 below it: a
+    // threshold of 1 takes 4, the default 0.1 keeps 3 (3 >= 0.1 * 4), and
+    // every later pivot stays in place too. Static and dynamic agree.
+    constexpr int N        = 4;
+    const double A0[N * N] = {3, 1, 0, 0, 4, 6, 1, 0, 0, 1, 5, 1, 0, 0, 1, 4};
+    const double b0[N]     = {5, 19, 21, 19};
+    const double xref[N]   = {1, 2, 3, 4};
+    constexpr auto relaxed = tdls::TiledLUppConfig<double>{.tile_size = 2};
+    constexpr auto largest = largest_in_tile_config<double, 2>;
+    using RelaxedStatic    = tdls::TiledLUppSolverStatic<double, N, relaxed>;
+    using LargestStatic    = tdls::TiledLUppSolverStatic<double, N, largest>;
+    using RelaxedDynamic   = tdls::TiledLUppSolverDynamic<double, relaxed>;
+    using LargestDynamic   = tdls::TiledLUppSolverDynamic<double, largest>;
+
+    double A[4][N * N], y[4][N];
+    int piv[4][N];
+    for (int v = 0; v < 4; ++v) {
+        std::copy(A0, A0 + N * N, A[v]);
+        std::copy(b0, b0 + N, y[v]);
+    }
+    TDLS_CHECK((RelaxedStatic::solve_inplace<true, true, true>(A[0], 1, piv[0], 1, y[0], 1)));
+    TDLS_CHECK((LargestStatic::solve_inplace<true, true, true>(A[1], 1, piv[1], 1, y[1], 1)));
+    TDLS_CHECK(RelaxedDynamic::solve_inplace(N, A[2], 1, piv[2], 1, y[2], 1));
+    TDLS_CHECK(LargestDynamic::solve_inplace(N, A[3], 1, piv[3], 1, y[3], 1));
+    for (int i = 0; i < N; ++i)
+        TDLS_CHECK(piv[0][i] == i);
+    TDLS_CHECK(piv[1][0] == 1 && piv[1][1] == 0);
+    TDLS_CHECK_BITWISE(piv[0], piv[2], static_cast<std::size_t>(N));
+    TDLS_CHECK_BITWISE(piv[1], piv[3], static_cast<std::size_t>(N));
+    TDLS_CHECK_BITWISE(y[0], y[2], static_cast<std::size_t>(N));
+    TDLS_CHECK_BITWISE(y[1], y[3], static_cast<std::size_t>(N));
+    for (int v = 0; v < 4; ++v)
+        for (int i = 0; i < N; ++i)
+            TDLS_CHECK_LE(std::abs(y[v][i] - xref[i]), 1e-14);
+}
+
+TDLS_TEST_CASE("tiledlupp/config/relative_pivot_threshold-is-in-tile-only/N=4,tile_size=2") {
+    // The first tile holds 1e-12 in place and 2e-12 below it, under
+    // oot_pivot_threshold: the row in place reaches 0.1 * 2e-12 but not
+    // the absolute trigger, so the out-of-tile recovery still pulls row 2.
+    constexpr int N        = 4;
+    const double A0[N * N] = {1e-12, 1, 0, 0, 2e-12, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1};
+    const double b0[N]     = {1, 2, 3, 4};
+    using Static =
+        tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 2}>;
+    using Dynamic =
+        tdls::TiledLUppSolverDynamic<double, tdls::TiledLUppConfig<double>{.tile_size = 2}>;
+    double A1[N * N], A2[N * N], x1[N], x2[N];
+    int piv1[N], piv2[N];
+    std::copy(A0, A0 + N * N, A1);
+    std::copy(A0, A0 + N * N, A2);
+    int oot1 = 0, oot2 = 0;
+    TDLS_CHECK((Static::solve<true, true, true>(A1, 1, piv1, 1, b0, x1, 1, oot1)));
+    TDLS_CHECK(Dynamic::solve(N, A2, 1, piv2, 1, b0, x2, 1, oot2));
+    TDLS_CHECK(piv1[0] == 2);
+    TDLS_CHECK(oot1 >= 1);
+    TDLS_CHECK(oot1 == oot2);
+    TDLS_CHECK_BITWISE(piv1, piv2, static_cast<std::size_t>(N));
+    TDLS_CHECK_BITWISE(x1, x2, static_cast<std::size_t>(N));
+    TDLS_CHECK_LE(tdls_tests::backward_error(A0, x1, b0, N), 1e-15);
+}
+
+TDLS_TEST_CASE("tiledlupp/config/relative_pivot_threshold-both-anchored/N=24,tile_size=4") {
+    // The two thresholds pick different pivots, so the results differ;
+    // both must stay anchored on the backward error, and the default must
+    // move fewer rows.
+    constexpr int N = 24;
+    using Relaxed =
+        tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 4}>;
+    using Largest    = tdls::TiledLUppSolverStatic<double, N, largest_in_tile_config<double, 4>>;
+    const auto batch = tdls_tests::make_batch<double>(N, 300, 190350, 0.5);
+    std::vector<double> A(N * N), x(N);
+    std::vector<int> piv(N);
+    double be_relaxed = 0.0, be_largest = 0.0;
+    int solved_relaxed = 0, solved_largest = 0, moved_relaxed = 0, moved_largest = 0;
+    auto moved = [&] {
+        for (int i = 0; i < N; ++i)
+            if (piv[i] != i) return 1;
+        return 0;
+    };
+    for (int s = 0; s < batch.count; ++s) {
+        std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
+        if (Relaxed::solve<false, false, false>(A.data(), 1, piv.data(), 1, batch.rhs(s), x.data(),
+                                                1)) {
+            ++solved_relaxed;
+            moved_relaxed += moved();
+            be_relaxed = std::max(
+                be_relaxed, tdls_tests::backward_error(batch.matrix(s), x.data(), batch.rhs(s), N));
+        }
+        std::copy(batch.matrix(s), batch.matrix(s) + N * N, A.begin());
+        if (Largest::solve<false, false, false>(A.data(), 1, piv.data(), 1, batch.rhs(s), x.data(),
+                                                1)) {
+            ++solved_largest;
+            moved_largest += moved();
+            be_largest = std::max(
+                be_largest, tdls_tests::backward_error(batch.matrix(s), x.data(), batch.rhs(s), N));
+        }
+    }
+    // Floor: every generated system must have been solved on both paths.
+    TDLS_CHECK(solved_relaxed == batch.count);
+    TDLS_CHECK(solved_largest == batch.count);
+    TDLS_CHECK(moved_relaxed < moved_largest);
+    TDLS_CHECK_LE(be_relaxed, 1e-9);
+    TDLS_CHECK_LE(be_largest, 1e-9);
 }
 
 TDLS_TEST_CASE("tiledlupp/config/oot-counter/silent-in-default-regime/N=12,tile_size=3") {

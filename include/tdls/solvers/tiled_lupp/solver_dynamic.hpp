@@ -12,7 +12,8 @@
 /// licensing conditions.
 ///
 /// Same algorithm as TiledLUppSolverStatic (solver_static.hpp): tiled LU
-/// with logical partial pivoting, out-of-tile recovery,
+/// with logical partial pivoting, in-tile threshold pivoting, out-of-tile
+/// recovery,
 /// reciprocal-diagonal factored format, right- and left-looking
 /// schedules. The difference is that the system dimension n is a
 /// runtime function parameter instead of a template parameter. Only the
@@ -173,6 +174,9 @@ struct TiledLUppSolverDynamic {
     /// \brief Acceptable-pivot threshold of the out-of-tile search, read
     /// once from the configuration (see TiledLUppConfig::oot_pivot_threshold).
     static constexpr T oot_pivot_threshold = Config.oot_pivot_threshold;
+    /// \brief Relative threshold of the in-tile pivot choice, read once
+    /// from the configuration (see TiledLUppConfig::relative_pivot_threshold).
+    static constexpr T relative_pivot_threshold = Config.relative_pivot_threshold;
     /// \brief Singularity floor of the out-of-tile recovery, read once
     /// from the configuration (see TiledLUppConfig::singular_floor).
     static constexpr T singular_floor = Config.singular_floor;
@@ -185,6 +189,11 @@ struct TiledLUppSolverDynamic {
         Config.oot_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
         "TiledLUppSolverDynamic: oot_pivot_threshold and singular_floor must be finite (and fit a "
         "63-bit mantissa)");
+    static_assert(Config.relative_pivot_threshold.is_finite(),
+                  "TiledLUppSolverDynamic: relative_pivot_threshold must be finite (and fit a "
+                  "63-bit mantissa)");
+    static_assert(relative_pivot_threshold > T(0) && relative_pivot_threshold <= T(1),
+                  "TiledLUppSolverDynamic: relative_pivot_threshold must be in (0, 1]");
     static_assert(singular_floor > T(0), "TiledLUppSolverDynamic: singular_floor must be positive");
     static_assert(singular_floor <= oot_pivot_threshold,
                   "TiledLUppSolverDynamic: singular_floor must not exceed oot_pivot_threshold (the "
@@ -485,6 +494,17 @@ struct TiledLUppSolverDynamic {
                 best   = v;
                 best_r = r;
             }
+        }
+
+        // Threshold pivoting inside the tile: the row in place keeps the
+        // pivot when it reaches both relative_pivot_threshold times the
+        // best in-tile candidate and oot_pivot_threshold. The out-of-tile
+        // recovery below keeps its own absolute trigger. A threshold of 1
+        // compiles the test out: the best in-tile candidate wins.
+        if constexpr (relative_pivot_threshold < T(1)) {
+            const T in_place = detail::abs(tile[c * tile_size + c]);
+            if (in_place >= relative_pivot_threshold * best && in_place >= oot_pivot_threshold)
+                best_r = c;
         }
 
         int piv_row; // winning global (logical) row

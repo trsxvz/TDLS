@@ -83,9 +83,8 @@ multipliers stay bounded by the inverse of the threshold. The default
 of the solve time on GPU, for a backward error below 1e-13 in double.
 A threshold of 1 is the partial pivoting of LAPACK, with its pivots: on
 matrices that never interchange, such as Newton jacobians close to the
-identity, it saves the few percent that the test costs. The threshold
-is relative to the column, unlike the absolute `oot_pivot_threshold` of
-TiledLUpp.
+identity, it saves the few percent that the test costs. TiledLUpp has
+the same knob, applied to the candidates of its diagonal tile only.
 
 The diagonal of the factored matrix holds the pivots themselves. The
 factors are consumed by the substitutions of the family, under the

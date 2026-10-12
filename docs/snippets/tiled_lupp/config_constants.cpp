@@ -30,6 +30,7 @@ int main() {
     // the knobs, read back from the solver type
     static_assert(Solver::schedule == tdls::Schedule::LeftLooking);
     static_assert(Solver::oot_pivot_threshold == 1e-10);
+    static_assert(Solver::relative_pivot_threshold == 0.1);
     static_assert(Solver::singular_floor == std::numeric_limits<double>::min());
 
     int piv[6];
