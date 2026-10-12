@@ -31,10 +31,10 @@ namespace {
 constexpr tdls::ArrowheadShape shape{4, 2, 3, 1};
 /// Stride of the matrix and of the workspace: their last entries land
 /// past 2^32.
-constexpr int big_stride = (1 << 27) + 1;
+const int big_stride = tdls_tests::opaque((1 << 27) + 1);
 /// Stride of the right-hand side and of the pivots: the entries from
 /// index 3 on land past 2^32.
-constexpr int vector_stride = 2147483647;
+const int vector_stride = tdls_tests::opaque(2147483647);
 
 /// \brief Element e of a strided arena.
 template<typename T>

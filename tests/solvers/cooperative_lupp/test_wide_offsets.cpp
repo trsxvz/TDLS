@@ -30,9 +30,9 @@ namespace {
 constexpr int N = 4;
 /// Matrix stride: the last element, index N * N - 1 = 15, lands at
 /// 15 * (2^29 + 1) > 2^32.
-constexpr int matrix_stride = (1 << 29) + 1;
+const int matrix_stride = tdls_tests::opaque((1 << 29) + 1);
 /// Vector stride: the last entry, index 3, lands at 3 * (2^31 - 1) > 2^32.
-constexpr int vector_stride = 2147483647;
+const int vector_stride = tdls_tests::opaque(2147483647);
 
 /// \brief Element e of a strided arena.
 template<typename T>

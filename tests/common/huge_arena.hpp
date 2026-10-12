@@ -58,6 +58,22 @@ class HugeArena {
     T* data_           = nullptr;
 };
 
+/// \brief v, read back through a volatile: a value the optimizer cannot
+/// see through.
+///
+/// The wide strides reach the solvers as runtime values, as a batch
+/// stride does. Known at compile time, a stride whose step exceeds 2^32
+/// bytes lets the SLP vectorizer of clang 17, 18 and 20 (-O2 and above)
+/// store or load two elements 2^32 + 8 bytes apart as one contiguous
+/// pair: the second element lands 4 GiB short. The fault reproduces
+/// without TDLS; clang 12 and GCC compile it right.
+/// \param[in] v value
+/// \return v
+inline int opaque(const int v) {
+    volatile int x = v;
+    return x;
+}
+
 } // namespace tdls_tests
 
 
