@@ -21,7 +21,8 @@
 /// dispatch layer, never to the solvers.
 ///
 /// Every macro is `#ifndef`-guarded: each can be overridden from the
-/// command line (e.g. `-DTDLS_FORCEINLINE=inline`) without editing headers.
+/// command line (e.g. `-DTDLS_FORCE_INLINE_GPU=inline`) without editing
+/// headers.
 
 
 
@@ -48,9 +49,10 @@
 
 
 
-/// \def TDLS_FORCEINLINE
-/// \brief `__forceinline__` under CUDA, the equivalent attribute under
-/// HIP (see TDLS_HOST_DEVICE for why), plain `inline` elsewhere.
+/// \def TDLS_FORCE_INLINE_GPU
+/// \brief Inlining forced on GPU only: `__forceinline__` under CUDA, the
+/// equivalent attribute under HIP (see TDLS_HOST_DEVICE for why), plain
+/// `inline` elsewhere.
 ///
 /// On GPU backends, forced inlining is the guard that keeps register tiles
 /// alive: an out-of-line call would demote them to slow local memory. On
@@ -58,13 +60,13 @@
 /// makes better calls than a blanket `always_inline` (which also bloats
 /// debug builds and compile times), so a plain `inline` hint is kept there.
 
-#ifndef TDLS_FORCEINLINE
+#ifndef TDLS_FORCE_INLINE_GPU
 #if defined(__HIPCC__) || defined(__HIP__)
-#define TDLS_FORCEINLINE inline __attribute__((always_inline))
+#define TDLS_FORCE_INLINE_GPU inline __attribute__((always_inline))
 #elif defined(__CUDACC__) || defined(__CUDA__)
-#define TDLS_FORCEINLINE __forceinline__
+#define TDLS_FORCE_INLINE_GPU __forceinline__
 #else
-#define TDLS_FORCEINLINE inline
+#define TDLS_FORCE_INLINE_GPU inline
 #endif
 #endif
 

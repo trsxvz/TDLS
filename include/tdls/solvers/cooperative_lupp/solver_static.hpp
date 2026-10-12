@@ -310,7 +310,7 @@ namespace detail {
 /// \tparam Ks indices
 /// \param[in] fn callable, invoked as fn(std::integral_constant<int, K>{})
 template<typename Fn, int... Ks>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 unroll_K_impl(Fn& fn, std::integer_sequence<int, Ks...>) noexcept {
     (fn(std::integral_constant<int, Ks>{}), ...);
 }
@@ -327,7 +327,7 @@ unroll_K_impl(Fn& fn, std::integer_sequence<int, Ks...>) noexcept {
 /// \tparam Fn callable type
 /// \param[in] fn callable, invoked as fn(std::integral_constant<int, K>{})
 template<int R, typename Fn>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void unroll_K(Fn&& fn) noexcept {
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void unroll_K(Fn&& fn) noexcept {
     unroll_K_impl(fn, std::make_integer_sequence<int, R>{});
 }
 
@@ -463,14 +463,16 @@ struct CooperativeLUppSolverStatic {
     /// \brief Whether slot K holds a real row for at least one thread.
     /// \param[in] K row slot
     /// \return true when some thread of the group has a real row in slot K
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool slot_has_rows(const int K) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    slot_has_rows(const int K) noexcept {
         return K * threads_per_system < N;
     }
 
     /// \brief Whether slot K holds a real row for every thread.
     /// \param[in] K row slot
     /// \return true when every thread of the group has a real row in slot K
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool slot_is_full(const int K) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    slot_is_full(const int K) noexcept {
         return (K + 1) * threads_per_system <= N;
     }
 
@@ -489,8 +491,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in] pos position, in [0, N)
     /// \param[in] fn  callable, invoked as fn(std::integral_constant<int, K>{})
     template<typename Fn>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void at_position(const int tx, const int pos,
-                                                                        Fn&& fn) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    at_position(const int tx, const int pos, Fn&& fn) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
             if constexpr (slot_has_rows(K)) {
@@ -513,7 +515,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  A_stride element stride of A (external mode)
     /// \param[out] rA       register rows of the thread
     template<bool internal_matrix>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_rows(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
               T (&rA)[rows_per_thread][N]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -541,7 +543,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     A_stride element stride of A (external mode)
     /// \param[in]     rA       register rows of the thread
     template<bool internal_matrix>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     store_rows(const int tx, T* TDLS_RESTRICT A, const int A_stride,
                const T (&rA)[rows_per_thread][N]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -568,7 +570,7 @@ struct CooperativeLUppSolverStatic {
     /// index of the row held by the slot: both start there.
     /// \param[in]  tx   rank of the calling thread in its group
     /// \param[out] rpiv pivot entry of each slot of the thread
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     init_piv(const int tx, int (&rpiv)[rows_per_thread]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
             constexpr int K = decltype(K_tag)::value;
@@ -584,7 +586,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  piv_stride element stride of piv (external mode)
     /// \param[out] rpiv       pivot entry of each slot of the thread
     template<bool internal_piv>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_piv(const int tx, const int* TDLS_RESTRICT piv, const int piv_stride,
              int (&rpiv)[rows_per_thread]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -604,7 +606,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  piv_stride element stride of piv (external mode)
     /// \param[in]  rpiv       pivot entry of each slot of the thread
     template<bool internal_piv>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     store_piv(const int tx, int* TDLS_RESTRICT piv, const int piv_stride,
               const int (&rpiv)[rows_per_thread]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -625,7 +627,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  rhs_stride element stride of b (external mode)
     /// \param[out] rB         right-hand-side registers of the thread
     template<bool internal_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_rhs(const int tx, const T* TDLS_RESTRICT b, const int rhs_stride,
              T (&rB)[rows_per_thread]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -644,7 +646,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  rhs_stride element stride of x (external mode)
     /// \param[in]  rB         solution registers of the thread
     template<bool internal_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     store_solution(const int tx, T* TDLS_RESTRICT x, const int rhs_stride,
                    const T (&rB)[rows_per_thread]) noexcept {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -675,7 +677,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in] in_place   magnitude of the row in place in the column
     /// \param[in] column_max largest magnitude of the column
     /// \return true when the row in place keeps the pivot
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     keeps_pivot(const T in_place, const T column_max) noexcept {
         const T bound = relative_pivot_threshold * column_max;
         return in_place >= (bound > singular_floor ? bound : singular_floor);
@@ -710,7 +712,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<bool fuse_rhs, typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     logical_elimination_step([[maybe_unused]] const int tx, const int i,
                              T (&rA)[rows_per_thread][N], [[maybe_unused]] T (&rB)[rows_per_thread],
                              int (&rowid)[rows_per_thread], T* sB, T* sx, T* dsx, int& linfo,
@@ -809,7 +811,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  origin its original index
     /// \param[out] record exchange record, N + 2 elements
     template<bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     save_row(const T (&row)[N], [[maybe_unused]] const T& rhs, const int origin,
              T* record) noexcept {
         if constexpr (Config.unroll_loops) {
@@ -832,7 +834,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[out] origin its original index
     /// \param[in]  record exchange record, N + 2 elements
     template<bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_row(T (&row)[N], [[maybe_unused]] T& rhs, int& origin, const T* record) noexcept {
         if constexpr (Config.unroll_loops) {
             TDLS_UNROLL_FORCE
@@ -854,8 +856,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in] K  row slot
     /// \param[in] i  column of the step
     /// \return true when slot K may hold a row below position i
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool below(const int tx, const int K,
-                                                                  const int i) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool below(const int tx, const int K,
+                                                                       const int i) noexcept {
         return (K + 1) * threads_per_system > i + 1 &&
                (slot_is_full(K) || tx + K * threads_per_system < N);
     }
@@ -877,7 +879,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]  origin original index of the row held by each slot
     /// \param[out] record exchange record, N + 2 elements
     template<bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     gather_row(const int tx, const int i, const int pos, const T (&rA)[rows_per_thread][N],
                [[maybe_unused]] const T (&rB)[rows_per_thread],
                const int (&origin)[rows_per_thread], T* record) noexcept {
@@ -928,7 +930,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in,out] origin original index of the row held by each slot
     /// \param[in]     record exchange record, N + 2 elements
     template<bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     scatter_row(const int tx, const int i, const int pos, T (&rA)[rows_per_thread][N],
                 [[maybe_unused]] T (&rB)[rows_per_thread], int (&origin)[rows_per_thread],
                 const T* record) noexcept {
@@ -998,7 +1000,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync   barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<bool fuse_rhs, typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     physical_elimination_step(const int tx, const int i, T (&rA)[rows_per_thread][N],
                               [[maybe_unused]] T (&rB)[rows_per_thread],
                               int (&origin)[rows_per_thread], T* work, int& linfo,
@@ -1136,7 +1138,7 @@ struct CooperativeLUppSolverStatic {
     ///         singular_floor (MAGMA's linfo)
     TDLS_EXEC_CHECK_DISABLE
     template<bool fuse_rhs, typename Sync>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     eliminate(const int tx, T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
               int (&rpiv)[rows_per_thread], T* work,
               Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1196,7 +1198,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     forward_step(const int i, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                  const int (&rowid)[rows_per_thread], T* sB,
                  Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1227,7 +1229,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     work  workspace of the group
     /// \param[in]     sync  barrier of the group
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     forward_pass(const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                  const int (&rowid)[rows_per_thread], T* work,
                  Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1261,7 +1263,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     backward_step(const int i, const int tx, const T (&rA)[rows_per_thread][N],
                   T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread], T* sB, T* sx,
                   Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1302,7 +1304,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     backward_pass(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                   const int (&rowid)[rows_per_thread], T* work,
                   Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1340,7 +1342,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync   barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     gather_rhs(const int tx, T (&rB)[rows_per_thread], const int (&origin)[rows_per_thread],
                T* staged, Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         detail::unroll_K<rows_per_thread>([&](auto K_tag) {
@@ -1393,8 +1395,8 @@ struct CooperativeLUppSolverStatic {
     /// \param[in] work workspace of the group
     /// \param[in] step index of the step
     /// \return the half of the step
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr T* segment(T* work,
-                                                                  const int step) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr T* segment(T* work,
+                                                                       const int step) noexcept {
         return work + (step & 1) * (N + 1);
     }
 
@@ -1411,7 +1413,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_forward_step(const int tx, const int i, const T (&rA)[rows_per_thread][N],
                             T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread], T* work,
                             Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1466,7 +1468,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_backward_step(const int tx, const int k, const T (&rA)[rows_per_thread][N],
                              T (&rB)[rows_per_thread], const int (&rowid)[rows_per_thread], T* work,
                              Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1517,7 +1519,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync  barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<bool backward_only, typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_passes(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                       const int (&rowid)[rows_per_thread], T* work,
                       Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1555,7 +1557,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     unpermute_solution(const int tx, T (&rB)[rows_per_thread], const int (&rpiv)[rows_per_thread],
                        T* work, Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
         constexpr bool logical = Config.row_interchange == RowInterchange::Logical;
@@ -1599,7 +1601,7 @@ struct CooperativeLUppSolverStatic {
     /// \param[in]     sync barrier of the group
     TDLS_EXEC_CHECK_DISABLE
     template<bool backward_only, typename Sync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitution(const int tx, const T (&rA)[rows_per_thread][N], T (&rB)[rows_per_thread],
                  const int (&rpiv)[rows_per_thread], T* work,
                  Sync& sync) noexcept(detail::nothrow_sync<Sync>) {
@@ -1645,7 +1647,7 @@ struct CooperativeLUppSolverStatic {
     /// \return tdls::NoSync for one thread per system, the deduced barrier
     ///         otherwise
     TDLS_EXEC_CHECK_DISABLE
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr auto make_sync(T* work) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr auto make_sync(T* work) noexcept {
         AutoSync deduce;
         return detail::resolve_sync<threads_per_system>(deduce, work, threads_per_system);
     }
@@ -1668,7 +1670,7 @@ struct CooperativeLUppSolverStatic {
     /// \return false on a singular matrix (factorization unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_piv, bool internal_matrix, typename Sync = tdls::AutoSync>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, T* work,
               Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
@@ -1707,7 +1709,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride, T* work,
@@ -1746,7 +1748,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride, T* work,
@@ -1791,7 +1793,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride, T* work,
@@ -1838,7 +1840,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           T* work, Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
@@ -1891,7 +1893,7 @@ struct CooperativeLUppSolverStatic {
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
              typename Sync = tdls::AutoSync>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride, T* work,
                   Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {

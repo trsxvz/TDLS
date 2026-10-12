@@ -226,19 +226,19 @@
 /// Picks the statement list of the side of the pass.
 #define TDLS_DETAIL_GROUP_SIDE(device, host) NV_IF_TARGET(NV_IS_DEVICE, device, host)
 /// Qualifiers of the lane functions.
-#define TDLS_DETAIL_GROUP_LANES TDLS_HOST_DEVICE TDLS_FORCEINLINE
+#define TDLS_DETAIL_GROUP_LANES TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU
 #elif defined(TDLS_DETAIL_GROUP_CUDA)
 /// Keeps a statement list on the device side only.
 #define TDLS_DETAIL_GROUP_ON_DEVICE(code)    TDLS_DETAIL_GROUP_EXPAND code
 /// Picks the statement list of the side of the pass.
 #define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
-#define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCEINLINE
+#define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCE_INLINE_GPU
 #elif defined(TDLS_DETAIL_GROUP_AMDGCN) && defined(__HIP__)
 /// Picks the statement list of the side of the pass.
 #define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
-#define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCEINLINE
+#define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCE_INLINE_GPU
 #elif defined(TDLS_DETAIL_GROUP_NVPTX) || defined(TDLS_DETAIL_GROUP_AMDGCN)
 /// Picks the statement list of the side of the pass.
 #define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
@@ -281,7 +281,7 @@ struct AutoSync {};
 /// pass can stop it (see core/group.hpp).
 struct NoSync {
     /// \brief Does nothing.
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void operator()() const noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void operator()() const noexcept {
     }
 };
 
@@ -665,7 +665,7 @@ void host_sync(T* slots, const int threads) noexcept {
 /// \brief Stops the program: the runtime solver runs a group of several
 /// threads with tdls::NoSync. A pass that can stop neither a kernel nor
 /// the program, one without a side, lets it run.
-TDLS_HOST_DEVICE TDLS_FORCEINLINE void refuse_no_sync() noexcept {
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU void refuse_no_sync() noexcept {
     TDLS_DETAIL_GROUP_SIDE((lanes_fail(lanes_active(), LanesFailure::no_sync);),
                            (host_refuse_no_sync();))
 }
@@ -683,7 +683,8 @@ class DeducedSync {
     ///            address also identifies the group
     /// \param[in] threads number of threads of the group
     TDLS_EXEC_CHECK_DISABLE
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr DeducedSync(T* slots, const int threads) noexcept
+    TDLS_HOST_DEVICE
+    TDLS_FORCE_INLINE_GPU constexpr DeducedSync(T* slots, const int threads) noexcept
         : slots(slots), threads(threads) {
         if (threads > 1) {
             TDLS_DETAIL_GROUP_DISPATCH((lanes = lanes_join(slots, threads);),
@@ -693,7 +694,7 @@ class DeducedSync {
 
     /// \brief Barrier of the group.
     TDLS_EXEC_CHECK_DISABLE
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void operator()() const noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void operator()() const noexcept {
         if (threads > 1) {
             TDLS_DETAIL_GROUP_DISPATCH((lanes_sync(lanes);), (host_sync(slots, threads);))
         }
@@ -723,7 +724,7 @@ class DeducedSync {
 /// \param[in] threads size of the group
 /// \return a reference to sync, or the deduced barrier
 template<int static_threads, typename Sync, typename T>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr decltype(auto)
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr decltype(auto)
 resolve_sync(Sync& sync, [[maybe_unused]] T* slots, [[maybe_unused]] const int threads) noexcept {
     if constexpr (is_no_sync<Sync>) {
         static_assert(static_threads <= 1, "TDLS: a group of several threads cannot run with "

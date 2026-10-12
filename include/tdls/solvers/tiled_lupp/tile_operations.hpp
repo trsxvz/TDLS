@@ -58,8 +58,8 @@ struct TiledLUppTileOperations : TileOperations<T, tile_size, unroll_loops> {
     /// \param[in,out] t register tile
     /// \param[in]     k column to eliminate
     template<int row_extent, int col_extent>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void eliminate_column(T* TDLS_RESTRICT t,
-                                                                             int k) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    eliminate_column(T* TDLS_RESTRICT t, int k) noexcept {
         const T inv_pivot    = T(1) / t[k * tile_size + k];
         t[k * tile_size + k] = inv_pivot;
         if constexpr (unroll_loops) {

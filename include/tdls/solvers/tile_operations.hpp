@@ -64,8 +64,8 @@ struct TileOperations {
     /// \param[in]     k destination row
     /// \param[in]     r source row to swap in
     template<int k_extent>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void swap_rows(T* TDLS_RESTRICT t, int k,
-                                                                      int r) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void swap_rows(T* TDLS_RESTRICT t,
+                                                                           int k, int r) noexcept {
         if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
             for (int row = 0; row < k_extent; ++row) {
@@ -98,7 +98,7 @@ struct TileOperations {
     /// \param[in]     lu factored diagonal tile (L\\U)
     /// \param[in,out] B  updated register tile
     template<int diag_extent, int col_extent>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     trsm_left_unit(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B) noexcept {
         if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
@@ -132,7 +132,7 @@ struct TileOperations {
     /// \param[in]     lu factored diagonal tile (L\\U, reciprocal diagonal)
     /// \param[in,out] B  updated register tile
     template<int diag_extent, int row_extent>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     trsm_right(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B) noexcept {
         if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE
@@ -172,7 +172,7 @@ struct TileOperations {
     /// \param[in]     At left factor tile
     /// \param[in]     Bt right factor tile
     template<int row_extent, int col_extent, int k_extent>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     gemm_sub(T* TDLS_RESTRICT Ct, const T* TDLS_RESTRICT At, const T* TDLS_RESTRICT Bt) noexcept {
         if constexpr (unroll_loops) {
             TDLS_UNROLL_FORCE

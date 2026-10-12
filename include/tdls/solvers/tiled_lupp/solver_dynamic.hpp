@@ -202,7 +202,7 @@ struct TiledLUppSolverDynamic {
 
     /// \brief Number of tiles per dimension (last one possibly partial).
     /// \param[in] n system dimension
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int num_tiles(const int n) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int num_tiles(const int n) noexcept {
         return (n + tile_size - 1) / tile_size;
     }
 
@@ -210,8 +210,8 @@ struct TiledLUppSolverDynamic {
     /// less for the last tile.
     /// \param[in] t0 first global row/column of the tile
     /// \param[in] n  system dimension
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int tile_size_at(const int t0,
-                                                                        const int n) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int tile_size_at(const int t0,
+                                                                             const int n) noexcept {
         return (n - t0 < tile_size) ? (n - t0) : tile_size;
     }
 
@@ -226,7 +226,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     k  destination row (elimination column)
     /// \param[in]     r  source row to swap in
     /// \param[in]     ke active extent of the tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ops_swap_rows(T* TDLS_RESTRICT t, const int k, const int r, const int ke) noexcept {
         for (int j = 0; j < ke; ++j) {
             const T tmp          = t[k * tile_size + j];
@@ -244,7 +244,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     k  column to eliminate
     /// \param[in]     re active row extent of the tile
     /// \param[in]     ce active column extent of the tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ops_eliminate_column(T* TDLS_RESTRICT t, const int k, const int re, const int ce) noexcept {
         const T inv_pivot    = T(1) / t[k * tile_size + k];
         t[k * tile_size + k] = inv_pivot;
@@ -261,7 +261,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] B  updated register tile
     /// \param[in]     kd extent of the factored diagonal tile
     /// \param[in]     ce column extent of B
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ops_trsm_left_unit(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B, const int kd,
                        const int ce) noexcept {
         for (int k = 0; k < kd; ++k) {
@@ -282,7 +282,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] B  updated register tile
     /// \param[in]     kd extent of the factored diagonal tile
     /// \param[in]     re row extent of B
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ops_trsm_right(const T* TDLS_RESTRICT lu, T* TDLS_RESTRICT B, const int kd,
                    const int re) noexcept {
         for (int k = 0; k < kd; ++k) {
@@ -305,7 +305,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     re row extent of Ct and At
     /// \param[in]     ce column extent of Ct and Bt
     /// \param[in]     kd inner extent (columns of At, rows of Bt)
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ops_gemm_sub(T* TDLS_RESTRICT Ct, const T* TDLS_RESTRICT At, const T* TDLS_RESTRICT Bt,
                  const int re, const int ce, const int kd) noexcept {
         for (int i = 0; i < re; ++i) {
@@ -331,7 +331,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out] t        destination register tile
     /// \param[in]  re       tile row extent
     /// \param[in]  ce       tile column extent
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_tile(const int n, const T* TDLS_RESTRICT A, const int A_stride,
               const int* TDLS_RESTRICT prow, const int col0, T* TDLS_RESTRICT t, const int re,
               const int ce) noexcept {
@@ -350,7 +350,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     t        source register tile
     /// \param[in]     re       tile row extent
     /// \param[in]     ce       tile column extent
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     store_tile(const int n, T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT prow,
                const int col0, const T* TDLS_RESTRICT t, const int re, const int ce) noexcept {
         for (int i = 0; i < re; ++i) {
@@ -371,7 +371,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out] t          destination register tile
     /// \param[in]  re         tile row extent
     /// \param[in]  ce         tile column extent
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_tile_piv(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                   const int* TDLS_RESTRICT piv, const int piv_stride, const int row0,
                   const int col0, T* TDLS_RESTRICT t, const int re, const int ce) noexcept {
@@ -394,7 +394,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     t          source register tile
     /// \param[in]     re         tile row extent
     /// \param[in]     ce         tile column extent
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     store_tile_piv(const int n, T* TDLS_RESTRICT A, const int A_stride,
                    const int* TDLS_RESTRICT piv, const int piv_stride, const int row0,
                    const int col0, const T* TDLS_RESTRICT t, const int re, const int ce) noexcept {
@@ -417,7 +417,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  col0       first global column of the tile
     /// \param[out] t          destination register tile
     /// \param[in]  re         tile extent
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_tile_piv_lower(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, const int row0,
                         const int col0, T* TDLS_RESTRICT t, const int re) noexcept {
@@ -440,7 +440,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  col0       first global column of the tile
     /// \param[out] t          destination register tile
     /// \param[in]  re         tile extent
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     load_tile_piv_upper(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, const int row0,
                         const int col0, T* TDLS_RESTRICT t, const int re) noexcept {
@@ -477,7 +477,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false when the matrix is singular at this column.
     template<bool oot_diagnostics, bool fuse_rhs>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factor_diag_column(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                        const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                        const int c, const int ke, T* TDLS_RESTRICT y,
@@ -647,7 +647,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diagnostics, bool fuse_rhs>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factor_diag_tile(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                      const int piv_stride, const int k0, T* TDLS_RESTRICT tile, int& oot_count,
                      const int ke, T* TDLS_RESTRICT y = nullptr,
@@ -673,7 +673,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     j0       first global column of the updated tile
     /// \param[in]     ke       extent of the factored diagonal tile
     /// \param[in]     je       column extent of the updated tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     rl_trsm_right_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
                       const int* TDLS_RESTRICT pk, const T* TDLS_RESTRICT tile, const int j0,
                       const int ke, const int je) noexcept {
@@ -698,7 +698,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     k0         first global row/column of the step
     /// \param[in,out] y          fused right-hand side
     /// \param[in]     rhs_stride element stride of y
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     rl_trsm_right_push_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
                            const int* TDLS_RESTRICT pk, const T* TDLS_RESTRICT tile, const int j0,
                            const int ke, const int je, const int k0, T* TDLS_RESTRICT y,
@@ -722,7 +722,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     ke       inner extent (current step)
     /// \param[in]     ie       row extent of the updated tile
     /// \param[in]     je       column extent of the updated tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     rl_schur_one(const int n, T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT pk,
                  const int* TDLS_RESTRICT pi, const T* TDLS_RESTRICT Aik, const int j0,
                  const int ke, const int ie, const int je) noexcept {
@@ -760,7 +760,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] y          fused right-hand side (fuse_rhs only)
     /// \param[in]     rhs_stride element stride of y
     template<bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     rl_update_row_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
                       const int* TDLS_RESTRICT piv, const int piv_stride,
                       const int* TDLS_RESTRICT pk, const T* TDLS_RESTRICT tile, const int k,
@@ -812,7 +812,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diagnostics, bool fuse_rhs>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     rl_step(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
             const int piv_stride, const int k, int& oot_count, T* TDLS_RESTRICT y = nullptr,
             const int rhs_stride = 1) noexcept {
@@ -883,7 +883,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] t          register tile being corrected
     /// \param[in]     re         row extent of the corrected tile
     /// \param[in]     ce         column extent of the corrected tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ll_correct_tile(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                     const int* TDLS_RESTRICT piv, const int piv_stride, const int row0,
                     const int col0, const int k0, T* TDLS_RESTRICT t, const int re,
@@ -913,7 +913,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] y          fused right-hand side (fuse_rhs only)
     /// \param[in]     rhs_stride element stride of y
     template<bool fuse_rhs>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void ll_update_below_one(
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void ll_update_below_one(
         const int n, T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
         const int piv_stride, const T* TDLS_RESTRICT tile, const int k0, const int i0, const int ke,
         const int ie, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) noexcept {
@@ -947,7 +947,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     j0         first global column of the updated tile
     /// \param[in]     ke         extent of the diagonal tile
     /// \param[in]     je         column extent of the updated tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ll_update_right_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride,
                         const T* TDLS_RESTRICT tile, const int k0, const int j0, const int ke,
@@ -975,7 +975,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     je         column extent of the updated tile
     /// \param[in,out] y          fused right-hand side
     /// \param[in]     rhs_stride element stride of y
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     ll_update_right_push_one(const int n, T* TDLS_RESTRICT A, const int A_stride,
                              const int* TDLS_RESTRICT piv, const int piv_stride,
                              const T* TDLS_RESTRICT tile, const int k0, const int j0, const int ke,
@@ -1003,7 +1003,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diagnostics, bool fuse_rhs>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     ll_step(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
             const int piv_stride, const int k, int& oot_count, T* TDLS_RESTRICT y = nullptr,
             const int rhs_stride = 1) noexcept {
@@ -1076,7 +1076,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix.
     template<bool oot_diagnostics = true, bool fuse_rhs = false>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, int& oot_count, T* TDLS_RESTRICT y = nullptr,
               const int rhs_stride = 1) noexcept {
@@ -1110,7 +1110,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    piv        permutation storage (always caller-provided)
     /// \param[in]     piv_stride element stride of piv
     /// \return false on a singular matrix.
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride) noexcept {
         int unused = 0;
@@ -1136,7 +1136,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     m0          first global row of the target segment
     /// \param[in]     ke          extent of the solved segment's tile
     /// \param[in]     me          extent of the target segment's tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     fwd_push_one(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                  const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                  const int rhs_stride, const int xcol_stride, const int k0, const int m0,
@@ -1165,7 +1165,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
     /// \param[in]     k           step index (k0 = k*tile_size)
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     fwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
              const int rhs_stride, const int xcol_stride, const int k) noexcept {
@@ -1206,7 +1206,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     m0          first global row of the trailing segment
     /// \param[in]     ke          extent of the updated segment's tile
     /// \param[in]     me          extent of the trailing segment's tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     bwd_pull_one(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                  const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                  const int rhs_stride, const int xcol_stride, const int k0, const int m0,
@@ -1235,7 +1235,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
     /// \param[in]     k           step index (k0 = k*tile_size)
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     bwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
              const int rhs_stride, const int xcol_stride, const int k) noexcept {
@@ -1274,7 +1274,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] x           solution column(s)
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     bwd_only(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
              const int rhs_stride, const int xcol_stride) noexcept {
@@ -1295,7 +1295,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] x           solution column(s)
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     fwd_bwd(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
             const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
             const int rhs_stride, const int xcol_stride) noexcept {
@@ -1321,7 +1321,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     piv_stride element stride of piv
     /// \param[in,out] x          column to permute
     /// \param[in]     rhs_stride element stride of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     permute_inplace(const int n, const int* TDLS_RESTRICT piv, const int piv_stride,
                     T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
         if (n <= 64) {
@@ -1381,7 +1381,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     nrhs        number of columns processed together
     /// \param[in]     k0          first global index of the segment
     /// \param[in]     ke          extent of the diagonal tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_solve_tile_upper(const T* TDLS_RESTRICT t, T* TDLS_RESTRICT x, const int rhs_stride,
                                 const int xcol_stride, const int nrhs, const int k0,
                                 const int ke) noexcept {
@@ -1406,7 +1406,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     m0          first global index of the target segment
     /// \param[in]     ke          extent of the solved segment's tile
     /// \param[in]     me          extent of the target segment's tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_push_one(const T* TDLS_RESTRICT u, T* TDLS_RESTRICT x, const int rhs_stride,
                         const int xcol_stride, const int nrhs, const int k0, const int m0,
                         const int ke, const int me) noexcept {
@@ -1430,7 +1430,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     m0          first global index of the trailing segment
     /// \param[in]     ke          extent of the updated segment's tile
     /// \param[in]     me          extent of the trailing segment's tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_pull_one(const T* TDLS_RESTRICT l, T* TDLS_RESTRICT x, const int rhs_stride,
                         const int xcol_stride, const int nrhs, const int k0, const int m0,
                         const int ke, const int me) noexcept {
@@ -1452,7 +1452,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     nrhs        number of columns processed together
     /// \param[in]     k0          first global index of the segment
     /// \param[in]     ke          extent of the diagonal tile
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_solve_tile_lower_unit(const T* TDLS_RESTRICT l, T* TDLS_RESTRICT x,
                                      const int rhs_stride, const int xcol_stride, const int nrhs,
                                      const int k0, const int ke) noexcept {
@@ -1477,7 +1477,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
     /// \param[in]     k           step index (k0 = k*tile_size)
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_fwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                         const int rhs_stride, const int xcol_stride, const int k) noexcept {
@@ -1507,7 +1507,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
     /// \param[in]     k           step index (k0 = k*tile_size)
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_bwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                         const int rhs_stride, const int xcol_stride, const int k) noexcept {
@@ -1536,7 +1536,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] x           solution column(s)
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_bwd_only(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                         const int rhs_stride, const int xcol_stride) noexcept {
@@ -1557,7 +1557,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] x           right-hand side column(s) on entry, w on exit
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_fwd_bwd(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride, const int xcol_stride) noexcept {
@@ -1577,7 +1577,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     piv_stride element stride of piv
     /// \param[in,out] x          w on entry, the solution on exit
     /// \param[in]     rhs_stride element stride of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     unpermute_inplace(const int n, const int* TDLS_RESTRICT piv, const int piv_stride,
                       T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
         if (n <= 64) {
@@ -1631,7 +1631,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  b          right-hand side, in original (unpermuted) order
     /// \param[out] x          solution
     /// \param[in]  rhs_stride element stride of b and x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
@@ -1662,7 +1662,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  col        index of the canonical column e_col
     /// \param[out] x          solution
     /// \param[in]  rhs_stride element stride of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
@@ -1687,7 +1687,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out] x           nrhs solution columns
     /// \param[in]  rhs_stride  element stride of x
     /// \param[in]  xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                        const int A_stride, const int* TDLS_RESTRICT piv,
                                        const int piv_stride, const int col0, T* TDLS_RESTRICT x,
@@ -1735,7 +1735,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  rhs_stride  element stride of x
     /// \param[in]  xcol_stride element stride between columns of x
     template<int pass_width = 0>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                   const int A_stride, const int* TDLS_RESTRICT piv,
                                   const int piv_stride, const int col0, T* TDLS_RESTRICT x,
@@ -1773,7 +1773,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out] x           nrhs solution columns
     /// \param[in]  rhs_stride  element stride of b and x
     /// \param[in]  xcol_stride element stride between columns of b and x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                              const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
                              const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
@@ -1825,7 +1825,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  rhs_stride  element stride of b and x
     /// \param[in]  xcol_stride element stride between columns of b and x
     template<int pass_width = 0>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride,
                         const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
@@ -1860,7 +1860,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     piv_stride element stride of piv
     /// \param[in,out] x          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace(const int n, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride) noexcept {
@@ -1892,7 +1892,7 @@ struct TiledLUppSolverDynamic {
     ///                nrhs solution columns on exit
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                      const int A_stride, const int* TDLS_RESTRICT piv,
                                      const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
@@ -1936,7 +1936,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
     template<int pass_width = 0>
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr void
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                 const int A_stride, const int* TDLS_RESTRICT piv,
                                 const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
@@ -1977,7 +1977,7 @@ struct TiledLUppSolverDynamic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix.
     template<bool oot_diagnostics = true>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           int& oot_count) noexcept {
@@ -1998,7 +1998,7 @@ struct TiledLUppSolverDynamic {
     /// \param[out]    x          solution
     /// \param[in]     rhs_stride element stride of b and x
     /// \return false on a singular matrix.
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
           const int rhs_stride) noexcept {
@@ -2029,7 +2029,7 @@ struct TiledLUppSolverDynamic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix.
     template<int pass_width = 0, bool oot_diagnostics = true>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                    int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                    T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
@@ -2060,7 +2060,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     xcol_stride element stride between columns of b and x
     /// \return false on a singular matrix.
     template<int pass_width = 0>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                    int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                    T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride) noexcept {
@@ -2096,7 +2096,7 @@ struct TiledLUppSolverDynamic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix (y left partially updated).
     template<bool oot_diagnostics = true>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& oot_count) noexcept {
@@ -2126,7 +2126,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] y          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix (y left partially updated).
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride) noexcept {
         int unused = 0;
@@ -2160,7 +2160,7 @@ struct TiledLUppSolverDynamic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix (y left untouched).
     template<int pass_width = 0, bool oot_diagnostics = true>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                            int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
                            const int rhs_stride, const int xcol_stride, int& oot_count) noexcept {
@@ -2189,7 +2189,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     xcol_stride element stride between columns of y
     /// \return false on a singular matrix (y left untouched).
     template<int pass_width = 0>
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr bool
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                            int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
                            const int rhs_stride, const int xcol_stride) noexcept {

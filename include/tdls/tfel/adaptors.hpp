@@ -253,7 +253,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! the indexing policy instance of the object (only instantiated on
     //! the runtime-sized path)
     //! \param[in] o dense object
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     runtime_extent0(const DenseType& o) noexcept {
         return static_cast<int>(o.getIndexingPolicy().size(0));
     }
@@ -262,7 +262,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! the indexing policy instance of the object (only instantiated on
     //! the runtime-sized path, for matrix-like right-hand-side blocks)
     //! \param[in] o dense object
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     runtime_extent1(const DenseType& o) noexcept {
         return static_cast<int>(o.getIndexingPolicy().size(1));
     }
@@ -272,7 +272,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! instantiated on the runtime-sized path); to be scaled by
     //! runtime_view_stride
     //! \param[in] o dense object
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     runtime_row_stride(const DenseType& o) noexcept {
         return static_cast<int>(
             o.getIndexingPolicy().getIndex(policy_size_type(1), policy_size_type(0)));
@@ -283,7 +283,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! (only instantiated on the runtime-sized path); to be scaled by
     //! runtime_view_stride
     //! \param[in] o dense object
-    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     runtime_col_stride(const DenseType& o) noexcept {
         return static_cast<int>(
             o.getIndexingPolicy().getIndex(policy_size_type(0), policy_size_type(1)));
@@ -292,7 +292,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! \return the pointer to the first element (const-ness is erased;
     //! mutating entry points check is_mutable beforehand)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr value_type*
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr value_type*
     pointer(const DenseType& o) noexcept {
         if constexpr (detail::has_pair_data<DenseType>::value) {
             return const_cast<value_type*>(static_cast<const value_type*>(o.data().first));
@@ -304,7 +304,7 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! \return the runtime stride of the view (1 when the object carries
     //! none): the factor scaling every distance of the indexing policy
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     runtime_view_stride(const DenseType& o) noexcept {
         if constexpr (detail::has_pair_data<DenseType>::value) {
             return static_cast<int>(o.data().second);
@@ -320,7 +320,8 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! \return the total element stride (compile-time part times the
     //! runtime stride of the view, when any)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int stride(const DenseType& o) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    stride(const DenseType& o) noexcept {
         return policy_stride * runtime_view_stride(o);
     }
 
@@ -334,7 +335,8 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
 
     //! \return the number of columns of a matrix-like block
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int columns(const DenseType& o) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    columns(const DenseType& o) noexcept {
         if constexpr (has_runtime_extents) {
             return runtime_extent1(o);
         } else {
@@ -346,7 +348,8 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! of a matrix-like block (the rhs_stride of the _multirhs raw
     //! entry points)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int row_stride(const DenseType& o) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    row_stride(const DenseType& o) noexcept {
         if constexpr (has_runtime_extents) {
             return runtime_row_stride(o) * runtime_view_stride(o);
         } else {
@@ -358,7 +361,8 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! elements of a matrix-like block (the xcol_stride of the _multirhs
     //! raw entry points)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int col_stride(const DenseType& o) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    col_stride(const DenseType& o) noexcept {
         if constexpr (has_runtime_extents) {
             return runtime_col_stride(o) * runtime_view_stride(o);
         } else {
@@ -472,7 +476,7 @@ struct adaptor_context {
 /// \tparam Scalar     scalar type of the system
 /// \tparam N          system dimension (0 on the runtime path)
 template<typename VectorType, typename Scalar, int N>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_vector() {
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void check_vector() {
     using vtraits = storage_traits<std::remove_cv_t<VectorType>>;
     static_assert(vtraits::arity == 1, "tdls adaptors: expected a vector-like object");
     static_assert(N == 0 || vtraits::has_runtime_extents || vtraits::extent0 == N,
@@ -490,7 +494,7 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_vector() {
 /// \tparam RhsType      right-hand-side type
 /// \tparam SolutionType solution type
 template<typename RhsType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_rhs_pair() {
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void check_rhs_pair() {
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(bt::is_internal == xt::is_internal && bt::policy_stride == xt::policy_stride &&
@@ -511,7 +515,7 @@ TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_rhs_pair() {
 /// \tparam Scalar       scalar type of the system
 /// \tparam N            system dimension (0 on the runtime path)
 template<typename RhsType, typename SolutionType, typename Scalar, int N>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void check_multirhs_pair() {
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void check_multirhs_pair() {
     using bt = storage_traits<std::remove_cv_t<RhsType>>;
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(xt::arity == 2, "tdls adaptors: a matrix-like right-hand side requires a "
@@ -586,7 +590,8 @@ struct pivot_access {
 
     //! \return the pivot element pointer
     //! \param[in] p pivot argument
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int* pointer(const PivotType& p) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int*
+    pointer(const PivotType& p) noexcept {
         if constexpr (is_raw) {
             return const_cast<int*>(static_cast<const int*>(p));
         } else {
@@ -599,7 +604,8 @@ struct pivot_access {
 
     //! \return the pivot element stride
     //! \param[in] p pivot argument
-    TDLS_HOST_DEVICE TDLS_FORCEINLINE static constexpr int stride(const PivotType& p) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    stride(const PivotType& p) noexcept {
         if constexpr (is_raw) {
             return 1;
         } else {
@@ -620,7 +626,7 @@ struct pivot_access {
 ///                    place (b is then ignored and may alias x)
 template<typename Ctx, int pass_width, bool inplace, typename MatrixType, typename PivotType,
          typename RhsType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const RhsType& b,
                              SolutionType& x) {
     using mt = typename Ctx::mtraits;
@@ -671,7 +677,7 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
 /// \param[out]    oot_count out-of-tile search counter (oot_diagnostics)
 /// \return false on a singular matrix.
 template<auto UserConfig, bool oot_diagnostics, typename MatrixType, typename PivotType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
     using mt  = typename ctx::mtraits;
@@ -704,7 +710,7 @@ factorize_dispatch(MatrixType& A, PivotType& piv, int& oot_count) {
 /// \return false on a singular matrix.
 template<auto UserConfig, int pass_width, bool oot_diagnostics, typename MatrixType,
          typename PivotType, typename RhsType, typename SolutionType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
     using mt  = typename ctx::mtraits;
@@ -754,7 +760,7 @@ solve_dispatch(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x,
 /// \return false on a singular matrix.
 template<auto UserConfig, int pass_width, bool oot_diagnostics, typename MatrixType,
          typename PivotType, typename VectorType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
     using ctx = adaptor_context<MatrixType, checked_config<MatrixType, UserConfig>()>;
     using mt  = typename ctx::mtraits;
@@ -799,8 +805,8 @@ solve_inplace_dispatch(MatrixType& A, PivotType& piv, VectorType& y, int& oot_co
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
-                                                                         PivotType& piv) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool factorize(MatrixType& A,
+                                                                              PivotType& piv) {
     int unused = 0;
     return detail::factorize_dispatch<UserConfig, false>(A, piv, unused);
 }
@@ -810,8 +816,8 @@ template<detail::solver_config auto UserConfig, typename MatrixType, typename Pi
 /// \param[in,out] piv pivot storage: int pointer/array or dense int object
 /// \return false on a singular matrix.
 template<typename MatrixType, typename PivotType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool factorize(MatrixType& A,
-                                                                         PivotType& piv) {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool factorize(MatrixType& A,
+                                                                              PivotType& piv) {
     return factorize<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv);
 }
 
@@ -825,7 +831,7 @@ template<typename MatrixType, typename PivotType>
 ///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, typename MatrixType, typename PivotType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 factorize(MatrixType& A, PivotType& piv, int& oot_count) {
     return detail::factorize_dispatch<UserConfig, true>(A, piv, oot_count);
 }
@@ -837,7 +843,7 @@ factorize(MatrixType& A, PivotType& piv, int& oot_count) {
 ///                pivot fell below oot_pivot_threshold
 /// \return false on a singular matrix.
 template<typename MatrixType, typename PivotType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 factorize(MatrixType& A, PivotType& piv, int& oot_count) {
     return factorize<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}>(A, piv, oot_count);
 }
@@ -861,7 +867,7 @@ factorize(MatrixType& A, PivotType& piv, int& oot_count) {
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename RhsType, typename SolutionType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
     int unused = 0;
     return detail::solve_dispatch<UserConfig, pass_width, false>(A, piv, b, x, unused);
@@ -878,7 +884,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 /// \return false on a singular matrix.
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
     return solve<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x);
 }
@@ -898,7 +904,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x) {
 /// \return false on a singular matrix.
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename RhsType, typename SolutionType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
     return detail::solve_dispatch<UserConfig, pass_width, true>(A, piv, b, x, oot_count);
 }
@@ -915,7 +921,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot
 /// \return false on a singular matrix.
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot_count) {
     return solve<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x,
                                                                                    oot_count);
@@ -942,7 +948,7 @@ solve(MatrixType& A, PivotType& piv, const RhsType& b, SolutionType& x, int& oot
 ///         vector-like y, untouched with a matrix-like y).
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename VectorType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
     int unused = 0;
     return detail::solve_inplace_dispatch<UserConfig, pass_width, false>(A, piv, y, unused);
@@ -959,7 +965,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename VectorType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
     return solve_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv,
                                                                                            y);
@@ -980,7 +986,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y) {
 ///         vector-like y, untouched with a matrix-like y).
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename VectorType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
     return detail::solve_inplace_dispatch<UserConfig, pass_width, true>(A, piv, y, oot_count);
 }
@@ -996,7 +1002,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
 /// \return false on a singular matrix (y left partially updated with a
 ///         vector-like y, untouched with a matrix-like y).
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename VectorType>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr bool
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr bool
 solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
     return solve_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(
         A, piv, y, oot_count);
@@ -1020,7 +1026,7 @@ solve_inplace(MatrixType& A, PivotType& piv, VectorType& y, int& oot_count) {
 /// \param[out] x   solution, of the same shape as b
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename RhsType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, SolutionType& x) {
     using ctx =
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
@@ -1062,7 +1068,7 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
 /// \param[out] x   solution, of the same shape as b
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename RhsType,
          typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, SolutionType& x) {
     substitute<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, b, x);
 }
@@ -1083,7 +1089,7 @@ substitute(const MatrixType& A, const PivotType& piv, const RhsType& b, Solution
 ///                matrix-like holding one right-hand side per column
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     using ctx =
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
@@ -1121,7 +1127,7 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
 /// \param[in,out] x   right-hand side, then solution: vector-like, or
 ///                matrix-like holding one right-hand side per column
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
     substitute_inplace<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv, x);
 }
@@ -1149,7 +1155,7 @@ substitute_inplace(const MatrixType& A, const PivotType& piv, SolutionType& x) {
 ///             solution per canonical column
 template<detail::solver_config auto UserConfig, int pass_width = 0, typename MatrixType,
          typename PivotType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
     using ctx =
         detail::adaptor_context<MatrixType, detail::checked_config<MatrixType, UserConfig>()>;
@@ -1202,7 +1208,7 @@ substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, S
 /// \param[out] x   vector-like solution, or matrix-like holding one
 ///             solution per canonical column
 template<int pass_width = 0, typename MatrixType, typename PivotType, typename SolutionType>
-TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr void
+TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
 substitute_canonical(const MatrixType& A, const PivotType& piv, const int col, SolutionType& x) {
     substitute_canonical<TiledLUppConfig<detail::matrix_scalar<MatrixType>>{}, pass_width>(A, piv,
                                                                                            col, x);

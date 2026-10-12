@@ -38,7 +38,7 @@ namespace detail {
 /// \param[in] x value
 /// \return the absolute value of x
 template<typename T>
-[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCEINLINE constexpr T abs(const T x) noexcept {
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr T abs(const T x) noexcept {
 #if defined(__has_builtin)
 #if __has_builtin(__builtin_is_constant_evaluated)
     if (__builtin_is_constant_evaluated()) return x < T(0) ? -x : x;

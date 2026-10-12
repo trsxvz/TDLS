@@ -39,6 +39,6 @@ ReflowComments: false
 # TDLS portability macros, declared so the formatter parses them correctly:
 # decorations merge with the declaration specifiers; the unroll pragma macro
 # keeps its own line as a statement.
-AttributeMacros: [TDLS_HOST_DEVICE, TDLS_FORCEINLINE, TDLS_RESTRICT]
+AttributeMacros: [TDLS_HOST_DEVICE, TDLS_FORCE_INLINE_GPU, TDLS_RESTRICT]
 BreakAfterAttributes: Leave
 StatementMacros: [TDLS_UNROLL_FORCE]
