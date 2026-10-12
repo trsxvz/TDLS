@@ -6,35 +6,11 @@ one system per group. The family is derived from a kernel of
 It has one configuration type and two solvers: one with a compile-time
 dimension, one with a runtime dimension.
 
-## The layout picks the vectors of a thread
-
-The solver always reads the stored matrix column-major, and factors
-that matrix, called S on this page. The threads of a group thus hold
-vectors that sit at consecutive addresses: on GPU, the lanes of a group
-read one coalesced segment per load. The design of MAGMA rests on this
-access pattern.
-
-- Column-major layout (`ColMajor`), the convention of MAGMA: S = A, and
-  the threads hold rows of A. The solver is the kernel of MAGMA:
-  P A = L U, the forward pass L y = P b folded into the factorization,
-  then U x = y.
-- Row-major layout (`RowMajor`), the TFEL convention and the default:
-  S = A^T, and the threads hold columns of A. The factorization is the
-  one of MAGMA, applied to A^T: the pivoting interchanges columns of A,
-  which is partial pivoting of A^T, as stable. Since A = U^T L^T P, the
-  solve is the mirror of MAGMA's: U^T z = b folded into the
-  factorization, then L^T w = z, then x = P^T w. L has a unit
-  diagonal, so the backward pass divides by nothing.
-
-The layout is a compile-time knob: the choice costs nothing at run time.
-A matrix stored row-major and its transpose stored column-major are the
-same array: both configurations factor it the same way, bit for bit,
-and solve A x = b and A^T x = b respectively. The rest of this page
-speaks of the rows of S, the vectors of a thread.
-
 ## Algorithm
 
-The rows of S are shared by the threads of a group. Each thread
+The solver factors a matrix S read column-major: A itself under the
+column-major layout, A^T under the row-major one (see the next
+section). The rows of S are shared by the threads of a group. Each thread
 holds `rows_per_thread` rows. With T threads in the group, thread `tx`
 holds rows `tx`, `tx + T`, `tx + 2T` and so on. Any dimension works
 with any `rows_per_thread`. When the dimension is not a multiple of
@@ -104,6 +80,31 @@ race of the back substitution, removed.
 The portions derived from MAGMA remain subject to its license, BSD
 3-Clause. The license is reproduced at the top of each solver header
 and in the NOTICE file, installed with the library.
+
+## The layout picks the vectors of a thread
+
+The solver always reads the stored matrix column-major, and factors
+that matrix, S. The threads of a group thus hold
+vectors that sit at consecutive addresses: on GPU, the lanes of a group
+read one coalesced segment per load. The design of MAGMA rests on this
+access pattern.
+
+- Column-major layout (`ColMajor`), the convention of MAGMA: S = A, and
+  the threads hold rows of A. The solver is the kernel of MAGMA:
+  P A = L U, the forward pass L y = P b folded into the factorization,
+  then U x = y.
+- Row-major layout (`RowMajor`), the TFEL convention and the default:
+  S = A^T, and the threads hold columns of A. The factorization is the
+  one of MAGMA, applied to A^T: the pivoting interchanges columns of A,
+  which is partial pivoting of A^T, as stable. Since A = U^T L^T P, the
+  solve is the mirror of MAGMA's: U^T z = b folded into the
+  factorization, then L^T w = z, then x = P^T w. L has a unit
+  diagonal, so the backward pass divides by nothing.
+
+The layout is a compile-time knob: the choice costs nothing at run time.
+A matrix stored row-major and its transpose stored column-major are the
+same array: both configurations factor it the same way, bit for bit,
+and solve A x = b and A^T x = b respectively.
 
 ## Groups of threads
 
