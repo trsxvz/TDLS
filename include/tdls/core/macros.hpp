@@ -53,8 +53,9 @@
 
 /// \def TDLS_FORCE_INLINE_GPU
 /// \brief Inlining forced on GPU only: `__forceinline__` under CUDA, the
-/// equivalent attribute under HIP (see TDLS_HOST_DEVICE for why), plain
-/// `inline` elsewhere.
+/// equivalent attribute under HIP (see TDLS_HOST_DEVICE for why) and in the
+/// device pass of SYCL (`__SYCL_DEVICE_ONLY__`: icpx/DPC++ for Intel GPUs,
+/// and its NVIDIA and AMD targets), plain `inline` elsewhere.
 ///
 /// On GPU backends, forced inlining is the guard that keeps register tiles
 /// alive: an out-of-line call would demote them to slow local memory. On
@@ -68,6 +69,8 @@
 #define TDLS_FORCE_INLINE_GPU inline __attribute__((always_inline))
 #elif defined(__CUDACC__) || defined(__CUDA__)
 #define TDLS_FORCE_INLINE_GPU __forceinline__
+#elif defined(__SYCL_DEVICE_ONLY__)
+#define TDLS_FORCE_INLINE_GPU inline __attribute__((always_inline))
 #else
 #define TDLS_FORCE_INLINE_GPU inline
 #endif
@@ -94,6 +97,30 @@
 #define TDLS_FORCE_INLINE_ALL inline __attribute__((always_inline))
 #else
 #define TDLS_FORCE_INLINE_ALL inline
+#endif
+#endif
+
+
+
+/// \def TDLS_NO_INLINE_GPU
+/// \brief Keeps a function out of line on GPU only: `noinline` under CUDA,
+/// HIP and in the device pass of SYCL, plain `inline` elsewhere; the pair of
+/// TDLS_FORCE_INLINE_GPU.
+///
+/// For a function that the GPU inliner would merge into a large caller,
+/// where the merged function gets a worse register allocation than the two
+/// apart (see ArrowheadLUppConfig::streamed_out_of_line). On CPU the
+/// inliner is left free.
+
+#ifndef TDLS_NO_INLINE_GPU
+#if defined(__HIPCC__) || defined(__HIP__)
+#define TDLS_NO_INLINE_GPU __attribute__((noinline))
+#elif defined(__CUDACC__) || defined(__CUDA__)
+#define TDLS_NO_INLINE_GPU __noinline__
+#elif defined(__SYCL_DEVICE_ONLY__)
+#define TDLS_NO_INLINE_GPU __attribute__((noinline))
+#else
+#define TDLS_NO_INLINE_GPU inline
 #endif
 #endif
 

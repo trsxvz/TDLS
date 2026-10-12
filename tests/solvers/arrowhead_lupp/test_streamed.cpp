@@ -54,10 +54,12 @@ namespace {
 /// \param[in] gather   gather_rhs
 /// \param[in] in_place schur_in_place
 /// \param[in] unroll   unroll_loops
+/// \param[in] outline  streamed_out_of_line
 /// \return the configuration
 constexpr tdls::ArrowheadLUppConfig<double>
 path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool col, const int pass,
-            const bool gather = false, const bool in_place = false, const bool unroll = true) {
+            const bool gather = false, const bool in_place = false, const bool unroll = true,
+            const bool outline = false) {
     tdls::ArrowheadLUppConfig<double> c;
     c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.storage        = storage;
@@ -66,6 +68,7 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
     c.gather_rhs     = gather;
     c.schur_in_place = in_place;
     c.unroll_loops   = unroll;
+    c.streamed_out_of_line = outline;
     return c;
 }
 
@@ -386,6 +389,8 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/gather_in_place_unroll") {
                      path_config(ArrowheadStorage::Full, false, true, 0, false, true)>(604400);
     both_residencies<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0, false,
                                               false, false)>(604500);
+    both_residencies<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0, false,
+                                              false, true, true)>(604600);
 }
 
 TDLS_TEST_MAIN

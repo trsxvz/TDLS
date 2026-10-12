@@ -354,8 +354,12 @@ struct ArrowheadLUppSolverStatic {
     solve_inplace_streamed(Provider&& provider, T* TDLS_RESTRICT A, const int A_stride,
                            T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
                            const int rhs_stride, int& refused_count) noexcept {
-        return solve_core<1, false, internal_rhs, internal_work, internal_matrix>(
-            A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
+        if constexpr (Config.streamed_out_of_line)
+            return solve_core_out_of_line<1, false, internal_rhs, internal_work, internal_matrix>(
+                A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
+        else
+            return solve_core<1, false, internal_rhs, internal_work, internal_matrix>(
+                A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
     }
 
     /// \brief Outcome of solve_inplace_streamed_or_tangent.
@@ -385,6 +389,9 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \tparam Converged       callable () returning bool
+    /// \tparam outlined        internal: set by the out-of-line call of
+    ///                         ArrowheadLUppConfig::streamed_out_of_line, never
+    ///                         by the caller
     /// \param[in]     provider      the source of the blocks
     /// \param[in]     converged     called after the last block: whether the
     ///                              tangent replaces the correction
@@ -405,7 +412,7 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of refused blocks
     /// \return solved, tangent, or singular when the matrix is singular
     template<int ntan, bool internal_rhs, bool internal_work, bool internal_matrix,
-             typename Provider, typename Converged>
+             typename Provider, typename Converged, bool outlined = false>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr StreamedOutcome
     solve_inplace_streamed_or_tangent(Provider&& provider, Converged&& converged,
                                       T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
@@ -415,6 +422,11 @@ struct ArrowheadLUppSolverStatic {
                                       int& refused_count) noexcept {
         static_assert(ntan >= 1 && ntan <= Shape.border,
                       "ArrowheadLUppSolverStatic: ntan must be in [1, border]");
+        if constexpr (Config.streamed_out_of_line && !outlined)
+            return streamed_or_tangent_out_of_line<ntan, internal_rhs, internal_work,
+                                                   internal_matrix>(
+                provider, converged, A, A_stride, work, work_stride, y, rhs_stride, col0, x,
+                x_stride, xcol_stride, refused_count);
         constexpr int ny                     = 1;
         [[maybe_unused]] constexpr int ycols = 1;
         T Sacc[in_place ? 1 : R * B];
@@ -521,9 +533,14 @@ struct ArrowheadLUppSolverStatic {
         const int xcol_stride, int& refused_count) noexcept {
         static_assert(nrhs >= 1 && nrhs <= Shape.border,
                       "ArrowheadLUppSolverStatic: nrhs must be in [1, border]");
-        return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix>(
-            A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count,
-            &provider);
+        if constexpr (Config.streamed_out_of_line)
+            return solve_core_out_of_line<nrhs, true, internal_rhs, internal_work, internal_matrix>(
+                A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count,
+                &provider);
+        else
+            return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix>(
+                A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count,
+                &provider);
     }
 
     /// \brief Solves A x = y in place, counting the refused blocks.
@@ -818,6 +835,37 @@ struct ArrowheadLUppSolverStatic {
     }
 
   private:
+    /// \brief solve_inplace_streamed_or_tangent kept out of line on GPU
+    /// (ArrowheadLUppConfig::streamed_out_of_line): the same call, its
+    /// parameters taken by reference.
+    template<int ntan, bool internal_rhs, bool internal_work, bool internal_matrix,
+             typename Provider, typename Converged>
+    TDLS_HOST_DEVICE TDLS_NO_INLINE_GPU static constexpr StreamedOutcome
+    streamed_or_tangent_out_of_line(Provider& provider, Converged& converged, T* TDLS_RESTRICT A,
+                                    const int A_stride, T* TDLS_RESTRICT work,
+                                    const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                                    const int col0, T* TDLS_RESTRICT x, const int x_stride,
+                                    const int xcol_stride, int& refused_count) noexcept {
+        return solve_inplace_streamed_or_tangent<ntan, internal_rhs, internal_work, internal_matrix,
+                                                 Provider&, Converged&, true>(
+            provider, converged, A, A_stride, work, work_stride, y, rhs_stride, col0, x, x_stride,
+            xcol_stride, refused_count);
+    }
+
+    /// \brief solve_core of a streamed entry point kept out of line on GPU
+    /// (ArrowheadLUppConfig::streamed_out_of_line); same parameters.
+    template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix,
+             typename Provider>
+    TDLS_HOST_DEVICE TDLS_NO_INLINE_GPU static constexpr bool
+    solve_core_out_of_line(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
+                           const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                           const int xcol_stride, const int col0, int& refused_count,
+                           Provider* provider) noexcept {
+        return solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix>(
+            A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, col0, refused_count,
+            provider);
+    }
+
     /// \brief The single element of the trailing pack of the helpers shared
     /// by the stored and streamed paths: the provider or the streamed block,
     /// absent on the stored path, whose signatures and code so stay those

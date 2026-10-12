@@ -260,11 +260,13 @@ the streamed entry points).
 On GPU, the provider is compiled inside the loop of the solver: a call
 the compiler leaves out of line in it passes its arguments through the
 local memory, which can cost more than the stored matrix saves. Check
-the inlining of the provider before comparing the two paths.
+the inlining of the provider before comparing the two paths, and try
+`streamed_out_of_line`: kept apart from its caller, the streamed solve
+gets its own register allocation.
 
 ## Configuration
 
-`ArrowheadLUppConfig<T>` is an aggregate of twelve knobs, passed to the
+`ArrowheadLUppConfig<T>` is an aggregate of thirteen knobs, passed to the
 solvers as a constexpr value. Designated initializers override
 individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 
@@ -281,6 +283,7 @@ individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 | `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1]; 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there (8 % faster on a polycrystal of 240 grains) |
 | `gather_rhs` | `false` | permutes the columns of a block by a gather into a second buffer instead of cycles in place; changes the register allocation, to measure per shape on GPU |
 | `schur_in_place` | `false` | accumulates the Schur complement in the border entries of A and y instead of a local array; fewer registers, more memory traffic |
+| `streamed_out_of_line` | `false` | keeps the streamed entry points of the compile-time solver out of line on GPU (CUDA, HIP, SYCL), where the inliner may merge them into a large caller and allocate its registers worse; 19 % faster on a polycrystal of 240 grains (RTX 5080), to measure per provider; ignored elsewhere and by the runtime solver |
 | `unroll_loops` | `true` | forced unrolling of the loops over the entries of a block and of the border, passed on to the TiledLUpp solvers; ignored by the runtime solver |
 
 The floating-point knobs are written as plain `T` values. They are stored

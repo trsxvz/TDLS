@@ -206,6 +206,17 @@ struct ArrowheadLUppConfig {
     /// faster compiles. Passed on to the TiledLUpp solvers of the blocks
     /// and of the border. Ignored by the runtime solver.
     bool unroll_loops = true;
+
+    /// Streamed entry points of the compile-time solver kept out of line on
+    /// GPU (CUDA, HIP, SYCL device code; ignored elsewhere and by the
+    /// runtime solver). The
+    /// provider is compiled inside the loop over the blocks, and the GPU
+    /// inliner may merge the whole solve into a large caller, whose
+    /// registers it then allocates worse than the two functions apart. Off,
+    /// the generated code is that of a solver without the knob; on, a
+    /// polycrystal of 240 grains ran 19 % faster on an RTX 5080. To measure
+    /// per provider.
+    bool streamed_out_of_line = false;
 };
 
 

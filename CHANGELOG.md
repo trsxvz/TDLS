@@ -39,8 +39,9 @@ the API may change between minor versions.
   results are bitwise identical to the stored entry points, and the
   runtime solver to the compile-time one. The stored path is unchanged,
   instruction for instruction: the streamed one is selected at compile
-  time. Bridge suite (`-ffp-contract=off`), documentation page and
-  snippets.
+  time. `streamed_out_of_line`, off by default, keeps the streamed
+  entry points out of line on GPU. Bridge suite (`-ffp-contract=off`),
+  documentation page and snippets.
 - `relative_pivot_threshold` in TiledLUppConfig, the knob of
   CooperativeLUpp applied to the diagonal tile: the row in place keeps
   the pivot when it reaches this fraction of the best in-tile candidate
