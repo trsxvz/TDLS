@@ -9,6 +9,19 @@ the API may change between minor versions.
 
 ### Added
 
+- ArrowheadLUpp, a third solver family: arrowhead (bordered
+  block-diagonal) systems, a border coupled to diagonal blocks that
+  never couple to each other, solved by static condensation in a time
+  linear in the number of blocks. Built on TiledLUpp, which factors the
+  blocks and solves the border system. A pivot check bounds the
+  multipliers of every block, border rows included
+  (`condensation_pivot_threshold`); a refused block is eliminated with
+  the border rows in a second pass, so that the solver succeeds
+  whenever the matrix is invertible. A compile-time shape solver and a
+  runtime shape one, bitwise identical; four storages (Full, Packed,
+  Csr, Bsr) addressed through `ArrowheadStorageMap`, without index
+  arrays at run time; dense or diagonal couplings; both layouts, each
+  with its condensation path. Tests, documentation pages and snippets.
 - `relative_pivot_threshold` in TiledLUppConfig, the knob of
   CooperativeLUpp applied to the diagonal tile: the row in place keeps
   the pivot when it reaches this fraction of the best in-tile candidate
@@ -25,6 +38,7 @@ the API may change between minor versions.
   and their speed.
 - `TDLS_FORCE_INLINE_ALL`, inlining forced on every backend, CPU
   included, for helpers factored out of a solver routine.
+- `TDLS_NO_INLINE`, keeping a rare path out of line on every backend.
 
 ### Changed
 

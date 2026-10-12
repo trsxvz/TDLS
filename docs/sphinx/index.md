@@ -1,7 +1,8 @@
 # TDLS - Tiny Device-callable Linear Solvers
 
 TDLS is a header-only C++20 library of direct solvers for small
-general linear systems. It is written to be callable from device code:
+general linear systems, and for the arrowhead systems built from them.
+It is written to be callable from device code:
 one thread, or a group of threads, solves one system, on CPU as well as
 inside a CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP, OpenACC or parallel STL
 kernel. The solvers are designed for maximum GPU performance. The
@@ -13,7 +14,7 @@ accept the `tfel::math` objects directly, without including TFEL.
 
 ## Solvers
 
-TDLS implements two solver families, both LU factorizations with
+TDLS implements three solver families, all LU factorizations with
 partial pivoting, each in a compile-time dimension and a runtime
 dimension variant:
 
@@ -24,6 +25,11 @@ dimension variant:
   barrier deduced from the compilation target or provided by the
   caller. Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
+- {doc}`ArrowheadLUpp <arrowhead_lupp/index>`: one thread per arrowhead
+  system, a border coupled to diagonal blocks that never couple to each
+  other, solved by static condensation in a time linear in the number
+  of blocks. Built on TiledLUpp, which solves its blocks and its border
+  system.
 
 ## Documentation map
 
@@ -35,6 +41,8 @@ dimension variant:
   small system.
 - {doc}`CooperativeLUpp <cooperative_lupp/index>`: the same for the
   family of the groups of threads.
+- {doc}`ArrowheadLUpp <arrowhead_lupp/index>`: the same for the
+  arrowhead systems, with their storages.
 - {doc}`TFEL interoperability <tfel/index>`: how the `tfel::math`
   objects are accepted, with snippets per solver family.
 - {doc}`tests`: the method, the generic suites, then the suites and
@@ -51,6 +59,7 @@ Overview <self>
 getting_started
 tiled_lupp/index
 cooperative_lupp/index
+arrowhead_lupp/index
 tfel/index
 tests
 api_reference

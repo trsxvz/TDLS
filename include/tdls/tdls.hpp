@@ -16,6 +16,8 @@
 #include <tdls/core/structural_real.hpp>
 #include <tdls/core/version.hpp>
 
+#include <tdls/solvers/arrowhead_lupp/solver_dynamic.hpp>
+#include <tdls/solvers/arrowhead_lupp/solver_static.hpp>
 #include <tdls/solvers/cooperative_lupp/solver_dynamic.hpp>
 #include <tdls/solvers/cooperative_lupp/solver_static.hpp>
 #include <tdls/solvers/tiled_lupp/solver_dynamic.hpp>

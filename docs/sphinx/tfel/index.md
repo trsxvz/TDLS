@@ -104,3 +104,24 @@ ones.
 
 cooperative_lupp_snippets/raw_interface
 ```
+
+## ArrowheadLUpp snippets
+
+The ArrowheadLUpp solvers have no adaptors either. The jacobian of an
+MFront behaviour is a `tmatrix` stored row-major and contiguously: it
+is the Full storage of the arrowhead matrix, and its `data()` pointer
+with a stride of 1 is a valid operand, internal or external. The shape
+comes from the behaviour (the phases of a polycrystal, the surfaces of
+an Iwan model), never from the object, so it is passed as with the raw
+interface.
+
+The Packed storage reads the pattern entries only, and the least
+memory. It needs the derivatives written at the indices of
+`ArrowheadStorageMap`, into a `tvector` for instance: a change of the
+code that builds the jacobian, which an adaptor cannot hide.
+
+```{toctree}
+:maxdepth: 1
+
+arrowhead_lupp_snippets/raw_interface
+```

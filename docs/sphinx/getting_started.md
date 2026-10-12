@@ -127,7 +127,9 @@ const bool ok = Solver::solve_inplace<true, true, true>(M, 1, piv, 1, y, 1);
 The {doc}`TiledLUpp <tiled_lupp/index>` page explains the
 configuration and the entry points. The
 {doc}`CooperativeLUpp <cooperative_lupp/index>` page does the same for
-the groups of threads.
+the groups of threads, and the {doc}`ArrowheadLUpp <arrowhead_lupp/index>`
+page for the arrowhead systems, whose shape and storage come with the
+call.
 
 ## Calling convention
 

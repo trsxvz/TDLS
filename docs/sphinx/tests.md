@@ -296,3 +296,33 @@ and SYCL, four rows per thread give groups of two threads, the
 second of which holds a phantom slot. `solve_inplace` serves the Newton
 corrections. `factorize` then `substitute_canonical`, once per
 column, give the consistent tangent operator, as MFront does.
+
+## ArrowheadLUpp tests
+
+### Suites
+
+The oracle of the family is the naive LU of the other families
+(`tests/common/reference_lu.hpp`), on the full matrix: partial
+pivoting over whole columns, the border rows among the candidates. The
+generated systems (`tests/solvers/arrowhead_lupp/arrowhead_problems.hpp`)
+mix dominant and random blocks, singular blocks and pivot-poor ones,
+so that the pivot check refuses blocks and the second pass runs in
+every batch.
+
+| Suite | What it locks |
+|---|---|
+| `oracle_static`, `oracle_dynamic` | backward error of `solve` against the naive LU, on a grid of shapes crossing the structure of the solver (blocks of one unknown, a border smaller than the blocks, a border not a multiple of the block, blocks of 12, blocks cut into tiles of 3 and 1, a polycrystal, 1452 unknowns), both couplings and layouts, in float, double and long double; the singular verdict on a structurally singular matrix, and a floor of refused blocks |
+| `second_pass` | the refused blocks: zero pivots at the start, the middle and the end of a block, two in one block, as many singular blocks as the couplings have rank (invertible), one more (singular, both solvers must say so), every block refused by strong couplings; the backward error at the level of the naive LU |
+| `static_vs_dynamic` | bitwise equality of the two variants on every path of the condensation: the four storages, both couplings and layouts, passes, the gather, the Schur complement in place, the unroll policy off |
+| `storages` | the four storages bitwise identical; the index maps bijective, and matching the canonical CSR and BSR index arrays; `valid` accepting the shapes the solvers accept |
+| `residencies` | every residency combination against the external one, bitwise, the strided gaps of the arenas untouched; the runtime solver at the same strides |
+| `layouts` | the AoS, SoA and AoSoA batch addressing against the systems solved one by one, bitwise, on both solvers |
+| `entry_points` | `solve` against `solve_inplace` and the counting overloads against the others, bitwise, on both solvers |
+| `config_knobs` | the performance knobs keep the arithmetic, bitwise: every pass width, the gather, the Schur complement in place, the unroll policy; the refusals grow with `condensation_pivot_threshold`, 0 refusing only the singular blocks, and every threshold of the check and of the blocks keeps the backward error |
+| `wide_offsets` | element offsets beyond 2^32, as in the other families, a refused block making the second pass use the workspace |
+| `constexpr` | compile-time certificates on both solvers, through every path and the second pass, and their bitwise agreement |
+| `reject_*` | the compile-time contracts: a shape with an empty part, a `coupling_row` under the dense coupling, diagonal coupling rows past the border, a Bsr border that is not a multiple of the block, a `condensation_pivot_threshold` out of [0, 1] on both solvers, an `rhs_pass_width` above border + 1 |
+
+For the detail of any suite, the authoritative description is the
+`\file` documentation at the top of its source in
+`tests/solvers/arrowhead_lupp/`.

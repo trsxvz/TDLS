@@ -1,0 +1,150 @@
+/// \file
+/// \brief Bridge suite: the static and runtime ArrowheadLUpp solvers are
+/// bitwise identical.
+/// \author Tristan Chenaille
+/// \copyright Copyright (C) 2026 CEA. All rights reserved.
+/// This project is publicly released under the BSD 3-Clause License
+/// (see the LICENSE file). CEA may also distribute it under specific
+/// licensing conditions.
+///
+/// At equal shape and configuration, the two solvers run the same
+/// arithmetic: the runtime one keeps in its workspace what the
+/// compile-time one keeps in local arrays, and calls the runtime
+/// TiledLUpp solver where the other calls the compile-time one, itself
+/// bitwise identical. On the standard batch (dominant and random blocks,
+/// singular and pivot-poor ones, so that the second pass runs), the
+/// suite compares the verdicts, the counts of refused blocks, the
+/// solutions and the matrices left in place, bit for bit, on every path
+/// of the condensation: the four storages, both couplings and layouts,
+/// passes of several widths (the forward-stage check of the column-major
+/// layout in one pass, the separate check otherwise), the gather of the
+/// right-hand sides, the Schur complement accumulated in place, and the
+/// unroll policy off.
+
+#include <cstdint>
+#include <vector>
+
+#include <tdls/tdls.hpp>
+
+#include "arrowhead_problems.hpp"
+#include "harness.hpp"
+
+namespace {
+
+/// \brief A configuration from its paths.
+/// \param[in] storage  storage
+/// \param[in] diag     diagonal coupling
+/// \param[in] col      column-major layout
+/// \param[in] pass     rhs_pass_width
+/// \param[in] gather   gather_rhs
+/// \param[in] in_place schur_in_place
+/// \param[in] unroll   unroll_loops
+/// \return the configuration
+constexpr tdls::ArrowheadLUppConfig<double>
+path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool col, const int pass,
+            const bool gather = false, const bool in_place = false, const bool unroll = true) {
+    tdls::ArrowheadLUppConfig<double> c;
+    c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
+    c.storage        = storage;
+    c.layout         = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+    c.rhs_pass_width = pass;
+    c.gather_rhs     = gather;
+    c.schur_in_place = in_place;
+    c.unroll_loops   = unroll;
+    return c;
+}
+
+/// \brief Compares the two solvers on a standard batch.
+/// \tparam Shape  shape of the matrices
+/// \tparam Config configuration
+/// \param[in] count number of systems
+/// \param[in] seed  generator seed
+template<tdls::ArrowheadShape Shape, tdls::ArrowheadLUppConfig<double> Config>
+void bridge_case(const int count, const std::uint64_t seed) {
+    using Static        = tdls::ArrowheadLUppSolverStatic<double, Shape, Config>;
+    using Dynamic       = tdls::ArrowheadLUppSolverDynamic<double, Config>;
+    constexpr bool diag = Config.coupling == tdls::ArrowheadCoupling::Diagonal;
+    std::vector<double> ws(Static::workspace_size),
+        wd(static_cast<std::size_t>(Dynamic::workspace_size(Shape)));
+    std::vector<int> piv(static_cast<std::size_t>(Dynamic::pivot_size(Shape)));
+    int refused_total = 0, solved = 0;
+    for (int s = 0; s < count; ++s) {
+        const auto p = tdls_tests::batch_problem<double>(Shape, diag, s, seed);
+        auto Ms      = tdls_tests::store_arrow<typename Static::storage_map>(p);
+        auto Md      = Ms;
+        auto ys = p.b, yd = p.b;
+        int rs = 0, rd = 0;
+        const bool oks = Static::template solve_inplace<true, true, true>(Ms.data(), 1, ws.data(),
+                                                                          1, ys.data(), 1, rs);
+        const bool okd = Dynamic::solve_inplace(Shape, Md.data(), 1, piv.data(), 1, wd.data(), 1,
+                                                yd.data(), 1, rd);
+        TDLS_CHECK(oks == okd);
+        TDLS_CHECK(rs == rd);
+        if (oks && okd) {
+            TDLS_CHECK(tdls_tests::same_bits(ys, yd));
+            TDLS_CHECK(tdls_tests::same_bits(Ms, Md));
+            ++solved;
+        }
+        refused_total += rs;
+    }
+    // Floors: the batch is invertible, and its injected blocks are
+    // refused.
+    TDLS_CHECK(solved == count);
+    TDLS_CHECK(refused_total >= 2 * (count / 3));
+}
+
+using tdls::ArrowheadShape;
+using tdls::ArrowheadStorage;
+constexpr ArrowheadShape polycrystal{12, 6, 30, 6};
+constexpr ArrowheadShape uneven{8, 6, 10, 2};
+constexpr ArrowheadShape uneven_dense{8, 6, 10, 0};
+constexpr ArrowheadShape iwan{6, 1, 24, 0};
+constexpr ArrowheadShape thin_border{3, 6, 8, 0};
+
+} // namespace
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/storages") {
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Full, true, false, 0)>(12, 500100);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0)>(12, 500200);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Csr, true, true, 0)>(12, 500300);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Bsr, true, true, 0)>(12, 500400);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Csr, false, false, 0)>(12, 500500);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Full, false, true, 0)>(12, 500600);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/couplings_and_layouts") {
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Packed, false, false, 0)>(12, 501100);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Packed, false, true, 0)>(12, 501200);
+    bridge_case<uneven, path_config(ArrowheadStorage::Packed, true, false, 0)>(12, 501300);
+    bridge_case<uneven, path_config(ArrowheadStorage::Packed, true, true, 0)>(12, 501400);
+    bridge_case<iwan, path_config(ArrowheadStorage::Packed, false, false, 0)>(12, 501500);
+    bridge_case<iwan, path_config(ArrowheadStorage::Packed, false, true, 0)>(12, 501600);
+    bridge_case<thin_border, path_config(ArrowheadStorage::Packed, false, false, 0)>(12, 501700);
+    bridge_case<thin_border, path_config(ArrowheadStorage::Packed, false, true, 0)>(12, 501800);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/passes") {
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 1)>(12, 502100);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 2)>(12, 502200);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, true, 2)>(12, 502300);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, true, 5)>(12, 502400);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Packed, false, false, 3)>(12, 502500);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Packed, false, true, 4)>(12, 502600);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/gather_in_place_unroll") {
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 2, true)>(12,
+                                                                                          503100);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, true, 2, true)>(12,
+                                                                                         503200);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0, false, true)>(
+        12, 503300);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Packed, false, false, 0, false, true)>(
+        12, 503400);
+    bridge_case<uneven_dense, path_config(ArrowheadStorage::Packed, false, true, 0, false, true)>(
+        12, 503500);
+    bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0, false, false,
+                                         false)>(12, 503600);
+}
+
+TDLS_TEST_MAIN

@@ -46,6 +46,7 @@ function(tdls_add_gpu_snippet family snippet)
                                                                   SKIP_RETURN_CODE 77)
 endfunction()
 
+add_subdirectory(arrowhead_lupp)
 add_subdirectory(cooperative_lupp)
 add_subdirectory(tiled_lupp)
 if(TDLS_BUILD_TFEL_SNIPPETS)

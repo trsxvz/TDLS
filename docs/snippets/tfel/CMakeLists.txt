@@ -38,6 +38,13 @@ foreach(snippet cooperative_fixed_one_thread cooperative_fixed_group cooperative
     target_link_libraries(tdls_snippet_tfel_${snippet} PRIVATE tfel::TFELMath Threads::Threads)
 endforeach()
 
+# The TFEL objects passed to the ArrowheadLUpp solvers through the raw
+# interface: no adaptors there either.
+foreach(snippet arrowhead_fixed_full arrowhead_fixed_packed arrowhead_runtime)
+    tdls_add_snippet(tfel ${snippet})
+    target_link_libraries(tdls_snippet_tfel_${snippet} PRIVATE tfel::TFELMath)
+endforeach()
+
 # Rejected shapes: translation units that must not compile, built on
 # demand by ctest and passing only when the diagnostic of the contract
 # appears, as the reject tests of tests/solvers.

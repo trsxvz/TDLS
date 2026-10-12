@@ -157,6 +157,42 @@ tdls_add_reject_cases(
         "the pivot must be vector-like")
 
 tdls_add_solver_suites(
+    FAMILY arrowheadlupp
+    DIRECTORY arrowhead_lupp
+    SUITES
+        oracle_static
+        oracle_dynamic
+        second_pass
+        static_vs_dynamic
+        storages
+        residencies
+        layouts
+        entry_points
+        config_knobs
+        wide_offsets
+        constexpr)
+
+tdls_add_reject_cases(
+    FAMILY arrowheadlupp
+    DIRECTORY arrowhead_lupp
+    CASES
+        reject_shape_empty
+        reject_shape_dense_coupling_row
+        reject_shape_diagonal_rows
+        reject_shape_bsr_block
+        reject_config_condensation_threshold
+        reject_config_condensation_threshold_dynamic
+        reject_config_pass_width
+    DIAGNOSTICS
+        "border, block and blocks must be >= 1"
+        "coupling_row applies to the diagonal coupling only"
+        "the diagonal coupling rows exceed the border"
+        "the Bsr storage needs a border"
+        "ArrowheadLUppSolverStatic: condensation_pivot_threshold must be in"
+        "ArrowheadLUppSolverDynamic: condensation_pivot_threshold must be in"
+        "rhs_pass_width must be in")
+
+tdls_add_solver_suites(
     FAMILY cooperativelupp
     DIRECTORY cooperative_lupp
     SUITES

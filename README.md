@@ -7,14 +7,15 @@
 [![spack](https://img.shields.io/spack/v/tdls)](https://packages.spack.io/package.html?name=tdls)
 
 TDLS is a header-only C++20 library of direct solvers for small
-general linear systems. It is written to be callable from device code:
+general linear systems, and for the arrowhead systems built from them.
+It is written to be callable from device code:
 one thread, or a group of threads, solves one system, on CPU as well
 as inside a CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP, OpenACC or parallel
 STL kernel. The solvers are designed for maximum GPU performance. The
 library has no dependency.
 
-Two solver families are available, both LU factorizations with partial
-pivoting:
+Three solver families are available, all LU factorizations with
+partial pivoting:
 
 - TiledLUpp: one thread per system, logical pivoting on a tile grid.
 - CooperativeLUpp: a group of threads per system, each thread holding
@@ -24,8 +25,14 @@ pivoting:
   target or provided by the caller; a single thread is a valid group.
   Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
+- ArrowheadLUpp: one thread per arrowhead system, a border coupled to
+  diagonal blocks that never couple to each other, such as the
+  implicit integration of a polycrystal; static condensation, in a time
+  linear in the number of blocks, built on TiledLUpp, which solves the
+  blocks and the border system; blocks failing a pivot check are
+  eliminated with the border rows in a second pass.
 
-Here are two snippets, one per family, with every knob spelled out.
+Here are three snippets, one per family, with every knob spelled out.
 
 ```cpp
 #include <limits>
@@ -109,6 +116,55 @@ constexpr tdls::CooperativeLUppConfig<double> config{
 // holding every column passes 0 for tx.
 using Solver = tdls::CooperativeLUppSolverStatic<double, 9, config>;
 const bool ok = Solver::solve_inplace<false, false, false>(tx, M, 1, piv, 1, y, 1, work);
+```
+
+```cpp
+#include <tdls/tdls.hpp>
+
+// Shape of the arrowhead matrix, a constexpr value: 12 border unknowns
+// first, then 30 diagonal blocks of 6 unknowns (n = 192). Under the
+// diagonal coupling, unknown i of a block touches border row 6 + i only.
+constexpr tdls::ArrowheadShape shape{.border = 12, .block = 6, .blocks = 30, .coupling_row = 6};
+
+// Solver configuration, a constexpr value, every knob spelled out.
+// tdls::ArrowheadLUppConfig<double>{} alone keeps the defaults.
+constexpr tdls::ArrowheadLUppConfig<double> config{
+    // tdls::ArrowheadCoupling: pattern of the border-to-block couplings,
+    // Dense or Diagonal
+    .coupling = tdls::ArrowheadCoupling::Diagonal,
+    // tdls::ArrowheadStorage: Full, Packed (the pattern entries alone),
+    // Csr or Bsr; tdls::ArrowheadStorageMap gives the index of every entry
+    .storage = tdls::ArrowheadStorage::Packed,
+    // tdls::MatrixLayout: order of the storage, RowMajor or ColMajor
+    .layout = tdls::MatrixLayout::RowMajor,
+    // double (the scalar type T): a block passes the pivot check when no
+    // multiplier of its elimination exceeds the inverse; a refused block
+    // is eliminated with the border rows in a second pass
+    .condensation_pivot_threshold = 0.01,
+    // int, double, double: the TiledLUpp solver of the blocks
+    .block_tile_size                = 3,
+    .block_relative_pivot_threshold = 0.01,
+    .block_oot_pivot_threshold      = 1e-12,
+    // int: the TiledLUpp solver of the border system
+    .border_tile_size = 3,
+    // int: columns [A_kb | y_k] of a block solved per pass, 0 for all
+    .rhs_pass_width = 0,
+    // bool: permute those columns by a gather instead of cycles in place
+    .gather_rhs = false,
+    // bool: accumulate the Schur complement in the border entries of A and y
+    .schur_in_place = false,
+    // bool: forced unrolling, passed on to the TiledLUpp solvers
+    .unroll_loops = true};
+
+// Static condensation: each block is factored by TiledLUpp, checked and
+// folded into the Schur complement of the border, solved last by
+// TiledLUpp; then the blocks are recovered. One call solves A x = y in
+// place, M holding A in its Packed storage (Solver::storage_size
+// entries); the workspace (Solver::workspace_size entries) serves the
+// refused blocks only; false means a singular matrix. The residency
+// booleans declare every operand external, reached with an element stride.
+using Solver = tdls::ArrowheadLUppSolverStatic<double, shape, config>;
+const bool ok = Solver::solve_inplace<false, false, false>(M, 1, work, 1, y, 1);
 ```
 
 The `tfel::math` objects (matrices, vectors, strided views) can also

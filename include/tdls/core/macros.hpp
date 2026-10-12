@@ -99,6 +99,27 @@
 
 
 
+/// \def TDLS_NO_INLINE
+/// \brief Keeps a function out of line on every backend.
+///
+/// For the rare paths of a solver: an inlined rare path would share the
+/// registers of the common one and could push it to local memory on GPU
+/// (see the second pass of ArrowheadLUppSolverStatic).
+
+#ifndef TDLS_NO_INLINE
+#if defined(__CUDACC__) || defined(__CUDA__)
+#define TDLS_NO_INLINE __noinline__
+#elif defined(_MSC_VER) && !defined(__clang__)
+#define TDLS_NO_INLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TDLS_NO_INLINE __attribute__((noinline))
+#else
+#define TDLS_NO_INLINE
+#endif
+#endif
+
+
+
 /// \def TDLS_RESTRICT
 /// \brief Non-aliasing pointer qualifier (`__restrict__`; `__restrict` on MSVC).
 
