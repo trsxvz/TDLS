@@ -47,10 +47,9 @@
 /// The solver never sees a thread index: callers pre-offset every remote
 /// pointer with the lane/system index and pass a runtime stride. The
 /// pivot array and the right-hand sides follow the same convention.
-/// Offsets are computed in 32-bit arithmetic: the flat element index
-/// (for the matrix, N*N) must stay below 2^31 and the largest element
-/// offset of every array (for the matrix, (N*N-1)*A_stride) below
-/// 2^32. Each of the three arrays has an *internal* residency mode
+/// The flat element index (for the matrix, N*N) must stay below 2^31;
+/// element offsets, index times stride, are computed in 64-bit
+/// arithmetic. Each of the three arrays has an *internal* residency mode
 /// (plain caller-local array, stride ignored) selected by the
 /// `internal_rhs` / `internal_piv` / `internal_matrix` template
 /// booleans. The ternary on a constexpr bool costs nothing. The single
@@ -134,19 +133,19 @@ namespace tdls {
 /// A^T, see the file documentation): contiguous under internal residency,
 /// strided otherwise.
 #define TDLS_LUPP_A(r, c)                                                                          \
-    A[internal_matrix ? unsigned((r) * N + (c)) : unsigned((r) * N + (c)) * unsigned(A_stride)]
+    A[internal_matrix ? unsigned((r) * N + (c)) : TDLS_STRIDED((r) * N + (c), A_stride)]
 /// \def TDLS_LUPP_PIV
 /// \brief Pivot entry i: contiguous under internal residency, strided
 /// otherwise.
-#define TDLS_LUPP_PIV(i) piv[internal_piv ? unsigned(i) : unsigned(i) * unsigned(piv_stride)]
+#define TDLS_LUPP_PIV(i) piv[internal_piv ? unsigned(i) : TDLS_STRIDED(i, piv_stride)]
 /// \def TDLS_LUPP_X
 /// \brief Entry i of the solution vector: contiguous under internal
 /// residency, strided otherwise.
-#define TDLS_LUPP_X(i) x[internal_rhs ? unsigned(i) : unsigned(i) * unsigned(rhs_stride)]
+#define TDLS_LUPP_X(i) x[internal_rhs ? unsigned(i) : TDLS_STRIDED(i, rhs_stride)]
 /// \def TDLS_LUPP_B
 /// \brief Entry i of the right-hand side: contiguous under internal
 /// residency, strided otherwise.
-#define TDLS_LUPP_B(i) b[internal_rhs ? unsigned(i) : unsigned(i) * unsigned(rhs_stride)]
+#define TDLS_LUPP_B(i) b[internal_rhs ? unsigned(i) : TDLS_STRIDED(i, rhs_stride)]
 /// \def TDLS_LUPP_XW
 /// \brief Entry i of column w of a multi right-hand-side block:
 /// pass_width contiguous columns under internal residency,
@@ -154,17 +153,17 @@ namespace tdls {
 /// collapses to TDLS_LUPP_X exactly.
 #define TDLS_LUPP_XW(w, i)                                                                         \
     x[internal_rhs ? unsigned((w) * N + (i))                                                       \
-                   : unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
+                   : TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(w, xcol_stride)]
 /// \def TDLS_LUPP_BW
 /// \brief Entry i of column w of a multi right-hand-side block of b,
 /// addressed exactly as TDLS_LUPP_XW (b and x share both strides).
 #define TDLS_LUPP_BW(w, i)                                                                         \
     b[internal_rhs ? unsigned((w) * N + (i))                                                       \
-                   : unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
+                   : TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(w, xcol_stride)]
 /// \def TDLS_LUPP_Y
 /// \brief Entry i of the fused right-hand side of solve_inplace (under the
 /// row-major layout y follows the matrix rows through pivoting).
-#define TDLS_LUPP_Y(i) y[internal_rhs ? unsigned(i) : unsigned(i) * unsigned(rhs_stride)]
+#define TDLS_LUPP_Y(i) y[internal_rhs ? unsigned(i) : TDLS_STRIDED(i, rhs_stride)]
 
 
 
@@ -2352,16 +2351,16 @@ struct TiledLUppSolverStatic {
         constexpr int columns_per_pass =
             (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
         for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const unsigned off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
             substitute_canonical_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
                                                internal_matrix>(
                 A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
         }
         if constexpr (nrhs % columns_per_pass > 0) {
             constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const unsigned off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
             substitute_canonical_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
                                                internal_matrix>(
                 A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
@@ -2506,15 +2505,15 @@ struct TiledLUppSolverStatic {
         constexpr int columns_per_pass =
             (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
         for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const unsigned off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
             substitute_multirhs_pass<columns_per_pass, internal_rhs, internal_piv, internal_matrix>(
                 A, A_stride, piv, piv_stride, b + off, x + off, rhs_stride, xcol_stride);
         }
         if constexpr (nrhs % columns_per_pass > 0) {
             constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const unsigned off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
             substitute_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
                                      internal_matrix>(A, A_stride, piv, piv_stride, b + off,
                                                       x + off, rhs_stride, xcol_stride);
@@ -2760,16 +2759,16 @@ struct TiledLUppSolverStatic {
         constexpr int columns_per_pass =
             (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
         for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const unsigned off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
             substitute_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
                                              internal_matrix>(A, A_stride, piv, piv_stride, x + off,
                                                               rhs_stride, xcol_stride);
         }
         if constexpr (nrhs % columns_per_pass > 0) {
             constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const unsigned off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : unsigned(c0) * unsigned(xcol_stride);
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED(c0, xcol_stride);
             substitute_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
                                              internal_matrix>(A, A_stride, piv, piv_stride, x + off,
                                                               rhs_stride, xcol_stride);

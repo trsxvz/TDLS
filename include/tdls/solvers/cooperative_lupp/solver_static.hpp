@@ -173,7 +173,7 @@
 ///   - right-hand side and solution: external entry r is row r; the
 ///     internal slice holds entry tx + K * threads_per_system at index K.
 ///
-/// Offsets are computed in 32-bit arithmetic, with the bounds of the
+/// Element offsets are computed in 64-bit arithmetic, as in the
 /// TiledLUpp solvers. The single form `base[e*stride]` covers every
 /// batched layout: AoS (stride 1), SoA (stride = batch size), AoSoA
 /// (stride = W).
@@ -349,27 +349,27 @@ TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void unroll_K(Fn&& fn) noexcept
 /// S, thus consecutive addresses.
 #define TDLS_COOP_LUPP_A(K, c)                                                                     \
     A[internal_matrix ? unsigned((c) * rows_per_thread + (K))                                      \
-                      : unsigned((c) * N + tx + (K) * threads_per_system) * unsigned(A_stride)]
+                      : TDLS_STRIDED((c) * N + tx + (K) * threads_per_system, A_stride)]
 /// \def TDLS_COOP_LUPP_PIV
 /// \brief Pivot entry of the row of slot K: slice of the calling thread
 /// under internal residency, whole strided array otherwise.
 #define TDLS_COOP_LUPP_PIV(K)                                                                      \
-    piv[internal_piv ? unsigned(K) : unsigned(tx + (K) * threads_per_system) * unsigned(piv_stride)]
+    piv[internal_piv ? unsigned(K) : TDLS_STRIDED(tx + (K) * threads_per_system, piv_stride)]
 /// \def TDLS_COOP_LUPP_B
 /// \brief Right-hand-side entry of the row of slot K: slice of the calling
 /// thread under internal residency, whole strided vector otherwise.
 #define TDLS_COOP_LUPP_B(K)                                                                        \
-    b[internal_rhs ? unsigned(K) : unsigned(tx + (K) * threads_per_system) * unsigned(rhs_stride)]
+    b[internal_rhs ? unsigned(K) : TDLS_STRIDED(tx + (K) * threads_per_system, rhs_stride)]
 /// \def TDLS_COOP_LUPP_X
 /// \brief Solution entry of the row of slot K, addressed as
 /// TDLS_COOP_LUPP_B.
 #define TDLS_COOP_LUPP_X(K)                                                                        \
-    x[internal_rhs ? unsigned(K) : unsigned(tx + (K) * threads_per_system) * unsigned(rhs_stride)]
+    x[internal_rhs ? unsigned(K) : TDLS_STRIDED(tx + (K) * threads_per_system, rhs_stride)]
 /// \def TDLS_COOP_LUPP_Y
 /// \brief Entry of the row of slot K of the right-hand side solved in
 /// place, addressed as TDLS_COOP_LUPP_B.
 #define TDLS_COOP_LUPP_Y(K)                                                                        \
-    y[internal_rhs ? unsigned(K) : unsigned(tx + (K) * threads_per_system) * unsigned(rhs_stride)]
+    y[internal_rhs ? unsigned(K) : TDLS_STRIDED(tx + (K) * threads_per_system, rhs_stride)]
 
 
 

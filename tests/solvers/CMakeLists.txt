@@ -123,6 +123,7 @@ tdls_add_solver_suites(
         adaptors
         cross_full
         dynamic_edges
+        wide_offsets
         constexpr)
 
 tdls_add_reject_cases(
@@ -170,6 +171,7 @@ tdls_add_solver_suites(
         config_knobs
         row_interchange
         auto_sync
+        wide_offsets
         constexpr
     LIBRARIES Threads::Threads)
 

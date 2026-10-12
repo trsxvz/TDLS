@@ -19,9 +19,9 @@
 /// The families also share one calling convention. Every operand is a
 /// raw pointer pre-offset by the caller plus one runtime element
 /// stride, which covers the AoS, SoA and AoSoA batch layouts alike.
-/// Offsets are computed in 32-bit arithmetic: the flat element index
-/// of an object (N*N for a matrix) must stay below 2^31 and every
-/// element offset, index times stride, below 2^32. Residency template
+/// The flat element index of an object (N*N for a matrix) must stay
+/// below 2^31; element offsets, index times stride, are computed in
+/// 64-bit arithmetic (TDLS_STRIDED). Residency template
 /// booleans, where a solver offers
 /// them, describe what the passed buffers are and carry no default.
 /// Factorizing entry points come in counting and diagnostics-free

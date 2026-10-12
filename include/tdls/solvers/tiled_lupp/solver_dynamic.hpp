@@ -51,10 +51,9 @@
 /// solver_static.hpp).
 ///
 /// Preconditions: n >= 1. tile_size may exceed n (the grid is then a single
-/// partial tile). Offsets are computed in 32-bit arithmetic: the flat
-/// element index (for the matrix, n*n) must stay below 2^31 and the
-/// largest element offset of every array (for the matrix,
-/// (n*n-1)*A_stride) below 2^32.
+/// partial tile). The flat element index (for the matrix, n*n) must stay
+/// below 2^31; element offsets, index times stride, are computed in
+/// 64-bit arithmetic.
 
 
 
@@ -99,28 +98,26 @@ namespace tdls {
 /// \def TDLS_LUPP_DYN_A
 /// \brief Strided element (r, c) of S, the stored matrix read row-major
 /// (A or A^T, see the file documentation).
-#define TDLS_LUPP_DYN_A(r, c) A[unsigned((r) * n + (c)) * unsigned(A_stride)]
+#define TDLS_LUPP_DYN_A(r, c) A[TDLS_STRIDED((r) * n + (c), A_stride)]
 /// \def TDLS_LUPP_DYN_PIV
 /// \brief Strided pivot entry i.
-#define TDLS_LUPP_DYN_PIV(i) piv[unsigned(i) * unsigned(piv_stride)]
+#define TDLS_LUPP_DYN_PIV(i) piv[TDLS_STRIDED(i, piv_stride)]
 /// \def TDLS_LUPP_DYN_X
 /// \brief Strided entry i of the solution vector.
-#define TDLS_LUPP_DYN_X(i) x[unsigned(i) * unsigned(rhs_stride)]
+#define TDLS_LUPP_DYN_X(i) x[TDLS_STRIDED(i, rhs_stride)]
 /// \def TDLS_LUPP_DYN_B
 /// \brief Strided entry i of the right-hand side.
-#define TDLS_LUPP_DYN_B(i) b[unsigned(i) * unsigned(rhs_stride)]
+#define TDLS_LUPP_DYN_B(i) b[TDLS_STRIDED(i, rhs_stride)]
 /// \def TDLS_LUPP_DYN_XW
 /// \brief Strided entry i of column w of a multi right-hand-side block.
-#define TDLS_LUPP_DYN_XW(w, i)                                                                     \
-    x[unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
+#define TDLS_LUPP_DYN_XW(w, i) x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(w, xcol_stride)]
 /// \def TDLS_LUPP_DYN_BW
 /// \brief Strided entry i of column w of a multi right-hand-side block of
 /// b, addressed exactly as TDLS_LUPP_DYN_XW (b and x share both strides).
-#define TDLS_LUPP_DYN_BW(w, i)                                                                     \
-    b[unsigned(i) * unsigned(rhs_stride) + unsigned(w) * unsigned(xcol_stride)]
+#define TDLS_LUPP_DYN_BW(w, i) b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(w, xcol_stride)]
 /// \def TDLS_LUPP_DYN_Y
 /// \brief Strided entry i of the fused right-hand side of solve_inplace.
-#define TDLS_LUPP_DYN_Y(i) y[unsigned(i) * unsigned(rhs_stride)]
+#define TDLS_LUPP_DYN_Y(i) y[TDLS_STRIDED(i, rhs_stride)]
 
 
 
@@ -1699,8 +1696,7 @@ struct TiledLUppSolverDynamic {
                     TDLS_LUPP_DYN_XW(w, i) = (i == col0 + w) ? T(1) : T(0);
             transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
-                                  rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
         } else {
             for (int i = 0; i < n; ++i) {
                 const int p = TDLS_LUPP_DYN_PIV(i);
@@ -1748,8 +1744,8 @@ struct TiledLUppSolverDynamic {
             // A pass_width of nrhs or more runs the loop once, the whole
             // block being its single pass.
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
-                const int cw       = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const unsigned off = unsigned(c0) * unsigned(xcol_stride);
+                const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
+                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
                 substitute_canonical_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, col0 + c0,
                                                    x + off, rhs_stride, xcol_stride);
             }
@@ -1785,8 +1781,7 @@ struct TiledLUppSolverDynamic {
                     TDLS_LUPP_DYN_XW(w, i) = TDLS_LUPP_DYN_BW(w, i);
             transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
-                                  rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
         } else {
             for (int i = 0; i < n; ++i) {
                 const int p = TDLS_LUPP_DYN_PIV(i);
@@ -1838,8 +1833,8 @@ struct TiledLUppSolverDynamic {
             // A pass_width of nrhs or more runs the loop once, the whole
             // block being its single pass.
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
-                const int cw       = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const unsigned off = unsigned(c0) * unsigned(xcol_stride);
+                const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
+                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
                 substitute_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, b + off, x + off,
                                          rhs_stride, xcol_stride);
             }
@@ -1901,12 +1896,10 @@ struct TiledLUppSolverDynamic {
             // Column-major layout, as in substitute_inplace.
             transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
-                                  rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
         } else {
             for (int w = 0; w < nrhs; ++w)
-                permute_inplace(n, piv, piv_stride, x + unsigned(w) * unsigned(xcol_stride),
-                                rhs_stride);
+                permute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
             fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
         }
     }
@@ -1949,8 +1942,8 @@ struct TiledLUppSolverDynamic {
             // A pass_width of nrhs or more runs the loop once, the whole
             // block being its single pass.
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
-                const int cw       = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const unsigned off = unsigned(c0) * unsigned(xcol_stride);
+                const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
+                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
                 substitute_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
                                                  rhs_stride, xcol_stride);
             }

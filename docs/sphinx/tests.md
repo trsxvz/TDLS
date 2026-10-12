@@ -104,6 +104,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `constexpr` | compile-time certificates on both solvers |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
+| `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
 | `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1] |
 
 For the detail of any suite, the authoritative description is the
@@ -207,6 +208,7 @@ keeps the instrumented builds short.
 | `auto_sync` | the deduced barrier against an explicit one, bitwise, on every entry point of both solvers, and the barrier of `make_sync` in the exchanges of the caller; the barrier elements of the workspace back to their state between calls |
 | `entry_points` | the documented entry point equivalences, bitwise, and the guarantees on return: every result visible to the whole group, the workspace free; a regression case guards the workspace, which no solver may declare `restrict` |
 | `residencies` | every residency combination against the external one, bitwise |
+| `wide_offsets` | element offsets beyond 2^32, as in the TiledLUpp suite: matrix, pivots and right-hand side spread by strides past 2^32, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
 | `layouts` | the AoS, SoA and AoSoA addressing under each matrix layout, bitwise, on both solvers; A stored row-major and A^T stored column-major, the same array, factored bit for bit the same way, each solution checked by its backward error |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case, with a verdict uniform across the group |
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the pivot choice under a relative threshold |

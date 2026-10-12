@@ -156,6 +156,7 @@ The factorizing entry points return `false` on a singular matrix. The
 return value is `[[nodiscard]]`. The substitutions return nothing: they
 cannot fail on a factorization that succeeded.
 
-Offsets are computed in 32-bit arithmetic. The flat element index of
-an object (N*N for a matrix) must stay below 2^31, and every element
-offset, index times stride, below 2^32.
+The flat element index of an object (N*N for a matrix) must stay below
+2^31. Element offsets, index times stride, are computed in 64-bit
+arithmetic: a batch may exceed 2^32 elements, as a SoA batch over 32 GiB
+of doubles does on a large GPU.

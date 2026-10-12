@@ -111,10 +111,9 @@
 /// Config.layout, row-major by default, and selects the solve at compile
 /// time, as there.
 ///
-/// Preconditions: n >= 1 and 0 <= tx < threads_per_system(n). Offsets are
-/// computed in 32-bit arithmetic: the flat element index (for the matrix,
-/// n*n) must stay below 2^31 and the largest element offset of every
-/// array (for the matrix, (n*n-1)*A_stride) below 2^32.
+/// Preconditions: n >= 1 and 0 <= tx < threads_per_system(n). The flat
+/// element index (for the matrix, n*n) must stay below 2^31; element
+/// offsets, index times stride, are computed in 64-bit arithmetic.
 
 
 
@@ -158,19 +157,19 @@ namespace tdls {
 /// column-major (A under the column-major layout, A^T under the row-major
 /// one): consecutive threads hold consecutive rows of S, thus consecutive
 /// addresses.
-#define TDLS_COOP_LUPP_DYN_A(r, c) A[unsigned((c) * n + (r)) * unsigned(A_stride)]
+#define TDLS_COOP_LUPP_DYN_A(r, c) A[TDLS_STRIDED((c) * n + (r), A_stride)]
 /// \def TDLS_COOP_LUPP_DYN_PIV
 /// \brief Strided pivot entry of row r.
-#define TDLS_COOP_LUPP_DYN_PIV(r) piv[unsigned(r) * unsigned(piv_stride)]
+#define TDLS_COOP_LUPP_DYN_PIV(r) piv[TDLS_STRIDED(r, piv_stride)]
 /// \def TDLS_COOP_LUPP_DYN_B
 /// \brief Strided entry r of the right-hand side.
-#define TDLS_COOP_LUPP_DYN_B(r) b[unsigned(r) * unsigned(rhs_stride)]
+#define TDLS_COOP_LUPP_DYN_B(r) b[TDLS_STRIDED(r, rhs_stride)]
 /// \def TDLS_COOP_LUPP_DYN_X
 /// \brief Strided entry r of the solution.
-#define TDLS_COOP_LUPP_DYN_X(r) x[unsigned(r) * unsigned(rhs_stride)]
+#define TDLS_COOP_LUPP_DYN_X(r) x[TDLS_STRIDED(r, rhs_stride)]
 /// \def TDLS_COOP_LUPP_DYN_Y
 /// \brief Strided entry r of the right-hand side solved in place.
-#define TDLS_COOP_LUPP_DYN_Y(r) y[unsigned(r) * unsigned(rhs_stride)]
+#define TDLS_COOP_LUPP_DYN_Y(r) y[TDLS_STRIDED(r, rhs_stride)]
 
 
 

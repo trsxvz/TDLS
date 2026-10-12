@@ -24,6 +24,8 @@
 /// command line (e.g. `-DTDLS_FORCE_INLINE_GPU=inline`) without editing
 /// headers.
 
+#include <cstddef>
+
 
 
 /// \def TDLS_HOST_DEVICE
@@ -81,6 +83,24 @@
 #else
 #define TDLS_RESTRICT __restrict__
 #endif
+#endif
+
+
+
+/// \def TDLS_STRIDED
+/// \brief Offset of entry i of a strided object, i times stride s, in
+/// 64-bit arithmetic (std::size_t); i and s are nonnegative ints.
+///
+/// The addressing macros of the solvers use it for every element of an
+/// object in remote memory: the offset of the last element of a batch in
+/// SoA, its index times the number of systems, may exceed 2^32 on a large
+/// GPU, where a 32-bit product would wrap around silently. Measured
+/// against the 32-bit product: same results bit for bit, no perceptible
+/// cost (RTX 5080, CPU).
+
+#ifndef TDLS_STRIDED
+#define TDLS_STRIDED(i, s)                                                                         \
+    (static_cast<std::size_t>(static_cast<unsigned>(i)) * static_cast<unsigned>(s))
 #endif
 
 

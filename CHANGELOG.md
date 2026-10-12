@@ -22,6 +22,11 @@ the API may change between minor versions.
 - `TDLS_FORCEINLINE` is renamed `TDLS_FORCE_INLINE_GPU`: the suffix says
   where the inlining is forced. A command-line override of the macro
   must use the new name.
+- Element offsets in remote memory, index times stride, are computed in
+  64-bit arithmetic (`TDLS_STRIDED`) by every solver. They were 32-bit:
+  a batch over 2^32 elements, a SoA batch over 32 GiB of doubles on a
+  large GPU, wrapped around silently. Same results bit for bit, no
+  perceptible cost.
 - TiledLUpp now keeps the row in place by default
   (`relative_pivot_threshold` = 0.1). Fewer rows move, and the pivot
   arrays stay alike across the threads of a warp, whose pivot-driven
