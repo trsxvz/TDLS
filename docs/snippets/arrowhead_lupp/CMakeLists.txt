@@ -17,6 +17,12 @@ foreach(snippet
         dynamic_solve_multirhs
         dynamic_border_canonical
         dynamic_border_canonical_block
+        static_streamed
+        static_streamed_border_canonical
+        static_streamed_tangent
+        dynamic_streamed
+        dynamic_streamed_border_canonical
+        dynamic_streamed_tangent
         storage_full
         storage_packed
         storage_csr

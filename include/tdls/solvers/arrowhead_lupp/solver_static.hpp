@@ -80,6 +80,16 @@
 /// declare a caller-local array instead (stride ignored). The workspace
 /// holds the front of the second pass: it is touched only when blocks are
 /// refused.
+///
+/// Streamed blocks. The *_streamed entry points take the blocks from a
+/// provider, called exactly once per block and in order when the solver
+/// condenses it, instead of reading them from A: the caller stores only
+/// the border, and the provider writes the block in the working arrays of
+/// the solver (StreamedBlock). A refused block is stored as given for the
+/// second pass. The arithmetic is that of the stored path, bit for bit.
+/// The streamed path is selected at compile time: the stored entry points
+/// keep their signatures and their code. The entry points are noexcept:
+/// the provider must not throw.
 
 
 
@@ -277,6 +287,245 @@ struct ArrowheadLUppSolverStatic {
     using BorderSolver = TiledLUppSolverStatic<T, B, detail::arrowhead_border_config(Config)>;
 
   public:
+    /// \brief Block k of a streamed solve: the working arrays of the
+    /// solver themselves, which the caller fills through the accessors when
+    /// the solver asks for the block; the factorization and the solve then
+    /// run in place, without a copy. Entries in logical order whatever the
+    /// layout and the storage.
+    struct StreamedBlock {
+        T Dl[S * S];             ///< D_k in the layout of the factorization
+        T W[(B + 1) * S];        ///< [A_kb | y_k], column c at c * S
+        T Abk[diag ? S : B * S]; ///< A_bk: coupled rows (diagonal) or B x S (dense)
+        /// \param[in] i row of the block
+        /// \param[in] j column of the block
+        /// \return entry (i, j) of D_k
+        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& d(const int i, const int j) noexcept {
+            return Dl[col ? j * S + i : i * S + j];
+        }
+        /// \param[in] i row of the block
+        /// \param[in] c border column
+        /// \return entry (i, c) of A_kb
+        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& akb(const int i, const int c) noexcept {
+            return W[c * S + i];
+        }
+        /// \param[in] i row of the block
+        /// \return entry i of y_k, the right-hand side on the rows of the
+        ///         block
+        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& y(const int i) noexcept {
+            return W[B * S + i];
+        }
+        /// \param[in] i row and column of the block
+        /// \return the coupling A_bk(coupling_row + i, i) (diagonal coupling)
+        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& coupling(const int i) noexcept {
+            return Abk[i];
+        }
+        /// \param[in] r border row
+        /// \param[in] i column of the block
+        /// \return entry (r, i) of A_bk (dense coupling)
+        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& abk(const int r, const int i) noexcept {
+            return Abk[r * S + i];
+        }
+    };
+
+    /// \brief Solves A x = y in place, the blocks streamed: provider(k, blk)
+    /// fills block k (StreamedBlock) when the solver needs it, k = 0, 1, ...
+    /// in order, and the solver condenses it at once. The caller writes
+    /// beforehand only the border: A_bb in A and the border rows of y. An
+    /// accepted block leaves its recovery data in its storage; a refused one
+    /// is stored as given for the second pass (the provider is called
+    /// exactly once per block): the arithmetic, the pivot check and the
+    /// second pass are those of solve_inplace, bit for bit.
+    /// \tparam internal_rhs    y is a caller-local array (stride ignored)
+    /// \tparam internal_work   work is a caller-local array (stride ignored)
+    /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam Provider        callable (int k, StreamedBlock& blk)
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in,out] A             storage: A_bb on entry; recovery data on exit
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    work          workspace of workspace_size entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the solution on exit
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[out]    refused_count number of refused blocks
+    /// \return false when the matrix is singular
+    template<bool internal_rhs, bool internal_work, bool internal_matrix, typename Provider>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    solve_inplace_streamed(Provider&& provider, T* TDLS_RESTRICT A, const int A_stride,
+                           T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
+                           const int rhs_stride, int& refused_count) noexcept {
+        return solve_core<1, false, internal_rhs, internal_work, internal_matrix>(
+            A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
+    }
+
+    /// \brief Outcome of solve_inplace_streamed_or_tangent.
+    enum class StreamedOutcome {
+        solved,  ///< y holds the solution (converged() returned false)
+        tangent, ///< converged: x holds the canonical border columns, y
+                 ///< intermediate values
+        singular ///< the matrix is singular
+    };
+
+    /// \brief One streamed pass of a Newton iteration: the blocks condensed
+    /// as solve_inplace_streamed does, then converged() is called (the
+    /// provider may compute the residual meanwhile). When it returns false,
+    /// the pass ends as solve_inplace_streamed (y holds the correction).
+    /// When it returns true, the correction is not computed: the border
+    /// system condensed by the pass gives instead columns col0 .. col0 +
+    /// ntan - 1 of the border block of A^-1 in x (the consistent tangent of a
+    /// behaviour loaded through the border), refused blocks included (work
+    /// then holds multirhs_workspace_size<ntan> entries). The provider is
+    /// called exactly once per block, in order, and converged() once, after
+    /// the last block. Bit for bit the results of solve_inplace_streamed and
+    /// of solve_border_canonical_multirhs_streamed.
+    /// \tparam ntan            number of tangent columns, in [1, border]
+    /// \tparam internal_rhs    y and x are caller-local arrays, column m of x
+    ///                         from m * border (strides ignored)
+    /// \tparam internal_work   work is a caller-local array (stride ignored)
+    /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam Provider        callable (int k, StreamedBlock& blk)
+    /// \tparam Converged       callable () returning bool
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in]     converged     called after the last block: whether the
+    ///                              tangent replaces the correction
+    /// \param[in,out] A             storage: A_bb on entry; overwritten
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    work          workspace of multirhs_workspace_size<ntan>
+    ///                              entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the correction on exit (solved),
+    ///                              intermediate values otherwise
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     col0          first tangent column, col0 + ntan <= border
+    /// \param[out]    x             the tangent columns (tangent), border
+    ///                              entries per column
+    /// \param[in]     x_stride      element stride of x
+    /// \param[in]     xcol_stride   element stride between columns of x
+    /// \param[out]    refused_count number of refused blocks
+    /// \return solved, tangent, or singular when the matrix is singular
+    template<int ntan, bool internal_rhs, bool internal_work, bool internal_matrix,
+             typename Provider, typename Converged>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr StreamedOutcome
+    solve_inplace_streamed_or_tangent(Provider&& provider, Converged&& converged,
+                                      T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
+                                      const int work_stride, T* TDLS_RESTRICT y,
+                                      const int rhs_stride, const int col0, T* TDLS_RESTRICT x,
+                                      const int x_stride, const int xcol_stride,
+                                      int& refused_count) noexcept {
+        static_assert(ntan >= 1 && ntan <= Shape.border,
+                      "ArrowheadLUppSolverStatic: ntan must be in [1, border]");
+        constexpr int ny                     = 1;
+        [[maybe_unused]] constexpr int ycols = 1;
+        T Sacc[in_place ? 1 : R * B];
+        T racc[in_place ? 1 : R];
+        if constexpr (in_place) {
+            Sacc[0] = T(0);
+            racc[0] = T(0);
+        } else {
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, R,
+                TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                    Sacc[r * B + c] = TDLS_ARROW_LUPP_A(
+                                        storage_map::abb(shape_value(), R0 + r, c));) racc[r] =
+                    TDLS_ARROW_LUPP_YW(0, R0 + r);)
+        }
+        constexpr int words = (NB + 31) / 32;
+        unsigned refused[words];
+        TDLS_ARROW_LUPP_FOR(e, 0, words, refused[e] = 0u;)
+        refused_count = 0;
+        for (int k = 0; k < NB; ++k) {
+            StreamedBlock blk;
+            provider(k, blk);
+            if (!condense_or_store_streamed<ny, internal_rhs, internal_matrix>(
+                    A, A_stride, y, rhs_stride, 0, k, Sacc, racc, blk)) {
+                refused[k >> 5] |= 1u << (k & 31);
+                ++refused_count;
+            }
+        }
+        T Sbb[B * B];
+        int pb[B];
+        TDLS_ARROW_LUPP_FOR(
+            r, 0, B, const bool acc = !in_place && r >= R0 && r < R0 + R; TDLS_ARROW_LUPP_FOR(
+                c, 0, B,
+                Sbb[r * B + c] = acc ? Sacc[(r - R0) * B + c]
+                                     : TDLS_ARROW_LUPP_A(storage_map::abb(shape_value(), r, c));))
+        if (converged()) {
+            T rt[B * ntan];
+            TDLS_ARROW_LUPP_FOR(
+                m, 0, ntan,
+                TDLS_ARROW_LUPP_FOR(r, 0, B, rt[m * B + r] = r == col0 + m ? T(1) : T(0);))
+            // the refused blocks, stored as is, by the second pass of the
+            // canonical solve, which writes neither x nor y
+            if (refused_count > 0 &&
+                !second_pass<ntan, true, internal_rhs, internal_work, internal_matrix>(
+                    A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rt))
+                return StreamedOutcome::singular;
+            bool ok;
+            if constexpr (ntan == 1)
+                ok = BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rt, 1);
+            else
+                ok = BorderSolver::template solve_inplace_multirhs<ntan, true, true, true>(
+                    Sbb, 1, pb, 1, rt, 1, B);
+            if (!ok) return StreamedOutcome::singular;
+            TDLS_ARROW_LUPP_FOR(
+                m, 0, ntan,
+                TDLS_ARROW_LUPP_FOR(
+                    r, 0, B,
+                    x[internal_rhs ? unsigned(m * B + r)
+                                   : TDLS_STRIDED(r, x_stride) + TDLS_STRIDED(m, xcol_stride)] =
+                        rt[m * B + r];))
+            return StreamedOutcome::tangent;
+        }
+        T rb[B];
+        TDLS_ARROW_LUPP_FOR(r, 0, B, const bool acc = !in_place && r >= R0 && r < R0 + R;
+                            rb[r] = acc ? racc[r - R0] : TDLS_ARROW_LUPP_YW(0, r);)
+        if (refused_count > 0 &&
+            !second_pass<1, false, internal_rhs, internal_work, internal_matrix>(
+                A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rb))
+            return StreamedOutcome::singular;
+        if (!BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rb, 1))
+            return StreamedOutcome::singular;
+        TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_YW(0, r) = rb[r];)
+        recover<1, internal_rhs, internal_work, internal_matrix>(A, A_stride, work, work_stride, y,
+                                                                 rhs_stride, 0, refused, rb);
+        return StreamedOutcome::solved;
+    }
+
+    /// \brief solve_border_canonical_multirhs with the blocks streamed (see
+    /// solve_inplace_streamed; blk.y is not read).
+    /// \tparam nrhs            number of unit columns, in [1, border]
+    /// \tparam internal_rhs    x is a caller-local array, column m from
+    ///                         m * border (strides ignored)
+    /// \tparam internal_work   work is a caller-local array (stride ignored)
+    /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam Provider        callable (int k, StreamedBlock& blk)
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in,out] A             storage: A_bb on entry; overwritten
+    /// \param[in]     A_stride      element stride of A
+    /// \param[out]    work          workspace of multirhs_workspace_size<nrhs>
+    ///                              entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in]     col0          first unit column, col0 + nrhs <= border
+    /// \param[out]    x             the border rows, border entries per
+    ///                              column
+    /// \param[in]     rhs_stride    element stride of x
+    /// \param[in]     xcol_stride   element stride between columns of x
+    /// \param[out]    refused_count number of refused blocks
+    /// \return false when the matrix is singular
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             typename Provider>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs_streamed(
+        Provider&& provider, T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
+        const int work_stride, const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
+        const int xcol_stride, int& refused_count) noexcept {
+        static_assert(nrhs >= 1 && nrhs <= Shape.border,
+                      "ArrowheadLUppSolverStatic: nrhs must be in [1, border]");
+        return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix>(
+            A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count,
+            &provider);
+    }
+
     /// \brief Solves A x = y in place, counting the refused blocks.
     /// \tparam internal_rhs    y is a caller-local array (stride ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
@@ -569,6 +818,19 @@ struct ArrowheadLUppSolverStatic {
     }
 
   private:
+    /// \brief The single element of the trailing pack of the helpers shared
+    /// by the stored and streamed paths: the provider or the streamed block,
+    /// absent on the stored path, whose signatures and code so stay those
+    /// of a solver without streaming.
+    /// \tparam P type of the element
+    /// \param[in] p the element
+    /// \return p
+    template<typename P>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr P*
+    streamed_arg(P* p) noexcept {
+        return p;
+    }
+
     /// \brief The solve shared by every entry point: nc right-hand sides
     /// solved during the condensation (columns of Y), or, canonical, the
     /// border rows of nc unit columns of the border (no right-hand side in
@@ -579,6 +841,9 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_work   residency of work
     /// \tparam internal_matrix residency of A
+    /// \tparam Provider        none on the stored path; streamed, the type
+    ///                         of the callable (int k, StreamedBlock& blk)
+    ///                         giving the blocks
     /// \param[in,out] A             matrix in its storage
     /// \param[in]     A_stride      element stride of A
     /// \param[out]    work          workspace of multirhs_workspace_size<nc>
@@ -590,12 +855,16 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     xcol_stride   element stride between columns of y
     /// \param[in]     col0          first unit column (canonical)
     /// \param[out]    refused_count number of refused blocks
+    /// \param[in]     provider      streamed: the source of the blocks
     /// \return false when the matrix is singular
-    template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix,
+             typename... Provider>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr bool
     solve_core(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
                T* TDLS_RESTRICT y, const int rhs_stride, [[maybe_unused]] const int xcol_stride,
-               [[maybe_unused]] const int col0, int& refused_count) noexcept {
+               [[maybe_unused]] const int col0, int& refused_count,
+               Provider*... provider) noexcept {
+        constexpr bool streamed = sizeof...(Provider) > 0;
         // Right-hand sides carried through the blocks.
         constexpr int ny = canonical ? 0 : nc;
         // Columns of y, for TDLS_ARROW_LUPP_YW.
@@ -623,10 +892,23 @@ struct ArrowheadLUppSolverStatic {
         TDLS_ARROW_LUPP_FOR(e, 0, words, refused[e] = 0u;)
         refused_count = 0;
         for (int k = 0; k < NB; ++k) {
-            if (!condense<ny, internal_rhs, internal_matrix>(A, A_stride, y, rhs_stride,
-                                                             xcol_stride, k, Sacc, racc)) {
-                refused[k >> 5] |= 1u << (k & 31);
-                ++refused_count;
+            if constexpr (streamed) {
+                static_assert(
+                    ny <= 1,
+                    "ArrowheadLUppSolverStatic: streamed blocks carry one right-hand side");
+                StreamedBlock blk;
+                (*streamed_arg(provider...))(k, blk);
+                if (!condense_or_store_streamed<ny, internal_rhs, internal_matrix>(
+                        A, A_stride, y, rhs_stride, xcol_stride, k, Sacc, racc, blk)) {
+                    refused[k >> 5] |= 1u << (k & 31);
+                    ++refused_count;
+                }
+            } else {
+                if (!condense<ny, internal_rhs, internal_matrix>(A, A_stride, y, rhs_stride,
+                                                                 xcol_stride, k, Sacc, racc)) {
+                    refused[k >> 5] |= 1u << (k & 31);
+                    ++refused_count;
+                }
             }
         }
         // The border system: the accumulated rows, the others as stored;
@@ -768,6 +1050,234 @@ struct ArrowheadLUppSolverStatic {
         return true;
     }
 
+    /// \brief condense on a streamed block, in place in its arrays: the
+    /// factorization in blk.Dl, the solve of the columns [A_kb | y_k] in
+    /// blk.W, all at once, or in passes of rhs_pass_width columns through
+    /// condense_pass when the pivot check does not read the forward stage
+    /// (the arithmetic of the stored path, column by column), then the
+    /// recovery data stored and the Schur complement updated as
+    /// condense_pass does.
+    /// \tparam ny              right-hand sides carried through the blocks
+    ///                         (0 or 1)
+    /// \tparam internal_rhs    residency of y
+    /// \tparam internal_matrix residency of A
+    /// \param[in,out] A           matrix in its storage: the recovery data of
+    ///                            the block on exit
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in,out] y           right-hand sides: the recovery right-hand
+    ///                            side of the block on exit
+    /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
+    /// \param[in]     k           block
+    /// \param[in,out] Sacc        accumulated rows of the Schur complement
+    /// \param[in,out] racc        accumulated rows of its right-hand sides
+    /// \param[in,out] blk         the block as the provider filled it;
+    ///                            overwritten
+    /// \return true when the block is condensed, false when it fails the
+    ///         pivot check
+    template<int ny, bool internal_rhs, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    condense_streamed(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y,
+                      const int rhs_stride, [[maybe_unused]] const int xcol_stride, const int k,
+                      T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc, StreamedBlock& blk) noexcept {
+        constexpr bool forward_check         = forward_check_for<ny>;
+        constexpr int cols                   = B + ny;
+        [[maybe_unused]] constexpr int ycols = ny == 0 ? 1 : ny;
+        const StreamedBlock* const bp        = &blk;
+        T* const Dl                          = blk.Dl;
+        T* const W                           = blk.W;
+        int pl[S];
+        if (!BlockSolver::template factorize<true, true>(Dl, 1, pl, 1)) return false;
+        const T* const acoef = blk.Abk;
+        T U[forward_check ? 1 : S * S];
+        if constexpr (forward_check) U[0] = T(0);
+        bool ok = lower_pass<!forward_check>(Dl, pl, U);
+        T Mb[multiplier_update ? R * S : 1];
+        if constexpr (!multiplier_update) Mb[0] = T(0);
+        if constexpr (forward_check) {
+            BlockSolver::template forward_inplace_multirhs<cols, true, true, true>(Dl, 1, pl, 1, W,
+                                                                                   1, S);
+            const T u = condensation_pivot_threshold;
+            TDLS_ARROW_LUPP_FOR(e, 0, B * S, ok = ok && u * detail::abs(W[e]) <= T(1);)
+            if (!ok) return false;
+            BlockSolver::template backward_inplace_multirhs<cols, true, true, true>(Dl, 1, pl, 1, W,
+                                                                                    1, S);
+        } else {
+            ok = border_multipliers<internal_matrix>(A, A_stride, k, U, acoef, Mb, bp) && ok;
+            if (!ok) return false;
+            if constexpr (pass_width_for<ny> < cols) {
+                // rhs_pass_width columns at a time, read from the block as
+                // the stored path reads them from the storage (only one
+                // slice alive at a time); all of them at once otherwise
+                if constexpr (multiplier_update) {
+                    TDLS_ARROW_LUPP_FOR(
+                        l, 0, S,
+                        TDLS_ARROW_LUPP_FOR(j, l, S,
+                                            TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l,
+                                                                             j)) = U[l * S + j];))
+                }
+                condense_pass<0, false, ny, internal_rhs, internal_matrix>(
+                    A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc,
+                    nullptr, bp);
+                return true;
+            }
+            if constexpr (multiplier_update) {
+                TDLS_ARROW_LUPP_FOR(
+                    l, 0, S,
+                    TDLS_ARROW_LUPP_FOR(j, l, S,
+                                        TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l, j)) =
+                                            U[l * S + j];))
+                BlockSolver::template forward_inplace_multirhs<cols, true, true, true>(Dl, 1, pl, 1,
+                                                                                       W, 1, S);
+            } else if constexpr (Config.gather_rhs) {
+                T X[cols * S];
+                BlockSolver::template substitute_multirhs<cols, true, true, true>(Dl, 1, pl, 1, W,
+                                                                                  X, 1, S);
+                TDLS_ARROW_LUPP_FOR(e, 0, cols * S, W[e] = X[e];)
+            } else {
+                BlockSolver::template substitute_inplace_multirhs<cols, true, true, true>(
+                    Dl, 1, pl, 1, W, 1, S);
+            }
+        }
+        // the recovery data and the Schur complement, all the columns (the
+        // entries are distinct per column: the order of the passes of the
+        // stored path does not matter)
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S,
+            TDLS_ARROW_LUPP_FOR(j, 0, cols,
+                                if (j < B) TDLS_ARROW_LUPP_A(
+                                    storage_map::akb(shape_value(), k, i, j)) = W[j * S + i];
+                                else TDLS_ARROW_LUPP_YW(j - B, B + k * S + i) = W[j * S + i];))
+        if constexpr (multiplier_update) {
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, R,
+                TDLS_ARROW_LUPP_FOR(
+                    j, 0, cols, T sum = T(0);
+                    TDLS_ARROW_LUPP_FOR(l, 0, S, sum += Mb[r * S + l] * W[j * S + l];)
+                        schur_sub<ny, internal_rhs, internal_matrix>(
+                            A, A_stride, y, rhs_stride, xcol_stride, Sacc, racc, r, j, sum);))
+        } else if constexpr (diag) {
+            TDLS_ARROW_LUPP_FOR(
+                i, 0, S,
+                TDLS_ARROW_LUPP_FOR(j, 0, cols,
+                                    schur_sub<ny, internal_rhs, internal_matrix>(
+                                        A, A_stride, y, rhs_stride, xcol_stride, Sacc, racc, i, j,
+                                        acoef[i] * W[j * S + i]);))
+        } else {
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, B, T a[S];
+                TDLS_ARROW_LUPP_FOR(i, 0, S, a[i] = blk.Abk[r * S + i];) TDLS_ARROW_LUPP_FOR(
+                    j, 0, cols, T sum = T(0);
+                    TDLS_ARROW_LUPP_FOR(i, 0, S, sum += a[i] * W[j * S + i];)
+                        schur_sub<ny, internal_rhs, internal_matrix>(
+                            A, A_stride, y, rhs_stride, xcol_stride, Sacc, racc, r, j, sum);))
+        }
+        return true;
+    }
+
+// gcc cannot always prove that the provider writes every entry of the
+// streamed block before it is copied below, and reports the copies through
+// -Wmaybe-uninitialized at -O3 (gcc 11; gcc 13 with -march=native). The
+// provider writes the block (StreamedBlock), and the copies only keep it as
+// given: the report is spurious. The suppression is scoped to the two
+// functions below and to that warning only.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+    /// \brief condense_streamed, the block kept for the second pass when it
+    /// is refused: D_k is copied before its factorization (and [A_kb | y_k]
+    /// before the forward solve when the check reads it), so that a refused
+    /// block is stored as the provider gave it without asking for it again.
+    /// \tparam ny              right-hand sides carried through the blocks
+    ///                         (0 or 1)
+    /// \tparam internal_rhs    residency of y
+    /// \tparam internal_matrix residency of A
+    /// \param[in,out] A           matrix in its storage: the recovery data of
+    ///                            the block, or the block itself when refused
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in,out] y           right-hand sides
+    /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     xcol_stride element stride between columns of y
+    /// \param[in]     k           block
+    /// \param[in,out] Sacc        accumulated rows of the Schur complement
+    /// \param[in,out] racc        accumulated rows of its right-hand sides
+    /// \param[in,out] blk         the block as the provider filled it
+    /// \return true when the block is condensed, false when it is refused
+    ///         (and stored as is)
+    template<int ny, bool internal_rhs, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    condense_or_store_streamed(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y,
+                               const int rhs_stride, const int xcol_stride, const int k,
+                               T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc,
+                               StreamedBlock& blk) noexcept {
+        constexpr bool forward_check = forward_check_for<ny>;
+        constexpr int wsave          = forward_check ? (B + ny) * S : 1;
+        T Dsave[S * S];
+        T Wsave[wsave];
+        TDLS_ARROW_LUPP_FOR(e, 0, S * S, Dsave[e] = blk.Dl[e];)
+        if constexpr (forward_check) {
+            TDLS_ARROW_LUPP_FOR(e, 0, wsave, Wsave[e] = blk.W[e];)
+        } else {
+            Wsave[0] = T(0);
+        }
+        if (condense_streamed<ny, internal_rhs, internal_matrix>(A, A_stride, y, rhs_stride,
+                                                                 xcol_stride, k, Sacc, racc, blk))
+            return true;
+        TDLS_ARROW_LUPP_FOR(e, 0, S * S, blk.Dl[e] = Dsave[e];)
+        if constexpr (forward_check) { TDLS_ARROW_LUPP_FOR(e, 0, wsave, blk.W[e] = Wsave[e];) }
+        store_block<ny, internal_rhs, internal_matrix>(A, A_stride, y, rhs_stride, xcol_stride, k,
+                                                       blk);
+        return false;
+    }
+
+    /// \brief Stores a refused streamed block where the second pass reads
+    /// it: the state the stored path leaves a refused block in.
+    /// \tparam ny              right-hand sides carried through the blocks
+    ///                         (0 or 1)
+    /// \tparam internal_rhs    residency of y
+    /// \tparam internal_matrix residency of A
+    /// \param[out] A           matrix in its storage: D_k, A_kb and A_bk of
+    ///                         the block
+    /// \param[in]  A_stride    element stride of A
+    /// \param[out] y           right-hand sides: y_k when ny is 1
+    /// \param[in]  rhs_stride  element stride of y
+    /// \param[in]  xcol_stride element stride between columns of y
+    /// \param[in]  k           block
+    /// \param[in]  blk         the block as the provider filled it
+    template<int ny, bool internal_rhs, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    store_block(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                [[maybe_unused]] const int xcol_stride, const int k,
+                const StreamedBlock& blk) noexcept {
+        [[maybe_unused]] constexpr int ycols = ny == 0 ? 1 : ny;
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S,
+            TDLS_ARROW_LUPP_FOR(j, 0, S,
+                                TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, i, j)) =
+                                    blk.Dl[col ? j * S + i : i * S + j];)
+                TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                    TDLS_ARROW_LUPP_A(storage_map::akb(shape_value(), k, i, c)) =
+                                        blk.W[c * S + i];))
+        if constexpr (diag) {
+            TDLS_ARROW_LUPP_FOR(i, 0, S,
+                                TDLS_ARROW_LUPP_A(storage_map::abk_diag(shape_value(), k, i)) =
+                                    blk.Abk[i];)
+        } else {
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, B,
+                TDLS_ARROW_LUPP_FOR(i, 0, S,
+                                    TDLS_ARROW_LUPP_A(storage_map::abk(shape_value(), k, r, i)) =
+                                        blk.Abk[r * S + i];))
+        }
+        if constexpr (ny == 1) {
+            TDLS_ARROW_LUPP_FOR(i, 0, S, TDLS_ARROW_LUPP_YW(0, B + k * S + i) = blk.W[B * S + i];)
+        }
+    }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
     /// \brief Checks the multipliers L of the factors against
     /// 1 / condensation_pivot_threshold, and copies U in logical row order
     /// when keep_u (its diagonal holds 1 / pivot).
@@ -796,26 +1306,31 @@ struct ArrowheadLUppSolverStatic {
     /// uses them (a 36-entry array kept for nothing costs 10 % on CPU
     /// under clang).
     /// \tparam internal_matrix residency of A
+    /// \tparam Streamed        none on the stored path; streamed, the block
+    ///                         type: A_kb and A_bk read from blk, not from A
     /// \param[in]  A        matrix in its storage
     /// \param[in]  A_stride element stride of A
     /// \param[in]  k        block
     /// \param[in]  U        U of the block in logical row order
     /// \param[in]  acoef    couplings of the block (diagonal coupling)
     /// \param[out] Mb       the multipliers (row-major, dense coupling)
+    /// \param[in]  blk      streamed: the block
     /// \return true when no multiplier exceeds the bound
-    template<bool internal_matrix>
+    template<bool internal_matrix, typename... Streamed>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     border_multipliers(const T* TDLS_RESTRICT A, const int A_stride, const int k,
-                       const T* TDLS_RESTRICT U, const T* TDLS_RESTRICT acoef,
-                       T* TDLS_RESTRICT Mb) noexcept {
-        const T u = condensation_pivot_threshold;
-        bool ok   = true;
+                       const T* TDLS_RESTRICT U, const T* TDLS_RESTRICT acoef, T* TDLS_RESTRICT Mb,
+                       const Streamed* TDLS_RESTRICT... blk) noexcept {
+        constexpr bool streamed = sizeof...(Streamed) > 0;
+        const T u               = condensation_pivot_threshold;
+        bool ok                 = true;
         if constexpr (col) {
             TDLS_ARROW_LUPP_FOR(
                 c, 0, B, T m[S];
                 TDLS_ARROW_LUPP_FOR(
-                    i, 0, S, m[i] = TDLS_ARROW_LUPP_A(storage_map::akb(shape_value(), k, i, c));)
-                    ok = multipliers_pass(m, 0, U, u) && ok;)
+                    i, 0, S, if constexpr (streamed) m[i] = streamed_arg(blk...)->W[c * S + i];
+                    else m[i] = TDLS_ARROW_LUPP_A(storage_map::akb(shape_value(), k, i, c));) ok =
+                    multipliers_pass(m, 0, U, u) && ok;)
         } else if constexpr (diag) {
             // Border row coupling_row + i holds one entry, in column i.
             TDLS_ARROW_LUPP_FOR(i, 0, S, T m[S];
@@ -824,7 +1339,9 @@ struct ArrowheadLUppSolverStatic {
         } else {
             TDLS_ARROW_LUPP_FOR(r, 0, B,
                                 TDLS_ARROW_LUPP_FOR(j, 0, S,
-                                                    Mb[r * S + j] = TDLS_ARROW_LUPP_A(
+                                                    if constexpr (streamed) Mb[r * S + j] =
+                                                        streamed_arg(blk...)->Abk[r * S + j];
+                                                    else Mb[r * S + j] = TDLS_ARROW_LUPP_A(
                                                         storage_map::abk(shape_value(), k, r, j));)
                                     ok = multipliers_pass(Mb + r * S, 0, U, u) && ok;)
         }
@@ -893,6 +1410,9 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam ny              right-hand sides carried through the blocks
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_matrix residency of A
+    /// \tparam Streamed        none on the stored path; streamed, the block
+    ///                         type: the columns and A_bk read from blk, not
+    ///                         from A and y
     /// \param[in,out] A           matrix in its storage
     /// \param[in]     A_stride    element stride of A
     /// \param[in,out] y           right-hand sides
@@ -907,26 +1427,37 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in,out] Sacc        accumulated rows of the Schur complement
     /// \param[in,out] racc        accumulated rows of its right-hand sides
     /// \param[in]     Wsolved     the solved columns when solved
-    template<int c0, bool solved, int ny, bool internal_rhs, bool internal_matrix>
+    /// \param[in]     blk         streamed: the block
+    template<int c0, bool solved, int ny, bool internal_rhs, bool internal_matrix,
+             typename... Streamed>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     condense_pass(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   [[maybe_unused]] const int xcol_stride, const int k, const T* TDLS_RESTRICT Dl,
                   const int* TDLS_RESTRICT pl, const T* TDLS_RESTRICT acoef,
                   const T* TDLS_RESTRICT Mb, T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc,
-                  T* TDLS_RESTRICT Wsolved) noexcept {
-        constexpr int cols = B + ny;
-        constexpr int w    = cols - c0 < pass_width_for<ny> ? cols - c0 : pass_width_for<ny>;
+                  T* TDLS_RESTRICT Wsolved, const Streamed* TDLS_RESTRICT... blk) noexcept {
+        constexpr bool streamed = sizeof...(Streamed) > 0;
+        constexpr int cols      = B + ny;
+        constexpr int w         = cols - c0 < pass_width_for<ny> ? cols - c0 : pass_width_for<ny>;
         [[maybe_unused]] constexpr int ycols = ny;
         T Wl[solved ? 1 : w * S];
         T* W = solved ? Wsolved : Wl;
         if constexpr (!solved) {
-            TDLS_ARROW_LUPP_FOR(
-                i, 0, S,
+            if constexpr (streamed) {
+                // the slice of the streamed block: [A_kb | y_k] by columns
                 TDLS_ARROW_LUPP_FOR(
-                    j, 0, w,
-                    W[j * S + i] = c0 + j < B ? TDLS_ARROW_LUPP_A(
-                                                    storage_map::akb(shape_value(), k, i, c0 + j))
-                                              : TDLS_ARROW_LUPP_YW(c0 + j - B, B + k * S + i);))
+                    i, 0, S,
+                    TDLS_ARROW_LUPP_FOR(j, 0, w,
+                                        W[j * S + i] = streamed_arg(blk...)->W[(c0 + j) * S + i];))
+            } else {
+                TDLS_ARROW_LUPP_FOR(
+                    i, 0, S,
+                    TDLS_ARROW_LUPP_FOR(
+                        j, 0, w,
+                        W[j * S + i] = c0 + j < B ? TDLS_ARROW_LUPP_A(storage_map::akb(
+                                                        shape_value(), k, i, c0 + j))
+                                                  : TDLS_ARROW_LUPP_YW(c0 + j - B, B + k * S + i);))
+            }
             if constexpr (multiplier_update) {
                 BlockSolver::template forward_inplace_multirhs<w, true, true, true>(Dl, 1, pl, 1, W,
                                                                                     1, S);
@@ -964,7 +1495,8 @@ struct ArrowheadLUppSolverStatic {
         } else {
             TDLS_ARROW_LUPP_FOR(
                 r, 0, B, T a[S]; TDLS_ARROW_LUPP_FOR(
-                    i, 0, S, a[i] = TDLS_ARROW_LUPP_A(storage_map::abk(shape_value(), k, r, i));)
+                    i, 0, S, if constexpr (streamed) a[i] = streamed_arg(blk...)->Abk[r * S + i];
+                    else a[i] = TDLS_ARROW_LUPP_A(storage_map::abk(shape_value(), k, r, i));)
                     TDLS_ARROW_LUPP_FOR(j, 0, w, T sum = T(0);
                                         TDLS_ARROW_LUPP_FOR(i, 0, S, sum += a[i] * W[j * S + i];)
                                             schur_sub<ny, internal_rhs, internal_matrix>(
@@ -973,7 +1505,8 @@ struct ArrowheadLUppSolverStatic {
         }
         if constexpr (c0 + w < cols)
             condense_pass<c0 + w, false, ny, internal_rhs, internal_matrix>(
-                A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc, nullptr);
+                A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc, nullptr,
+                blk...);
     }
 
     /// \brief Recovers the blocks from the border solution, the last block

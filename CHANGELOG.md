@@ -28,6 +28,19 @@ the API may change between minor versions.
   (`solve_border_canonical_multirhs`), the tangent operator of a
   behaviour loaded through the border. Tests, documentation pages,
   snippets and examples.
+- Streamed blocks in both ArrowheadLUpp solvers: the blocks come from a
+  provider, called exactly once per block and in order when the solver
+  condenses it, instead of a stored matrix (`solve_inplace_streamed`,
+  `solve_border_canonical_multirhs_streamed`). A refused block is kept
+  for the second pass without being asked for again. In a Newton
+  iteration, `solve_inplace_streamed_or_tangent` asks `converged()`
+  after the last block and then gives the tangent from the border
+  system the pass has just condensed, instead of the correction. The
+  results are bitwise identical to the stored entry points, and the
+  runtime solver to the compile-time one. The stored path is unchanged,
+  instruction for instruction: the streamed one is selected at compile
+  time. Bridge suite (`-ffp-contract=off`), documentation page and
+  snippets.
 - `relative_pivot_threshold` in TiledLUppConfig, the knob of
   CooperativeLUpp applied to the diagonal tile: the row in place keeps
   the pivot when it reaches this fraction of the best in-tile candidate

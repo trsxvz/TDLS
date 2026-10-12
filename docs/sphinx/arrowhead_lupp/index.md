@@ -199,6 +199,69 @@ solves; six unit columns of the border cost 0.65 to 1.4 times one
 solve (polycrystals of 30 and 240 grains, dense couplings, Iwan
 plasticity; both solvers, gcc and clang on CPU, an RTX 5080).
 
+## Streamed blocks
+
+The entry points above read a stored matrix. When the blocks come out of
+a computation, the jacobian of a behaviour assembled block by block for
+instance, storing them costs a write and a read of the whole matrix.
+The streamed entry points take them instead from a provider, when the
+solver condenses them:
+
+| Streamed entry point | Stored counterpart |
+|---|---|
+| `solve_inplace_streamed` | `solve_inplace` |
+| `solve_border_canonical_multirhs_streamed` | `solve_border_canonical_multirhs` |
+| `solve_inplace_streamed_or_tangent` | `solve_inplace`, or `solve_border_canonical_multirhs` once converged |
+
+The contract of the provider:
+
+- The caller writes beforehand only the border: $A_{bb}$ in the storage
+  and the border rows of y.
+- `provider(k, blk)` is called exactly once per block, for k = 0, 1,
+  ... in order. It writes block k through the accessors of `blk`:
+  `d(i, j)` for $D_k$, `akb(i, c)` for $A_{kb}$, `coupling(i)` (diagonal
+  coupling) or `abk(r, i)` (dense coupling) for $A_{bk}$, `y(i)` for the
+  rows of the right-hand side on the block (not read by the canonical
+  solve). The entries go in logical order, whatever the layout and the
+  storage. Called once per block and in order, the provider may
+  accumulate the residual as it goes.
+- `solve_inplace_streamed_or_tangent` calls `converged()` once, after
+  the last block. When it returns true, the border system the pass has
+  just condensed gives the tangent instead of the correction: the
+  blocks are not asked for again. y then holds intermediate values (the
+  condensation has already written the recovery data of the right-hand
+  side), not a correction.
+- One right-hand side at most rides through the blocks.
+- The entry points are `noexcept`: the provider and `converged()` must
+  not throw.
+
+A refused block is stored as the provider gave it, for the second pass.
+The arithmetic, the pivot check and the second pass are those of the
+stored solve: the results are bit for bit the same. A compiler that
+fuses multiplications and additions differently in the two code paths
+(gcc with `-march=native` does) changes the last bits; build with
+`-ffp-contract=off` to compare them bit for bit.
+
+`StreamedBlock` of the compile-time solver is made of the working arrays
+of the solver themselves: the factorization and the solve run in place,
+without a copy. The one of the runtime solver is a view of the
+workspace, with the same accessors, so that a generic lambda serves
+both solvers; its streamed entry points need
+`streamed_workspace_size(shape)` entries, or
+`streamed_workspace_size(shape, nrhs)` for the canonical columns and
+the tangent.
+
+The two paths coexist: the stored entry points do not change. The
+streamed path is chosen at compile time (`if constexpr`), and the code
+of the stored path comes out the same, instruction for instruction
+(gcc 13 and clang 20 on CPU, nvcc 13 on GPU, against the solver without
+the streamed entry points).
+
+On GPU, the provider is compiled inside the loop of the solver: a call
+the compiler leaves out of line in it passes its arguments through the
+local memory, which can cost more than the stored matrix saves. Check
+the inlining of the provider before comparing the two paths.
+
 ## Configuration
 
 `ArrowheadLUppConfig<T>` is an aggregate of twelve knobs, passed to the
@@ -215,7 +278,7 @@ individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 | `block_relative_pivot_threshold` | 0.01 | `relative_pivot_threshold` of TiledLUpp on the blocks: the rows of a block stay in place, and the reads of a warp stay coalesced |
 | `block_oot_pivot_threshold` | 1e-12 for `double` and `long double`<br>1e-6 for `float` | `oot_pivot_threshold` of TiledLUpp on the blocks, two orders below its default |
 | `border_tile_size` | 3 | tile size of TiledLUpp on the border system |
-| `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1]; 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU under the row-major layout with a border of 12 |
+| `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1]; 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there (8 % faster on a polycrystal of 240 grains) |
 | `gather_rhs` | `false` | permutes the columns of a block by a gather into a second buffer instead of cycles in place; changes the register allocation, to measure per shape on GPU |
 | `schur_in_place` | `false` | accumulates the Schur complement in the border entries of A and y instead of a local array; fewer registers, more memory traffic |
 | `unroll_loops` | `true` | forced unrolling of the loops over the entries of a block and of the border, passed on to the TiledLUpp solvers; ignored by the runtime solver |
@@ -268,4 +331,5 @@ snippets/runtime_shape
 snippets/storages
 snippets/configuration
 snippets/batches_and_layouts
+snippets/streamed_blocks
 ```

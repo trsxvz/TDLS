@@ -171,7 +171,14 @@ tdls_add_solver_suites(
         config_knobs
         wide_offsets
         constexpr
-        multirhs)
+        multirhs
+        streamed)
+# The streamed and stored paths are distinct code, which a compiler could
+# contract into fused multiply-adds differently (GCC does at -O3
+# -march=native): the bridge needs the contraction off.
+if(TDLS_HAVE_FFP_CONTRACT_OFF)
+    target_compile_options(tdls_test_arrowheadlupp_streamed PRIVATE -ffp-contract=off)
+endif()
 
 tdls_add_reject_cases(
     FAMILY arrowheadlupp
@@ -186,6 +193,8 @@ tdls_add_reject_cases(
         reject_config_pass_width
         reject_multirhs_none
         reject_canonical_beyond_border
+        reject_streamed_canonical_beyond_border
+        reject_streamed_tangent_beyond_border
     DIAGNOSTICS
         "border, block and blocks must be >= 1"
         "coupling_row applies to the diagonal coupling only"
@@ -195,7 +204,9 @@ tdls_add_reject_cases(
         "ArrowheadLUppSolverDynamic: condensation_pivot_threshold must be in"
         "rhs_pass_width must be in"
         "ArrowheadLUppSolverStatic: nrhs must be >= 1"
-        "ArrowheadLUppSolverStatic: nrhs must be in")
+        "ArrowheadLUppSolverStatic: nrhs must be in"
+        "ArrowheadLUppSolverStatic: nrhs must be in"
+        "ArrowheadLUppSolverStatic: ntan must be in")
 
 tdls_add_solver_suites(
     FAMILY cooperativelupp
