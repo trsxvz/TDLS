@@ -255,21 +255,26 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/storages/dynamic_rejects") {
     TDLS_CHECK(!Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 0));
     TDLS_CHECK(!Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 100000000));
     TDLS_CHECK(!Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 2147483647));
-    // A rejected shape returns false before any access: null arrays.
+    // A rejected shape returns false before any access: null arrays. They
+    // are read through volatile pointers: GCC 14 at -O3 otherwise follows
+    // them past the rejection, which it cannot prove for these shapes, and
+    // reports an out-of-bounds copy (-Warray-bounds).
+    double* volatile const values = nullptr;
+    int* volatile const pivots    = nullptr;
     for (const ArrowheadShape shape :
          {ArrowheadShape{2, 1, 3, -1}, ArrowheadShape{0, 1, 3, 0}, ArrowheadShape{2, 1, -3, 0},
           ArrowheadShape{25000, 1, 1, 0}}) {
         int refused = -1;
-        TDLS_CHECK(!Dynamic::solve_inplace(shape, nullptr, 1, nullptr, 1, nullptr, 1, nullptr, 1,
-                                           refused));
+        TDLS_CHECK(
+            !Dynamic::solve_inplace(shape, values, 1, pivots, 1, values, 1, values, 1, refused));
         TDLS_CHECK(refused == 0);
-        TDLS_CHECK(!Dynamic::solve(shape, nullptr, 1, nullptr, 1, nullptr, 1, nullptr, nullptr, 1));
-        TDLS_CHECK(!Dynamic::solve_multirhs(shape, 2, nullptr, 1, nullptr, 1, nullptr, 1, nullptr,
-                                            nullptr, 1, 1));
+        TDLS_CHECK(!Dynamic::solve(shape, values, 1, pivots, 1, values, 1, values, values, 1));
+        TDLS_CHECK(!Dynamic::solve_multirhs(shape, 2, values, 1, pivots, 1, values, 1, values,
+                                            values, 1, 1));
     }
     int refused = -1;
-    TDLS_CHECK(!Dynamic::solve_inplace_multirhs(ArrowheadShape{8, 6, 10, 0}, -4, nullptr, 1,
-                                                nullptr, 1, nullptr, 1, nullptr, 1, 1, refused));
+    TDLS_CHECK(!Dynamic::solve_inplace_multirhs(ArrowheadShape{8, 6, 10, 0}, -4, values, 1, pivots,
+                                                1, values, 1, values, 1, 1, refused));
     TDLS_CHECK(refused == 0);
 }
 
