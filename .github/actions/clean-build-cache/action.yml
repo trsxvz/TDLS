@@ -17,6 +17,8 @@ runs:
     uses: actions/download-artifact@v8
     with:
       pattern: used-hashes-*
+      # one directory per artifact, but a single artifact in the path itself
+      path: used-hashes
   - name: Remove the packages
     id: remove
     if: inputs.prune == 'true' || inputs.wipe == 'true'
@@ -27,7 +29,7 @@ runs:
         # keep nothing but the index
         : > keep.txt
       else
-        cat used-hashes-*/used-hashes.txt | sort -u > keep.txt
+        find used-hashes -name used-hashes.txt -exec cat {} + | sort -u > keep.txt
         echo "$(wc -l < keep.txt) packages used"
         # safety net against an empty list; tdls uses too few packages to tell a
         # truncated list from a complete one
