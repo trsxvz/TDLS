@@ -52,6 +52,8 @@ Finer-grained headers exist for the individual pieces
 `tdls/solvers/tiled_lupp/solver_dynamic.hpp`,
 `tdls/solvers/cooperative_lupp/solver_static.hpp`,
 `tdls/solvers/cooperative_lupp/solver_dynamic.hpp`,
+`tdls/solvers/arrowhead_lupp/solver_static.hpp`,
+`tdls/solvers/arrowhead_lupp/solver_dynamic.hpp`,
 `tdls/tfel/adaptors.hpp`).
 
 The headers compile as plain C++ under every programming model. Under

@@ -154,7 +154,9 @@ constexpr tdls::ArrowheadLUppConfig<double> config{
     // bool: accumulate the Schur complement in the border entries of A and y
     .schur_in_place = false,
     // bool: forced unrolling, passed on to the TiledLUpp solvers
-    .unroll_loops = true};
+    .unroll_loops = true,
+    // bool: keep the streamed entry points out of line on GPU
+    .streamed_out_of_line = false};
 
 // Static condensation: each block is factored by TiledLUpp, checked and
 // folded into the Schur complement of the border, solved last by

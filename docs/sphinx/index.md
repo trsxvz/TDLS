@@ -21,7 +21,8 @@ dimension variant:
 - {doc}`TiledLUpp <tiled_lupp/index>`: one thread per system, logical
   pivoting on a tile grid.
 - {doc}`CooperativeLUpp <cooperative_lupp/index>`: a group of threads
-  per system, each thread holding some of its rows, synchronized by a
+  per system, each thread holding some of its vectors (columns under the
+  row-major layout, rows under the column-major one), synchronized by a
   barrier deduced from the compilation target or provided by the
   caller. Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).

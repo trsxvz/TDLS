@@ -1807,6 +1807,7 @@ struct ArrowheadLUppSolverStatic {
 
 #undef TDLS_ARROW_LUPP_A
 #undef TDLS_ARROW_LUPP_Y
+#undef TDLS_ARROW_LUPP_YW
 #undef TDLS_ARROW_LUPP_W
 #undef TDLS_ARROW_LUPP_F
 #undef TDLS_ARROW_LUPP_FOR

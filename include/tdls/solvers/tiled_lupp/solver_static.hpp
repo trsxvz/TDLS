@@ -2750,6 +2750,18 @@ struct TiledLUppSolverStatic {
     /// permutation and the sweep with L under the row-major layout
     /// (x := L^-1 P x), the sweep with U^T under the column-major one
     /// (x := U^-T x). Internal engine of forward_inplace_multirhs.
+    /// \tparam pass_width      number of columns of this pass
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           pass_width columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    ///                (external mode)
     template<int pass_width, bool internal_rhs, bool internal_piv, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     forward_inplace_multirhs_pass(const T* TDLS_RESTRICT A, const int A_stride,
@@ -2781,6 +2793,18 @@ struct TiledLUppSolverStatic {
     /// sweep with U under the row-major layout (x := U^-1 x), the sweep with
     /// L^T then the inverse permutation under the column-major one
     /// (x := P^T L^-T x). Internal engine of backward_inplace_multirhs.
+    /// \tparam pass_width      number of columns of this pass
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           pass_width columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    ///                (external mode)
     template<int pass_width, bool internal_rhs, bool internal_piv, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     backward_inplace_multirhs_pass(const T* TDLS_RESTRICT A, const int A_stride,
@@ -2857,6 +2881,20 @@ struct TiledLUppSolverStatic {
     /// or update the intermediate columns, then backward_inplace_multirhs
     /// completes the solve; the two stages in a row match
     /// substitute_inplace_multirhs bitwise.
+    /// \tparam nrhs            total number of right-hand-side columns
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \tparam pass_width      columns per pass, as in substitute_inplace_multirhs
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           nrhs right-hand-side columns on entry,
+    ///                the intermediate columns on exit
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    ///                (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
              int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
@@ -2887,6 +2925,20 @@ struct TiledLUppSolverStatic {
     /// \brief Second of the two stages of substitute_inplace_multirhs, in
     /// passes of pass_width columns: x := U^-1 x under the row-major
     /// layout, x := P^T L^-T x under the column-major one.
+    /// \tparam nrhs            total number of right-hand-side columns
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \tparam pass_width      columns per pass, as in substitute_inplace_multirhs
+    /// \param[in]     A           factored matrix produced by factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         permutation produced by factorize
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           the intermediate columns on entry, the
+    ///                nrhs solutions on exit
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    ///                (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
              int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void

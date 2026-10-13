@@ -1591,6 +1591,7 @@ struct ArrowheadLUppSolverDynamic {
 
 #undef TDLS_ARROW_LUPP_DYN_A
 #undef TDLS_ARROW_LUPP_DYN_Y
+#undef TDLS_ARROW_LUPP_DYN_YW
 #undef TDLS_ARROW_LUPP_DYN_W
 #undef TDLS_ARROW_LUPP_DYN_F
 
