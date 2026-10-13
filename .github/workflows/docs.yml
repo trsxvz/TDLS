@@ -21,21 +21,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install graphviz and doxygen
         run: |
           sudo apt-get update && sudo apt-get install -y graphviz
           curl -sL https://github.com/doxygen/doxygen/releases/download/Release_1_12_0/doxygen-1.12.0.linux.bin.tar.gz | tar xz
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install sphinx
         run: pip install -r docs/requirements.txt
       - name: Build the site, one directory per version
         run: DOXYGEN="$PWD/doxygen-1.12.0/bin/doxygen" docs/build_site.sh _site
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 

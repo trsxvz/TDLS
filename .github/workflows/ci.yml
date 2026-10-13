@@ -59,7 +59,7 @@ jobs:
       matrix:
         compiler: [g++, clang++]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the LLVM OpenMP runtime and oneTBB
         run: sudo apt-get update && sudo apt-get install -y libomp-dev libtbb-dev
       - name: Set up ccache
@@ -84,7 +84,7 @@ jobs:
     name: tests (g++, ASan+UBSan, -O1)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the LLVM OpenMP runtime and oneTBB
         run: sudo apt-get update && sudo apt-get install -y libomp-dev libtbb-dev
       - name: Set up ccache
@@ -131,7 +131,7 @@ jobs:
           - compiler: clang++-12
             packages: clang-12 libomp-12-dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the floor compiler and oneTBB
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} libtbb-dev
       - name: Set up ccache
@@ -161,7 +161,7 @@ jobs:
     name: tests (MSVC)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up the MSVC environment
         # the variables that the developer command prompt sets, for the
         # next steps
@@ -212,7 +212,7 @@ jobs:
       GITHUB_USER: ${{ github.actor }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install oneTBB
         run: sudo apt-get update && sudo apt-get install -y libtbb-dev
       - name: Set up Spack
@@ -309,7 +309,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Spack
         uses: spack/setup-spack@v3
         with:
@@ -369,7 +369,7 @@ jobs:
         # The CMake of Ubuntu 22.04 (3.22) predates CUDA 12: this job
         # also covers the by-hand C++20 request of the examples.
         run: apt-get update && apt-get install -y cmake git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up ccache
         id: ccache
         uses: ./.github/actions/setup-ccache
@@ -408,7 +408,7 @@ jobs:
           echo "deb [signed-by=/etc/apt/keyrings/llvm.gpg] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" \
             > /etc/apt/sources.list.d/llvm.list
           apt-get update && apt-get install -y clang-18
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up ccache
         id: ccache
         uses: ./.github/actions/setup-ccache
@@ -441,7 +441,7 @@ jobs:
     env:
       ROCM_PATH: /opt/rocm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the ROCm 5.3 HIP toolchain
         run: |
           sudo mkdir -p /etc/apt/keyrings
@@ -495,7 +495,7 @@ jobs:
     name: gpu examples build only (icpx, SYCL)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the oneAPI DPC++ compiler
         run: |
           curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
@@ -541,7 +541,7 @@ jobs:
     name: gpu stdpar examples build only (nvc++ 25.11)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the HPC SDK compiler and CUDA components
         run: |
           printf 'path-exclude=/opt/nvidia/hpc_sdk/*/comm_libs/*\npath-exclude=/opt/nvidia/hpc_sdk/*/math_libs/*\npath-exclude=/opt/nvidia/hpc_sdk/*/profilers/*\npath-exclude=/opt/nvidia/hpc_sdk/*/examples/*\n' \
@@ -594,7 +594,7 @@ jobs:
     env:
       ROCM_PATH: /opt/rocm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the ROCm 6.2 toolchain, roc-stdpar and oneTBB
         run: |
           sudo mkdir -p /etc/apt/keyrings
@@ -647,7 +647,7 @@ jobs:
     name: gpu stdpar examples build only (icpx, pstl offload)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the oneAPI DPC++ compiler and oneDPL
         run: |
           curl -fsSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
@@ -688,7 +688,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install clang-format
         run: pip install "clang-format==22.*"
       - name: Check the formatting
