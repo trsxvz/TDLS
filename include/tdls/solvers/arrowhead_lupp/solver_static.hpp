@@ -84,12 +84,13 @@
 /// Streamed blocks. The *_streamed entry points take the blocks from a
 /// provider, called exactly once per block and in order when the solver
 /// condenses it, instead of reading them from A: the caller stores only
-/// the border, and the provider writes the block in the working arrays of
-/// the solver (StreamedBlock). A refused block is stored as given for the
-/// second pass. The arithmetic is that of the stored path, bit for bit.
-/// The streamed path is selected at compile time: the stored entry points
-/// keep their signatures and their code. The entry points are noexcept:
-/// the provider must not throw.
+/// the border, and the provider writes every entry of the block, zeros
+/// included, in the working arrays of the solver (StreamedBlock). A
+/// refused block is stored as given for the second pass. The arithmetic
+/// is that of the stored path, bit for bit. The streamed path is selected
+/// at compile time: the stored entry points keep their signatures and
+/// their code. The entry points are noexcept: the provider must not
+/// throw.
 
 
 
@@ -291,7 +292,8 @@ struct ArrowheadLUppSolverStatic {
     /// solver themselves, which the caller fills through the accessors when
     /// the solver asks for the block; the factorization and the solve then
     /// run in place, without a copy. Entries in logical order whatever the
-    /// layout and the storage.
+    /// layout and the storage. The arrays come uninitialized: the caller
+    /// writes every entry, zeros included, by assignment.
     struct StreamedBlock {
         T Dl[S * S];             ///< D_k in the layout of the factorization
         T W[(B + 1) * S];        ///< [A_kb | y_k], column c at c * S

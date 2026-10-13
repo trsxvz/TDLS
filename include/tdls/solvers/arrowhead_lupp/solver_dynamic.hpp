@@ -28,7 +28,8 @@
 ///   - No residency booleans and no unroll pragma: every array is a
 ///     pointer plus a stride, and the unroll_loops knob is ignored.
 ///   - A streamed block (StreamedBlock) is a view of the workspace, where
-///     the provider writes the block and the solver factors and solves it;
+///     the provider writes every entry of the block, zeros included, and
+///     the solver factors and solves it;
 ///     the streamed entry points need streamed_workspace_size(shape)
 ///     entries, the areas of the block after those of the stored path.
 ///     The provider must not throw: the entry points are noexcept.
@@ -605,7 +606,8 @@ struct ArrowheadLUppSolverDynamic {
     /// factorization and the solve then run in place, without a copy. The
     /// accessors are those of ArrowheadLUppSolverStatic::StreamedBlock, so
     /// that one provider serves both solvers. Entries in logical order
-    /// whatever the layout and the storage.
+    /// whatever the layout and the storage. The areas hold the previous
+    /// block: the caller writes every entry, zeros included, by assignment.
     struct StreamedBlock {
         T* Dl;      ///< D_k in the layout of the factorization
         T* W;       ///< [A_kb | y_k], column c at c * S

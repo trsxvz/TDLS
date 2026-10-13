@@ -232,7 +232,10 @@ The contract of the provider:
   `d(i, j)` for $D_k$, `akb(i, c)` for $A_{kb}$, `coupling(i)` (diagonal
   coupling) or `abk(r, i)` (dense coupling) for $A_{bk}$, `y(i)` for the
   rows of the right-hand side on the block (not read by the canonical
-  solve). The entries go in logical order, whatever the layout and the
+  solve). It writes every one of these entries, zeros included, by
+  assignment: `blk` comes with undefined values, the previous block in
+  the runtime solver, arrays left uninitialized in the compile-time
+  one. The entries go in logical order, whatever the layout and the
   storage. Called once per block and in order, the provider may
   accumulate the residual as it goes.
 - `solve_inplace_streamed_or_tangent` calls `converged()` once, after
