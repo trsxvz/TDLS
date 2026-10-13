@@ -985,21 +985,26 @@ struct ArrowheadLUppSolverStatic {
         // with AVX2 or AVX-512, unroll_loops off).
         constexpr int acc0 = in_place ? B : R0;
         constexpr int acc1 = in_place ? B : R0 + R;
-        auto stored_row    = [&](const int r) {
+        TDLS_ARROW_LUPP_FOR(
+            r, 0, acc0,
             TDLS_ARROW_LUPP_FOR(
                 c, 0, B, Sbb[r * B + c] = TDLS_ARROW_LUPP_A(storage_map::abb(shape_value(), r, c));)
-            TDLS_ARROW_LUPP_FOR(
-                m, 0, nc, if constexpr (canonical) rb[m * B + r] = r == col0 + m ? T(1) : T(0);
-                else rb[m * B + r] = TDLS_ARROW_LUPP_YW(m, r);)
-        };
-        TDLS_ARROW_LUPP_FOR(r, 0, acc0, stored_row(r);)
+                TDLS_ARROW_LUPP_FOR(
+                    m, 0, nc, if constexpr (canonical) rb[m * B + r] = r == col0 + m ? T(1) : T(0);
+                    else rb[m * B + r] = TDLS_ARROW_LUPP_YW(m, r);))
         TDLS_ARROW_LUPP_FOR(r, acc0, acc1,
                             TDLS_ARROW_LUPP_FOR(c, 0, B, Sbb[r * B + c] = Sacc[(r - R0) * B + c];)
                                 TDLS_ARROW_LUPP_FOR(m, 0, nc,
                                                     if constexpr (canonical) rb[m * B + r] =
                                                         r == col0 + m ? T(1) : T(0);
                                                     else rb[m * B + r] = racc[m * R + r - R0];))
-        TDLS_ARROW_LUPP_FOR(r, acc1, B, stored_row(r);)
+        TDLS_ARROW_LUPP_FOR(
+            r, acc1, B,
+            TDLS_ARROW_LUPP_FOR(
+                c, 0, B, Sbb[r * B + c] = TDLS_ARROW_LUPP_A(storage_map::abb(shape_value(), r, c));)
+                TDLS_ARROW_LUPP_FOR(
+                    m, 0, nc, if constexpr (canonical) rb[m * B + r] = r == col0 + m ? T(1) : T(0);
+                    else rb[m * B + r] = TDLS_ARROW_LUPP_YW(m, r);))
         if (refused_count > 0 &&
             !second_pass<nc, canonical, internal_rhs, internal_work, internal_matrix>(
                 A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused, Sbb, rb))
