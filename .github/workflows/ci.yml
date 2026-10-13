@@ -11,13 +11,29 @@
 # The test suites compile at -O3 in the GCC and Clang jobs, the default
 # of TDLS_TESTS_OPTIMIZATION and the level of the Release builds, which
 # exercises the optimizer the most. The sanitizer job compiles at -O1.
+# The packages that the spack job builds go to a Spack binary cache on
+# the GitHub container registry (setup-build-cache, push-build-cache,
+# update_build_cache, clean-build-cache.yml). Only the runs on main
+# write it; a pull request only reads it, and from a fork its token is
+# read-only. Keep it that way: never enable "Send write tokens to
+# workflows from pull requests", never trigger on pull_request_target.
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  # Every night, even without a commit: the Spack binary cache follows
+  # the latest dependencies, and a change of the runner images or of the
+  # Spack packages shows up. Not at the start of an hour, when GitHub
+  # delays the scheduled runs the most.
+  schedule:
+    - cron: 17 2 * * *
   workflow_dispatch:
+
+env:
+  # Spack binary cache of the spack job, on the GitHub container registry
+  BUILD_CACHE: oci://ghcr.io/${{ github.repository_owner }}/tdls-spack-buildcache
 
 jobs:
   tests:
@@ -120,8 +136,20 @@ jobs:
     # builds the checked out sources instead of the main branch fetched
     # by the recipe. The runner provides CMake and oneTBB, as in the
     # other jobs.
+    # The packages that Spack builds, all but tdls, go to a binary cache
+    # on the GitHub container registry, BUILD_CACHE, as in mfem-mgis.
+    # Every run reads it, the runs on main write it, and
+    # update_build_cache then removes the packages they no longer use.
+    # The first run on main creates the package of the cache, private
+    # until its visibility is changed in its settings.
     name: Spack 1.2.2 install and tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GITHUB_USER: ${{ github.actor }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Install oneTBB
@@ -133,14 +161,31 @@ jobs:
           packages_ref: develop
           buildcache: false
           spack_path: spack
+      - name: Set up the build cache
+        uses: ./.github/actions/setup-build-cache
+      - name: Install the dependencies of tdls
+        # The test dependencies take part in the concretization: an
+        # environment concretized without them builds tdls without its
+        # tests, even under install --test=root.
+        run: |
+          env=${{ runner.temp }}/tdls-env
+          spack external find cmake
+          spack env create -d $env
+          spack -e $env add tdls@main
+          spack -e $env develop --no-clone --path ${{ github.workspace }} tdls@main
+          spack -e $env concretize --test=root
+          spack -e $env install --only dependencies --test=root
+      # tdls itself is never cached, so that it is always built and tested.
+      # Its build dependencies are only installed with it, and pushed after.
+      - name: Push the dependencies to the build cache
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/push-build-cache
+        with:
+          artifact: used-hashes-spack
+          exclude: tdls
       - name: Install tdls and run its tests
         id: install
-        run: |
-          spack external find cmake
-          spack env create -d ${{ runner.temp }}/tdls-env
-          spack -e ${{ runner.temp }}/tdls-env add tdls@main
-          spack -e ${{ runner.temp }}/tdls-env develop --no-clone --path ${{ github.workspace }} tdls@main
-          spack -e ${{ runner.temp }}/tdls-env install --test=root
+        run: spack -e ${{ runner.temp }}/tdls-env install --test=root
       - name: Show the output of the tests
         # Spack only reports that the check target failed: the output of
         # the build of the tests and of ctest stays in the stage directory.
@@ -148,6 +193,12 @@ jobs:
         run: |
           stage=$(spack -e ${{ runner.temp }}/tdls-env location --stage-dir tdls)
           tail -n 200 "$stage/install-time-test-log.txt"
+      - name: Push the build dependencies to the build cache
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/push-build-cache
+        with:
+          artifact: used-hashes-spack
+          exclude: tdls
       - name: Build a project against the installed package
         # The tests run in the build tree: this checks that a project
         # finds the installed tdls with find_package.
@@ -170,6 +221,34 @@ jobs:
             -DCMAKE_PREFIX_PATH=$(spack -e ${{ runner.temp }}/tdls-env location -i tdls)
           cmake --build $consumer/build
           $consumer/build/consumer
+
+  update_build_cache:
+    # Once the spack job has pushed, removes from the build cache the
+    # packages that it no longer uses, when it succeeded, then updates
+    # the index of the cache. Only on main, which writes the cache.
+    needs: spack
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Spack
+        uses: spack/setup-spack@v3
+        with:
+          spack_ref: v1.2.2
+          packages_ref: develop
+          buildcache: false
+          spack_path: spack
+      - name: Clean the build cache
+        uses: ./.github/actions/clean-build-cache
+        env:
+          GITHUB_USER: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          prune: ${{ needs.spack.result == 'success' }}
 
   gpu-cuda:
     # Cross-compilation of the GPU examples with the oldest CUDA
