@@ -178,7 +178,14 @@ struct ArrowheadLUppConfig {
     /// of 12, passes of 2 are 18 to 28 % faster, 4 % with a border of 6
     /// (RTX 5080). Under the column-major layout they gain nothing: one
     /// pass reads the pivot check from the forward stage of the solve,
-    /// several need U and a separate check.
+    /// several need U and a separate check. The two order the operations
+    /// differently once a block spans several tiles: a block whose largest
+    /// multiplier lies within rounding of 1 / condensation_pivot_threshold
+    /// can pass the check in one pass and fail it in several, and the
+    /// solutions then differ by rounding errors. A nonzero width can also
+    /// give one pass to an entry point and several to another, whose
+    /// right-hand sides add columns; with 0, every entry point runs one
+    /// pass and the same check.
     int rhs_pass_width = 0;
 
     /// Permutes the right-hand sides of a block by its pivots through a

@@ -10,9 +10,11 @@
 /// The performance knobs keep the arithmetic: every rhs_pass_width from 0
 /// to border + 1, gather_rhs, unroll_loops off and schur_in_place give
 /// the solutions and the counts of refused blocks of the default
-/// configuration, bit for bit, under both layouts and both couplings
-/// (schur_in_place leaves the Schur complement in the border entries, so
-/// only the solutions compare). The thresholds change the pivots on
+/// configuration, bit for bit, under both layouts and both couplings, on
+/// systems whose pivot checks stay clear of the threshold (under the
+/// column-major layout, a pass width can move a block across it: see
+/// ArrowheadLUppConfig::rhs_pass_width). schur_in_place leaves the Schur
+/// complement in the border entries of A, so only the solutions compare. The thresholds change the pivots on
 /// purpose, and are checked against the reference LU: the refusals grow
 /// with condensation_pivot_threshold, 0 refusing only the singular
 /// blocks, and every threshold of the pivot check and of the blocks

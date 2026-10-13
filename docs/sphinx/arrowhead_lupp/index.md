@@ -75,7 +75,8 @@ border row may take a pivot; a row of the block then takes its place in
 the border, which keeps $B$ rows. A refused block never makes the solve
 fail: the solver succeeds whenever the whole matrix is invertible,
 rounding aside, and returns `false` on a singular matrix. The
-workspace is touched by this pass only.
+compile-time solver touches the workspace in this pass only; the
+runtime solver keeps all its temporaries there.
 
 **The recovery.** The border system solved, the blocks are recovered
 from the data the condensation left in place of $A_{kb}$ (and of $D_k$
@@ -168,7 +169,10 @@ pragma. It is the flexibility path: shapes unknown at compile time,
 faster builds.
 
 At equal shape and configuration, the two solvers execute the same
-arithmetic and produce bitwise identical results.
+arithmetic and produce bitwise identical results. A compiler that fuses
+multiplications and additions differently in the two (gcc with
+`-march=native` does) changes the last bits; build with
+`-ffp-contract=off` to compare them bit for bit.
 
 ## Several right-hand sides
 
@@ -176,7 +180,13 @@ arithmetic and produce bitwise identical results.
 sides through one condensation: each block solves its coupling columns
 and its `nrhs` right-hand-side columns together, $[A_{kb} \mid Y_k]$,
 and the border system `nrhs` columns. Column m comes out bit for bit as
-`solve_inplace` gives it alone. It starts at m `xcol_stride` (m times
+`solve_inplace` gives it alone under the default `rhs_pass_width`. Under
+another width and the column-major layout, the right-hand sides can
+change the number of passes of a block, hence the order of the
+operations of its pivot check: a block whose largest multiplier lies
+within rounding of 1 / `condensation_pivot_threshold` can then be
+refused by one solve and accepted by the other, and the two solutions
+differ by rounding errors. Column m starts at m `xcol_stride` (m times
 the dimension under the internal residency). The compile-time solver
 takes `nrhs` as a template argument, the runtime solver as an argument.
 The workspace grows with it: `multirhs_workspace_size<nrhs>` entries
@@ -280,7 +290,7 @@ individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 | `block_relative_pivot_threshold` | 0.01 | `relative_pivot_threshold` of TiledLUpp on the blocks: the rows of a block stay in place, and the reads of a warp stay coalesced |
 | `block_oot_pivot_threshold` | 1e-12 for `double` and `long double`<br>1e-6 for `float` | `oot_pivot_threshold` of TiledLUpp on the blocks, two orders below its default |
 | `border_tile_size` | 3 | tile size of TiledLUpp on the border system |
-| `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1]; 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there (8 % faster on a polycrystal of 240 grains) |
+| `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1]; 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there (8 % faster on a polycrystal of 240 grains); under the column-major layout, a width can move a block across the threshold of the pivot check, the results then differing by rounding errors |
 | `gather_rhs` | `false` | permutes the columns of a block by a gather into a second buffer instead of cycles in place; changes the register allocation, to measure per shape on GPU |
 | `schur_in_place` | `false` | accumulates the Schur complement in the border entries of A and y instead of a local array; fewer registers, more memory traffic |
 | `unroll_loops` | `true` | forced unrolling of the loops over the entries of a block and of the border, passed on to the TiledLUpp solvers; ignored by the runtime solver |

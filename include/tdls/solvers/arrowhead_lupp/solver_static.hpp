@@ -71,8 +71,8 @@
 /// On exit y holds the solution. A holds the recovery data in place of
 /// A_kb, and in place of D_k for the refused blocks and, under the
 /// row-major layout with the dense coupling, for the accepted ones too;
-/// with schur_in_place, the coupled border rows of A and y hold the Schur
-/// complement. The other entries are only read.
+/// with schur_in_place, the coupled border rows of A hold the Schur
+/// complement of the accepted blocks. The other entries are only read.
 ///
 /// The caller pre-offsets every remote pointer with the system index and
 /// passes a runtime stride, as for the other families; the
@@ -380,8 +380,10 @@ struct ArrowheadLUppSolverStatic {
     /// behaviour loaded through the border), refused blocks included (work
     /// then holds multirhs_workspace_size<ntan> entries). The provider is
     /// called exactly once per block, in order, and converged() once, after
-    /// the last block. Bit for bit the results of solve_inplace_streamed and
-    /// of solve_border_canonical_multirhs_streamed.
+    /// the last block. Bit for bit the results of solve_inplace_streamed,
+    /// and those of solve_border_canonical_multirhs_streamed under the
+    /// default rhs_pass_width (within rounding errors under another, see
+    /// ArrowheadLUppConfig::rhs_pass_width).
     /// \tparam ntan            number of tangent columns, in [1, border]
     /// \tparam internal_rhs    y and x are caller-local arrays, column m of x
     ///                         from m * border (strides ignored)
@@ -645,7 +647,9 @@ struct ArrowheadLUppSolverStatic {
     /// the refused blocks. The right-hand sides ride along the
     /// condensation, which runs once: each block solves [A_kb | Y_k] in
     /// passes of rhs_pass_width columns, the border system nrhs columns.
-    /// Column m comes out bitwise identical to solve_inplace on it alone.
+    /// Column m comes out bitwise identical to solve_inplace on it alone
+    /// under the default rhs_pass_width, and within rounding errors under
+    /// another (see ArrowheadLUppConfig::rhs_pass_width).
     /// \tparam nrhs            number of right-hand sides, >= 1
     /// \tparam internal_rhs    y is a caller-local array, column m from
     ///                         m * dimension (strides ignored)
@@ -776,7 +780,8 @@ struct ArrowheadLUppSolverStatic {
     /// border equations only. Each column equals the border rows of
     /// solve_inplace on the unit column; a zero may differ in sign, the
     /// blocks contributing exact zeros where solve_inplace subtracts zero
-    /// products.
+    /// products. Under another rhs_pass_width than the default, the two
+    /// agree within rounding errors (see ArrowheadLUppConfig::rhs_pass_width).
     /// \tparam nrhs            number of unit columns, in [1, border]
     /// \tparam internal_rhs    x is a caller-local array, column m from
     ///                         m * border (strides ignored)

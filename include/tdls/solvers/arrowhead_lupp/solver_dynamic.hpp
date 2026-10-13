@@ -35,17 +35,20 @@
 ///
 /// For equal shapes and configurations, the results are bitwise identical
 /// to the compile-time solver: the arithmetic sequence is the same, only
-/// the addressing and the loop mechanics differ.
+/// the addressing and the loop mechanics differ. A compiler that fuses
+/// multiplications and additions differently in the two (gcc with
+/// -march=native does) changes the last bits; -ffp-contract=off keeps them
+/// identical.
 ///
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (shapes unknown at compile time, faster builds).
 ///
 /// Preconditions: a workspace and a pivot array of the sizes above. The
 /// entry points check the shape first, valid(shape, nrhs), and return
-/// false on a shape they reject. An rhs_pass_width above border + 1
-/// counts as border + 1 (the compile-time solver rejects it, its border
-/// being known). Element offsets, index times stride, are computed in
-/// 64-bit arithmetic.
+/// false on a shape they reject. An rhs_pass_width above border + nrhs
+/// counts as border + nrhs, one pass (the compile-time solver rejects a
+/// width above border + 1, its border being known). Element offsets,
+/// index times stride, are computed in 64-bit arithmetic.
 
 
 
@@ -415,7 +418,10 @@ struct ArrowheadLUppSolverDynamic {
     /// \brief Solves A X = Y in place for nrhs right-hand sides, counting
     /// the refused blocks. The right-hand sides ride along the
     /// condensation, which runs once. Column m comes out bitwise identical
-    /// to solve_inplace on it alone, and to the compile-time solver.
+    /// to solve_inplace on it alone under the default rhs_pass_width,
+    /// within rounding errors under another (see
+    /// ArrowheadLUppConfig::rhs_pass_width), and bitwise identical to the
+    /// compile-time solver.
     /// \param[in]     shape         shape of the matrix (valid)
     /// \param[in]     nrhs          number of right-hand sides, >= 1
     /// \param[in,out] A             matrix in its storage (pattern entries
@@ -726,8 +732,11 @@ struct ArrowheadLUppSolverDynamic {
     /// behaviour loaded through the border), refused blocks included. The
     /// provider is called exactly once per block, in order, and converged()
     /// once, after the last block. Bit for bit the results of
-    /// solve_inplace_streamed and of solve_border_canonical_multirhs_streamed,
-    /// and those of ArrowheadLUppSolverStatic::solve_inplace_streamed_or_tangent.
+    /// solve_inplace_streamed and of
+    /// ArrowheadLUppSolverStatic::solve_inplace_streamed_or_tangent, and
+    /// those of solve_border_canonical_multirhs_streamed under the default
+    /// rhs_pass_width (within rounding errors under another, see
+    /// ArrowheadLUppConfig::rhs_pass_width).
     /// \tparam Provider  callable (int k, StreamedBlock& blk)
     /// \tparam Converged callable () returning bool
     /// \param[in]     shape         shape of the matrix (valid)
