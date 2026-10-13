@@ -199,6 +199,7 @@ struct TiledLUppSolverDynamic {
 
     /// \brief Number of tiles per dimension (last one possibly partial).
     /// \param[in] n system dimension
+    /// \return ceil(n / tile_size)
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int num_tiles(const int n) noexcept {
         return (n + tile_size - 1) / tile_size;
     }
@@ -207,6 +208,7 @@ struct TiledLUppSolverDynamic {
     /// less for the last tile.
     /// \param[in] t0 first global row/column of the tile
     /// \param[in] n  system dimension
+    /// \return min(tile_size, n - t0)
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int tile_size_at(const int t0,
                                                                              const int n) noexcept {
         return (n - t0 < tile_size) ? (n - t0) : tile_size;

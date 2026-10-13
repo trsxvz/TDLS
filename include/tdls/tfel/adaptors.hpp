@@ -624,6 +624,12 @@ struct pivot_access {
 /// \tparam pass_width columns per substitution pass (0 = all at once)
 /// \tparam inplace    false: read B, write X; true: overwrite X in
 ///                    place (b is then ignored and may alias x)
+/// \param[in]     A   factored matrix-like object
+/// \param[in]     piv pivot storage produced by factorize
+/// \param[in]     b   matrix-like right-hand-side block, one right-hand
+///                side per column (ignored when inplace)
+/// \param[in,out] x   matrix-like solution block, of the same shape as b
+///                (the right-hand sides on entry when inplace)
 template<typename Ctx, int pass_width, bool inplace, typename MatrixType, typename PivotType,
          typename RhsType, typename SolutionType>
 TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr void
