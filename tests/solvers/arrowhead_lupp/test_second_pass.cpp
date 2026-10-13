@@ -19,7 +19,8 @@
 /// refused at once by strong couplings. On the invertible matrices the
 /// reference LU succeeds too and the backward errors stay at its level;
 /// the solvers agree bit for bit, and the counts of refused blocks are
-/// checked where they are known.
+/// checked where they are known. Two 2 x 2 matrices put a subnormal pivot
+/// in the second pass.
 
 #include <algorithm>
 #include <cstdint>
@@ -141,6 +142,25 @@ void shape_cases(const std::uint64_t seed) {
     }
 }
 
+/// \brief A subnormal pivot in the second pass. The block of
+/// [[1, 1e-307], [1, 3e-309]], of solution (1, 0), is subnormal and
+/// refused; the border row, of normal pivot, takes the pivot. The block of
+/// diag(1, 3e-309) is subnormal and uncoupled: no pivot reaches the
+/// singular floor of TiledLUpp, and the solvers find the matrix singular,
+/// as TiledLUpp does.
+/// \tparam diag diagonal coupling (and pattern)
+/// \tparam col  column-major layout
+template<bool diag, bool col>
+void subnormal_cases() {
+    constexpr ArrowheadShape shape{1, 1, 1, 0};
+    const tdls_tests::ArrowProblem<double> coupled{
+        shape, diag, {1.0, 1e-307, 1.0, 3e-309}, {1.0, 1.0}};
+    check_problem<shape, diag, col>(coupled, false, 1);
+    const tdls_tests::ArrowProblem<double> uncoupled{
+        shape, diag, {1.0, 0.0, 0.0, 3e-309}, {1.0, 1.0}};
+    check_problem<shape, diag, col>(uncoupled, true, -1);
+}
+
 } // namespace
 
 /// Emits the row-major and column-major cases of one shape and pattern.
@@ -163,5 +183,12 @@ TDLS_ARROW_SECOND_PASS_CASES(12, 4, 9, 4, true, "diagonal", 1000800)
 TDLS_ARROW_SECOND_PASS_CASES(12, 4, 9, 0, false, "dense", 1000900)
 TDLS_ARROW_SECOND_PASS_CASES(12, 6, 30, 6, true, "diagonal", 1001000)
 TDLS_ARROW_SECOND_PASS_CASES(12, 6, 30, 0, false, "dense", 1001100)
+
+TDLS_TEST_CASE("arrowheadlupp/oracle/second_pass/subnormal_pivots") {
+    subnormal_cases<false, false>();
+    subnormal_cases<false, true>();
+    subnormal_cases<true, false>();
+    subnormal_cases<true, true>();
+}
 
 TDLS_TEST_MAIN

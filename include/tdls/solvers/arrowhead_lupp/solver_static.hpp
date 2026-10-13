@@ -1680,6 +1680,9 @@ struct ArrowheadLUppSolverStatic {
         // First column of the right-hand sides in the front.
         constexpr int rhs0 = S + B + R;
         const T u          = condensation_pivot_threshold;
+        // The singularity floor of the block solver: a smaller pivot, zero
+        // or subnormal, is singular there, and its reciprocal could overflow.
+        constexpr T singular_floor = BlockSolver::singular_floor;
         // The border rows [T A_bk | Sbb | T | rb], T starting as the
         // injection of the R coupled rows.
         for (int r = 0; r < B; ++r) {
@@ -1743,8 +1746,8 @@ struct ArrowheadLUppSolverStatic {
                         pblk = e;
                     }
                 }
-                if (!(vmax > T(0))) return false;
-                const int p = pblk >= 0 && vblk >= u * vmax ? pblk : pmax;
+                if (!(vmax >= singular_floor)) return false;
+                const int p = pblk >= 0 && vblk >= u * vmax && vblk >= singular_floor ? pblk : pmax;
                 if (p != j) {
                     for (int c = j; c < fcols; ++c) {
                         const T t               = TDLS_ARROW_LUPP_F(p, c);
