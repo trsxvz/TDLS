@@ -1,0 +1,61 @@
+name: Set up ccache
+description: >
+  Install ccache (the package of Ubuntu, or the official build on Windows), restore
+  the compilations cached by the previous runs under the given key and make CMake
+  compile through ccache, Spack builds included.
+  save-ccache saves them at the end of the job, and clean_ccache of ci.yml removes
+  the older caches. The compilations shall not use -march=native, as the runners
+  have different processors and the ccache of Ubuntu 22.04 and 24.04 (4.5 and 4.9)
+  does not expand this option.
+inputs:
+  key:
+    description: name of the cache, e.g. the job and its compiler
+    required: true
+runs:
+  using: composite
+  steps:
+  - name: Install ccache
+    if: runner.os == 'Linux'
+    shell: bash
+    run: |
+      # the container jobs run as root, without sudo
+      sudo=$(command -v sudo || true)
+      $sudo apt-get update
+      $sudo apt-get install -y ccache
+  # the official build, its version pinned with its checksum
+  - name: Install ccache
+    if: runner.os == 'Windows'
+    shell: pwsh
+    run: |
+      $version = '4.14.1'
+      $zip = "$env:RUNNER_TEMP\ccache.zip"
+      Invoke-WebRequest -OutFile $zip `
+        "https://github.com/ccache/ccache/releases/download/v$version/ccache-$version-windows-x86_64.zip"
+      $sha256 = '6219f3865ca59aec41ee4b678df171d5d35855ecb2b6dbbbd20690b3a68af7b4'
+      if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $sha256) { throw 'ccache: wrong checksum' }
+      Expand-Archive $zip $env:RUNNER_TEMP
+      "$env:RUNNER_TEMP\ccache-$version-windows-x86_64" >> $env:GITHUB_PATH
+  - name: Configure ccache
+    shell: bash
+    run: |
+      # in the workspace, where actions/cache and ccache see the same path, also in
+      # the container jobs, whose paths differ from those of the runner
+      echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> $GITHUB_ENV
+      # an upper bound, in addition to the removal of the unused files by save-ccache
+      echo "CCACHE_MAXSIZE=500M" >> $GITHUB_ENV
+      # start of the job and name of the cache, see save-ccache
+      echo "CCACHE_START=$(date +%s)" >> $GITHUB_ENV
+      echo "CCACHE_KEY=ccache-${{ inputs.key }}" >> $GITHUB_ENV
+      # the default compiler launchers of CMake, which Spack passes on to the builds
+      for language in C CXX CUDA HIP; do
+        echo "CMAKE_${language}_COMPILER_LAUNCHER=ccache" >> $GITHUB_ENV
+      done
+  - uses: actions/cache/restore@v6
+    with:
+      path: .ccache
+      key: ccache-${{ inputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: ccache-${{ inputs.key }}-
+  # restored with the cache, then shown by save-ccache for this job only
+  - name: Reset the statistics
+    shell: bash
+    run: ccache --zero-stats

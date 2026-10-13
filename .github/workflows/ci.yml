@@ -11,12 +11,18 @@
 # The test suites compile at -O3 in the GCC and Clang jobs, the default
 # of TDLS_TESTS_OPTIMIZATION and the level of the Release builds, which
 # exercises the optimizer the most. The sanitizer job compiles at -O1.
-# The packages that the spack job builds go to a Spack binary cache on
-# the GitHub container registry (setup-build-cache, push-build-cache,
-# update_build_cache, clean-build-cache.yml). Only the runs on main
-# write it; a pull request only reads it, and from a fork its token is
-# read-only. Keep it that way: never enable "Send write tokens to
-# workflows from pull requests", never trigger on pull_request_target.
+# Two caches speed the runs up. Every compiling job compiles through
+# ccache, whose files are kept in the cache of GitHub Actions
+# (setup-ccache, save-ccache, clean_ccache). Every test includes the
+# whole library: a change in its headers recompiles them all, and
+# ccache pays off on the other commits. The packages that the spack
+# job builds go to a Spack binary cache on the GitHub container
+# registry (setup-build-cache, push-build-cache, update_build_cache,
+# clean-build-cache.yml). Only the runs on main write the caches. A
+# pull request reads them and keeps its compilations in a cache of its
+# own, out of reach of main; from a fork, its token is read-only.
+# Keep it that way: never enable "Send write tokens to workflows from
+# pull requests", never trigger on pull_request_target.
 name: ci
 
 on:
@@ -24,8 +30,9 @@ on:
     branches: [main]
   pull_request:
   # Every night, even without a commit: the Spack binary cache follows
-  # the latest dependencies, and a change of the runner images or of the
-  # Spack packages shows up. Not at the start of an hour, when GitHub
+  # the latest dependencies, the ccache caches stay alive (GitHub removes
+  # a cache unused for 7 days), and a change of the runner images or of
+  # the Spack packages shows up. Not at the start of an hour, when GitHub
   # delays the scheduled runs the most.
   schedule:
     - cron: 17 2 * * *
@@ -49,6 +56,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install the LLVM OpenMP runtime and oneTBB
         run: sudo apt-get update && sudo apt-get install -y libomp-dev libtbb-dev
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: tests-${{ matrix.compiler }}
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -57,6 +69,10 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   sanitizers:
     name: tests (g++, ASan+UBSan, -O1)
@@ -65,6 +81,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install the LLVM OpenMP runtime and oneTBB
         run: sudo apt-get update && sudo apt-get install -y libomp-dev libtbb-dev
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: sanitizers
       - name: Configure
         # -O1 is the level recommended for AddressSanitizer: higher levels
         # keep more values in registers or remove accesses, and their
@@ -83,6 +104,10 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   floors:
     # Ensures the advertised compiler floors keep compiling and passing:
@@ -103,6 +128,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install the floor compiler and oneTBB
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} libtbb-dev
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: floor-${{ matrix.compiler }}
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -111,22 +141,47 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   windows:
     # MSVC coverage. The windows-2019 runner is retired, so the VS 2019
     # 16.11 floor of the documentation is not reachable here; this job
     # keeps the MSVC branches compiling and passing on the current
-    # toolset.
+    # toolset. It uses the Ninja generator, as the Visual Studio one
+    # ignores the compiler launchers of CMake, hence ccache.
     name: tests (MSVC)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Set up the MSVC environment
+        # the variables that the developer command prompt sets, for the
+        # next steps
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -property installationPath
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" > nul && set" | ForEach-Object {
+            $name, $value = $_ -split '=', 2
+            if ([Environment]::GetEnvironmentVariable($name) -ne $value) { "$name=$value" >> $env:GITHUB_ENV }
+          }
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: msvc
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl
       - name: Build
-        run: cmake --build build --config Release -j4 --target buildtests
+        run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   spack:
     # Installs the library with the tdls recipe of Spack and runs the
@@ -183,9 +238,20 @@ jobs:
         with:
           artifact: used-hashes-spack
           exclude: tdls
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: spack
       - name: Install tdls and run its tests
         id: install
-        run: spack -e ${{ runner.temp }}/tdls-env install --test=root
+        # Spack disables ccache in its builds unless asked to use it. The
+        # recipe compiles the tests with the compiler itself, not with the
+        # compiler wrapper of Spack: they go through the launcher of CMake
+        # that setup-ccache sets.
+        run: |
+          spack config add config:ccache:true
+          spack -e ${{ runner.temp }}/tdls-env install --test=root
       - name: Show the output of the tests
         # Spack only reports that the check target failed: the output of
         # the build of the tests and of ctest stays in the stage directory.
@@ -221,6 +287,10 @@ jobs:
             -DCMAKE_PREFIX_PATH=$(spack -e ${{ runner.temp }}/tdls-env location -i tdls)
           cmake --build $consumer/build
           $consumer/build/consumer
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   update_build_cache:
     # Once the spack job has pushed, removes from the build cache the
@@ -250,6 +320,34 @@ jobs:
         with:
           prune: ${{ needs.spack.result == 'success' }}
 
+  clean_ccache:
+    # Once the jobs have saved their compilations, removes the older
+    # caches of each job on main: a job only restores the newest one,
+    # which holds every compilation the previous run used. The caches
+    # of a pull request, out of reach of its read-only token, expire
+    # after 7 days without use.
+    needs: [tests, sanitizers, floors, windows, spack, gpu-cuda, gpu-clang-cuda, gpu-hip, gpu-sycl,
+            gpu-stdpar-nvhpc, gpu-stdpar-hip, gpu-stdpar-oneapi]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep the newest cache of each job
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh cache list --ref refs/heads/main --key ccache- --limit 1000 \
+            --json id,key,createdAt \
+            --jq 'map(.job = (.key | sub("-[0-9]+-[0-9]+$"; ""))) | group_by(.job)
+                  | map(sort_by(.createdAt) | .[:-1][]) | .[] | "\(.id) \(.key)"' > older.txt
+          echo "$(wc -l < older.txt) older caches"
+          while read -r id key; do
+            echo "removing $key"
+            gh cache delete "$id"
+          done < older.txt
+
   gpu-cuda:
     # Cross-compilation of the GPU examples with the oldest CUDA
     # release the headers support. The container pins nvcc and its
@@ -266,6 +364,11 @@ jobs:
         # also covers the by-hand C++20 request of the examples.
         run: apt-get update && apt-get install -y cmake git
       - uses: actions/checkout@v4
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-cuda
       - name: Configure
         # The architecture must be explicit: the `native` default
         # probes for a device.
@@ -277,6 +380,10 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples (GPU examples skip)
         run: ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   gpu-clang-cuda:
     # Second CUDA frontend: clang compiles the same examples against the
@@ -296,6 +403,11 @@ jobs:
             > /etc/apt/sources.list.d/llvm.list
           apt-get update && apt-get install -y clang-18
       - uses: actions/checkout@v4
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-clang-cuda
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -306,6 +418,10 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples (GPU examples skip)
         run: ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   gpu-hip:
     # Same for AMD, with the oldest ROCm release that has packages for a
@@ -335,6 +451,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y hip-dev hip-runtime-amd rocm-device-libs
           echo "/opt/rocm/bin" >> "$GITHUB_PATH"
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-hip
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -353,6 +474,10 @@ jobs:
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples (GPU examples skip)
         run: ctest --test-dir build --output-on-failure
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   gpu-sycl:
     # Build-only check of the SYCL examples with the oneAPI DPC++
@@ -373,6 +498,11 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/oneapi.list
           sudo apt-get update
           sudo apt-get install -y intel-oneapi-compiler-dpcpp-cpp
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-sycl
       - name: Configure
         run: |
           source /opt/intel/oneapi/setvars.sh
@@ -391,6 +521,10 @@ jobs:
             tdls_example_arrowheadlupp_aggregate_batch_sycl \
             tdls_example_arrowheadlupp_iwan_batch_sycl \
             tdls_example_arrowheadlupp_polycrystal_batch_sycl
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   gpu-stdpar-nvhpc:
     # Build-only check of the parallel STL offload with nvc++. The HPC
@@ -412,6 +546,11 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/nvhpc.list
           sudo apt-get update
           sudo apt-get install -y nvhpc-25-11
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-stdpar-nvhpc
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -432,6 +571,10 @@ jobs:
           tdls_example_arrowheadlupp_aggregate_batch_stdpar_gpu
           tdls_example_arrowheadlupp_iwan_batch_stdpar_gpu
           tdls_example_arrowheadlupp_polycrystal_batch_stdpar_gpu
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   gpu-stdpar-hip:
     # Build-only check of the parallel STL offload with the ROCm clang
@@ -460,6 +603,11 @@ jobs:
             rocthrust-dev rocprim-dev libtbb-dev
           git clone https://github.com/ROCm/roc-stdpar "$HOME/roc-stdpar"
           git -C "$HOME/roc-stdpar" checkout 5c7f44d8418273671671378871afc00fddc4aa14
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-stdpar-hip
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -481,6 +629,10 @@ jobs:
           tdls_example_arrowheadlupp_aggregate_batch_stdpar_gpu
           tdls_example_arrowheadlupp_iwan_batch_stdpar_gpu
           tdls_example_arrowheadlupp_polycrystal_batch_stdpar_gpu
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   gpu-stdpar-oneapi:
     # Build-only check of the parallel STL offload with icpx through
@@ -498,6 +650,11 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/oneapi.list
           sudo apt-get update
           sudo apt-get install -y intel-oneapi-compiler-dpcpp-cpp intel-oneapi-libdpstd-devel
+      - name: Set up ccache
+        id: ccache
+        uses: ./.github/actions/setup-ccache
+        with:
+          key: gpu-stdpar-oneapi
       - name: Configure
         run: |
           source /opt/intel/oneapi/setvars.sh
@@ -517,6 +674,10 @@ jobs:
             tdls_example_arrowheadlupp_aggregate_batch_stdpar_gpu \
             tdls_example_arrowheadlupp_iwan_batch_stdpar_gpu \
             tdls_example_arrowheadlupp_polycrystal_batch_stdpar_gpu
+      # even when a test fails, so that the next run does not compile everything again
+      - name: Save ccache
+        if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+        uses: ./.github/actions/save-ccache
 
   format:
     runs-on: ubuntu-latest
