@@ -38,6 +38,12 @@ on:
     - cron: 17 2 * * *
   workflow_dispatch:
 
+# A new commit pushed to a pull request cancels its previous run. The
+# runs of main all complete, each one updating the caches.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # Spack binary cache of the spack job, on the GitHub container registry
   BUILD_CACHE: oci://ghcr.io/${{ github.repository_owner }}/tdls-spack-buildcache
