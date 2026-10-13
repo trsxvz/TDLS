@@ -33,8 +33,8 @@
 ///   - Bsr / BSC: square blocks of `block` entries, stored by rows or by
 ///     columns, block rows (block columns) in increasing order.
 ///
-/// Indices are ints: the number of stored entries must stay below 2^31,
-/// which valid() checks.
+/// Indices are ints: the dimension and the number of stored entries must
+/// stay below 2^31, which valid() checks.
 
 
 
@@ -62,21 +62,26 @@ struct ArrowheadStorageMap {
     /// \brief Whether a shape suits this storage and coupling: positive
     /// sizes, coupled rows inside the border (diagonal coupling) or
     /// coupling_row = 0 (dense coupling), a border and a coupling_row
-    /// multiple of the block (Bsr), fewer than 2^31 stored entries.
+    /// multiple of the block (Bsr), a dimension and a number of stored
+    /// entries below 2^31. The checks cannot overflow, whatever the shape.
     /// \param[in] s shape
     /// \return true when the solvers accept the shape
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool valid(const ArrowheadShape& s) noexcept {
         if (s.border < 1 || s.block < 1 || s.blocks < 1 || s.coupling_row < 0) return false;
-        if (diag ? s.coupling_row + s.block > s.border : s.coupling_row != 0) return false;
+        if (diag ? s.coupling_row > s.border - s.block : s.coupling_row != 0) return false;
         if (Storage == ArrowheadStorage::Bsr &&
             (s.border % s.block != 0 || (diag && s.coupling_row % s.block != 0)))
+            return false;
+        if (static_cast<long long>(s.border) + static_cast<long long>(s.block) * s.blocks >=
+            (1LL << 31))
             return false;
         return wide_size(s) < (1LL << 31);
     }
 
     /// \brief Number of stored entries, in 64-bit arithmetic (the
     /// overflow check of valid()).
-    /// \param[in] s shape
+    /// \param[in] s shape of positive sizes and of dimension below 2^31,
+    ///              which bounds the result by 2 n^2 < 2^63
     /// \return the number of entries of the storage
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr long long
     wide_size(const ArrowheadShape& s) noexcept {

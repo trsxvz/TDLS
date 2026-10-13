@@ -16,7 +16,9 @@
 /// bsr_pattern over the full matrix must produce exactly the values the
 /// map stores, under both layouts and both couplings. Every map must be
 /// a bijection onto [0, size). valid() accepts the shapes the solvers
-/// accept and rejects the others.
+/// accept and rejects the others, absurd ones included, without
+/// overflowing. The runtime solver rejects, before any access, the shapes
+/// whose workspace passes 2^31 entries.
 
 #include <cstdint>
 #include <vector>
@@ -219,6 +221,56 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/storages/valid") {
     TDLS_CHECK(!BsrMap::valid(ArrowheadShape{12, 6, 9, 3}));  // coupling_row not a multiple
     TDLS_CHECK(Full::valid(ArrowheadShape{12, 6, 7700, 0}));  // n = 46212
     TDLS_CHECK(!Full::valid(ArrowheadShape{12, 6, 7800, 0})); // n^2 past 2^31
+    // Shapes whose checks overflowed in int, or in 64 bits.
+    constexpr int big = 2147483647;
+    TDLS_CHECK(!Diag::valid(ArrowheadShape{1, 1, 1, big}));           // coupling_row + block
+    TDLS_CHECK(!Full::valid(ArrowheadShape{65536, 65536, 65535, 0})); // n = 2^32, n^2 = 2^64
+    TDLS_CHECK(!Dense::valid(ArrowheadShape{big, big, big, 0}));
+    TDLS_CHECK(!Dense::valid(ArrowheadShape{1, 1, -1, 0}));
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/storages/dynamic_rejects") {
+    constexpr auto config = [] {
+        tdls::ArrowheadLUppConfig<double> c;
+        c.storage = ArrowheadStorage::Packed;
+        return c;
+    }();
+    using Dynamic = tdls::ArrowheadLUppSolverDynamic<double, config>;
+    // The largest border {B, 1, 1} whose workspace stays below 2^31, and
+    // the next one, which valid() of the storage accepts: its workspace
+    // overflowed an int, negative from there, then small and positive
+    // again from a border of 32767.
+    TDLS_CHECK(Dynamic::valid(ArrowheadShape{23168, 1, 1, 0}));
+    TDLS_CHECK(Dynamic::workspace_size(ArrowheadShape{23168, 1, 1, 0}) == 2147302923);
+    for (const int border : {23169, 25000, 32767}) {
+        const ArrowheadShape shape{border, 1, 1, 0};
+        TDLS_CHECK(Dynamic::storage_map::valid(shape));
+        TDLS_CHECK(!Dynamic::valid(shape));
+        TDLS_CHECK(Dynamic::workspace_size(shape) == 0);
+        TDLS_CHECK(Dynamic::streamed_workspace_size(shape) == 0);
+        TDLS_CHECK(Dynamic::pivot_size(shape) == 0);
+    }
+    // The workspace grows with the right-hand sides.
+    TDLS_CHECK(Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 1000));
+    TDLS_CHECK(!Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 0));
+    TDLS_CHECK(!Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 100000000));
+    TDLS_CHECK(!Dynamic::valid(ArrowheadShape{8, 6, 10, 0}, 2147483647));
+    // A rejected shape returns false before any access: null arrays.
+    for (const ArrowheadShape shape :
+         {ArrowheadShape{2, 1, 3, -1}, ArrowheadShape{0, 1, 3, 0}, ArrowheadShape{2, 1, -3, 0},
+          ArrowheadShape{25000, 1, 1, 0}}) {
+        int refused = -1;
+        TDLS_CHECK(!Dynamic::solve_inplace(shape, nullptr, 1, nullptr, 1, nullptr, 1, nullptr, 1,
+                                           refused));
+        TDLS_CHECK(refused == 0);
+        TDLS_CHECK(!Dynamic::solve(shape, nullptr, 1, nullptr, 1, nullptr, 1, nullptr, nullptr, 1));
+        TDLS_CHECK(!Dynamic::solve_multirhs(shape, 2, nullptr, 1, nullptr, 1, nullptr, 1, nullptr,
+                                            nullptr, 1, 1));
+    }
+    int refused = -1;
+    TDLS_CHECK(!Dynamic::solve_inplace_multirhs(ArrowheadShape{8, 6, 10, 0}, -4, nullptr, 1,
+                                                nullptr, 1, nullptr, 1, nullptr, 1, 1, refused));
+    TDLS_CHECK(refused == 0);
 }
 
 TDLS_TEST_MAIN

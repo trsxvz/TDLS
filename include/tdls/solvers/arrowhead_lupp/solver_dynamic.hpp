@@ -40,11 +40,12 @@
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (shapes unknown at compile time, faster builds).
 ///
-/// Preconditions: storage_map::valid(shape), and a workspace and a pivot
-/// array of the sizes above. An rhs_pass_width above border + 1 counts as
-/// border + 1 (the compile-time solver rejects it, its border being
-/// known). Element offsets, index times stride, are computed in 64-bit
-/// arithmetic.
+/// Preconditions: a workspace and a pivot array of the sizes above. The
+/// entry points check the shape first, valid(shape, nrhs), and return
+/// false on a shape they reject. An rhs_pass_width above border + 1
+/// counts as border + 1 (the compile-time solver rejects it, its border
+/// being known). Element offsets, index times stride, are computed in
+/// 64-bit arithmetic.
 
 
 
@@ -122,16 +123,22 @@ struct ArrowheadLUppSolverDynamic {
     struct Sizes {
         int B, S, NB, R, R0, front_rows, front_cols, extra_cols, pass_width;
     };
+    /// \brief Offsets of the temporaries in the workspace, of type I: int
+    /// for the solve, long long for the size check of valid().
+    template<typename I>
+    struct OffsetsOf {
+        I extra, Dl, U, W, X, Mb, m, a, acoef, Sacc, racc, Sbb, rb, w, s, refused, block_row, total;
+    };
     /// \brief Offsets of the temporaries in the workspace.
-    struct Offsets {
-        int extra, Dl, U, W, X, Mb, m, a, acoef, Sacc, racc, Sbb, rb, w, s, refused, block_row,
-            total;
-    };
+    using Offsets = OffsetsOf<int>;
     /// \brief Offsets of the areas of a streamed block, after those of
-    /// Offsets (streamed entry points only).
-    struct StreamedOffsets {
-        int Abk, Dsave, Wsave, total;
+    /// Offsets (streamed entry points only), of type I.
+    template<typename I>
+    struct StreamedOffsetsOf {
+        I Abk, Dsave, Wsave, total;
     };
+    /// \brief Offsets of the areas of a streamed block.
+    using StreamedOffsets = StreamedOffsetsOf<int>;
 
     /// \brief The sizes of a shape.
     /// \param[in] shape shape of the matrix
@@ -159,26 +166,29 @@ struct ArrowheadLUppSolverDynamic {
     /// \brief The offsets of the temporaries: the front and the columns of
     /// H_k beyond S first, as in the compile-time solver, then the arrays
     /// that solver keeps local, sized for nc right-hand sides.
+    /// \tparam I integer type of the offsets: int for the solve, long long
+    ///           for the size check of valid() (nc <= 2^30 then)
     /// \param[in] shape shape of the matrix
     /// \param[in] nc    number of right-hand sides
     /// \return the offsets and the total
-    [[nodiscard]] TDLS_HOST_DEVICE static constexpr Offsets offsets(const ArrowheadShape& shape,
-                                                                    const int nc) noexcept {
+    template<typename I = int>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr OffsetsOf<I>
+    offsets(const ArrowheadShape& shape, const int nc) noexcept {
         const Sizes z = sizes(shape, nc, nc);
-        Offsets o{};
-        int e   = z.front_rows * z.front_cols;
+        OffsetsOf<I> o{};
+        I e     = I(z.front_rows) * z.front_cols;
         o.extra = e;
-        e += z.NB * z.S * z.extra_cols;
+        e += I(z.NB) * z.S * z.extra_cols;
         o.Dl = e;
-        e += z.S * z.S;
+        e += I(z.S) * z.S;
         o.U = e;
-        e += z.S * z.S;
+        e += I(z.S) * z.S;
         o.W = e;
-        e += (z.B + nc) * z.S;
+        e += (I(z.B) + nc) * z.S;
         o.X = e;
-        e += (z.B + nc) * z.S;
+        e += (I(z.B) + nc) * z.S;
         o.Mb = e;
-        e += z.R * z.S;
+        e += I(z.R) * z.S;
         o.m = e;
         e += z.S;
         o.a = e;
@@ -186,17 +196,17 @@ struct ArrowheadLUppSolverDynamic {
         o.acoef = e;
         e += z.S;
         o.Sacc = e;
-        e += z.R * z.B;
+        e += I(z.R) * z.B;
         o.racc = e;
-        e += z.R * nc;
+        e += I(z.R) * nc;
         o.Sbb = e;
-        e += z.B * z.B;
+        e += I(z.B) * z.B;
         o.rb = e;
-        e += z.B * nc;
+        e += I(z.B) * nc;
         o.w = e;
-        e += z.R * nc;
+        e += I(z.R) * nc;
         o.s = e;
-        e += z.S * nc;
+        e += I(z.S) * nc;
         o.refused = e;
         e += z.NB;
         o.block_row = e;
@@ -209,31 +219,49 @@ struct ArrowheadLUppSolverDynamic {
     /// temporaries: A_bk under the dense coupling (the diagonal couplings
     /// go to acoef), and the copies of D_k and of [A_kb | y_k] that restore
     /// a refused block (one right-hand side at most in the blocks).
+    /// \tparam I integer type of the offsets (see offsets)
     /// \param[in] shape shape of the matrix
     /// \param[in] nc    number of right-hand sides
     /// \return the offsets, and the total of the workspace
-    [[nodiscard]] TDLS_HOST_DEVICE static constexpr StreamedOffsets
+    template<typename I = int>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr StreamedOffsetsOf<I>
     streamed_offsets(const ArrowheadShape& shape, const int nc) noexcept {
         const Sizes z = sizes(shape, nc, nc);
-        StreamedOffsets so{};
-        int e  = offsets(shape, nc).total;
+        StreamedOffsetsOf<I> so{};
+        I e    = offsets<I>(shape, nc).total;
         so.Abk = e;
-        e += diag ? 0 : z.B * z.S;
+        e += diag ? I(0) : I(z.B) * z.S;
         so.Dsave = e;
-        e += z.S * z.S;
+        e += I(z.S) * z.S;
         so.Wsave = e;
-        e += (z.B + 1) * z.S;
+        e += (I(z.B) + 1) * z.S;
         so.total = e;
         return so;
     }
 
   public:
+    /// \brief Whether the solver accepts a shape, with nrhs right-hand
+    /// sides (unit columns, tangent columns): storage_map::valid(shape),
+    /// nrhs in [1, 2^30], and the workspaces of the entry points below 2^31
+    /// entries, their offsets being ints. The entry points return false on
+    /// a shape they reject, before any access, and the sizes are 0 for it.
+    /// The checks cannot overflow, whatever the shape.
+    /// \param[in] shape shape of the matrix
+    /// \param[in] nrhs  number of right-hand sides
+    /// \return true when the solver accepts the shape
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool valid(const ArrowheadShape& shape,
+                                                               const int nrhs = 1) noexcept {
+        return storage_map::valid(shape) && nrhs >= 1 && nrhs <= (1 << 30) &&
+               streamed_offsets<long long>(shape, nrhs).total < (1LL << 31);
+    }
+
     /// \brief Entries of the workspace of solve_inplace and solve.
     /// \param[in] shape shape of the matrix
-    /// \return the number of workspace entries a call needs
+    /// \return the number of workspace entries a call needs, 0 for a
+    ///         shape the solver rejects
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr int
     workspace_size(const ArrowheadShape& shape) noexcept {
-        return offsets(shape, 1).total;
+        return valid(shape) ? offsets(shape, 1).total : 0;
     }
 
     /// \brief Entries of the workspace of the entry points with nrhs
@@ -241,20 +269,22 @@ struct ArrowheadLUppSolverDynamic {
     /// column of the front per right-hand side.
     /// \param[in] shape shape of the matrix
     /// \param[in] nrhs  number of right-hand sides
-    /// \return the number of workspace entries a call needs
+    /// \return the number of workspace entries a call needs, 0 for a
+    ///         shape the solver rejects
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr int workspace_size(const ArrowheadShape& shape,
                                                                        const int nrhs) noexcept {
-        return offsets(shape, nrhs).total;
+        return valid(shape, nrhs) ? offsets(shape, nrhs).total : 0;
     }
 
     /// \brief Entries of the workspace of solve_inplace_streamed: those of
     /// solve_inplace, then A_bk of a block under the dense coupling and the
     /// copies that restore a refused block.
     /// \param[in] shape shape of the matrix
-    /// \return the number of workspace entries a call needs
+    /// \return the number of workspace entries a call needs, 0 for a
+    ///         shape the solver rejects
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr int
     streamed_workspace_size(const ArrowheadShape& shape) noexcept {
-        return streamed_offsets(shape, 1).total;
+        return valid(shape) ? streamed_offsets(shape, 1).total : 0;
     }
 
     /// \brief Entries of the workspace of
@@ -262,18 +292,20 @@ struct ArrowheadLUppSolverDynamic {
     /// of solve_inplace_streamed_or_tangent with nrhs tangent columns.
     /// \param[in] shape shape of the matrix
     /// \param[in] nrhs  number of columns
-    /// \return the number of workspace entries a call needs
+    /// \return the number of workspace entries a call needs, 0 for a
+    ///         shape the solver rejects
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr int
     streamed_workspace_size(const ArrowheadShape& shape, const int nrhs) noexcept {
-        return streamed_offsets(shape, nrhs).total;
+        return valid(shape, nrhs) ? streamed_offsets(shape, nrhs).total : 0;
     }
 
     /// \brief Entries of the pivot array: the pivots of a block, then of
     /// the border system, reuse it.
     /// \param[in] shape shape of the matrix
-    /// \return max(block, border)
+    /// \return max(block, border), 0 for a shape the solver rejects
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr int
     pivot_size(const ArrowheadShape& shape) noexcept {
+        if (!valid(shape)) return 0;
         return shape.block > shape.border ? shape.block : shape.border;
     }
 
@@ -291,7 +323,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     rhs_stride    element stride of y
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check, eliminated by the second pass
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace(const ArrowheadShape& shape, T* TDLS_RESTRICT A, const int A_stride,
                   int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
@@ -311,7 +344,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     work_stride element stride of work
     /// \param[in,out] y           right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride  element stride of y
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace(const ArrowheadShape& shape, T* TDLS_RESTRICT A, const int A_stride,
                   int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
@@ -337,12 +371,17 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     rhs_stride    element stride of b and x
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve(const ArrowheadShape& shape, T* TDLS_RESTRICT A, const int A_stride,
           int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
           const int work_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           int& refused_count) noexcept {
+        if (!valid(shape)) {
+            refused_count = 0;
+            return false;
+        }
         const int n = shape.n();
         for (int i = 0; i < n; ++i)
             x[TDLS_STRIDED(i, rhs_stride)] = b[TDLS_STRIDED(i, rhs_stride)];
@@ -361,7 +400,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     b           right-hand side
     /// \param[out]    x           solution
     /// \param[in]     rhs_stride  element stride of b and x
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve(const ArrowheadShape& shape, T* TDLS_RESTRICT A, const int A_stride,
           int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
@@ -392,7 +432,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     xcol_stride   element stride between columns of y
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check, eliminated by the second pass
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                            const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
@@ -417,7 +458,8 @@ struct ArrowheadLUppSolverDynamic {
     ///                            solutions on exit
     /// \param[in]     rhs_stride  element stride of y
     /// \param[in]     xcol_stride element stride between columns of y
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                            const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
@@ -447,13 +489,18 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     xcol_stride   element stride between columns of b and x
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                    const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
                    T* TDLS_RESTRICT work, const int work_stride, const T* TDLS_RESTRICT b,
                    T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
                    int& refused_count) noexcept {
+        if (!valid(shape, nrhs)) {
+            refused_count = 0;
+            return false;
+        }
         const int n = shape.n();
         for (int m = 0; m < nrhs; ++m)
             for (int i = 0; i < n; ++i)
@@ -477,7 +524,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[out]    x           the nrhs solutions
     /// \param[in]     rhs_stride  element stride of b and x
     /// \param[in]     xcol_stride element stride between columns of b and x
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                    const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
@@ -507,7 +555,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     xcol_stride   element stride between columns of x
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs(
         const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
         int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
@@ -532,7 +581,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[out]    x           the border rows, border entries per column
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs(
         const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
         int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
@@ -596,7 +646,7 @@ struct ArrowheadLUppSolverDynamic {
         solved,  ///< y holds the solution (converged() returned false)
         tangent, ///< converged: x holds the canonical border columns, y
                  ///< intermediate values
-        singular ///< the matrix is singular
+        singular ///< the matrix is singular, or the shape rejected
     };
 
     /// \brief Solves A x = y in place, the blocks streamed: provider(k, blk)
@@ -622,7 +672,8 @@ struct ArrowheadLUppSolverDynamic {
     ///                              entry, the solution on exit
     /// \param[in]     rhs_stride    element stride of y
     /// \param[out]    refused_count number of refused blocks
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     template<typename Provider>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_streamed(const ArrowheadShape& shape, Provider&& provider, T* TDLS_RESTRICT A,
@@ -653,7 +704,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     rhs_stride    element stride of x
     /// \param[in]     xcol_stride   element stride between columns of x
     /// \param[out]    refused_count number of refused blocks
-    /// \return false when the matrix is singular
+    /// \return false when the matrix is singular, or the shape rejected
+    ///         (see valid)
     template<typename Provider>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs_streamed(
         const ArrowheadShape& shape, const int nrhs, Provider&& provider, T* TDLS_RESTRICT A,
@@ -701,7 +753,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     x_stride      element stride of x
     /// \param[in]     xcol_stride   element stride between columns of x
     /// \param[out]    refused_count number of refused blocks
-    /// \return solved, tangent, or singular when the matrix is singular
+    /// \return solved, tangent, or singular when the matrix is singular or
+    ///         the shape rejected (see valid)
     template<typename Provider, typename Converged>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr StreamedOutcome
     solve_inplace_streamed_or_tangent(const ArrowheadShape& shape, const int ntan,
@@ -712,6 +765,10 @@ struct ArrowheadLUppSolverDynamic {
                                       T* TDLS_RESTRICT y, const int rhs_stride, const int col0,
                                       T* TDLS_RESTRICT x, const int x_stride, const int xcol_stride,
                                       int& refused_count) noexcept {
+        if (!valid(shape, ntan)) {
+            refused_count = 0;
+            return StreamedOutcome::singular;
+        }
         // The pass carries one right-hand side through the blocks (y, with
         // one column); the workspace holds both phases, ntan columns in the
         // front and in the border right-hand sides.
@@ -855,6 +912,10 @@ struct ArrowheadLUppSolverDynamic {
                [[maybe_unused]] const int xcol_stride, [[maybe_unused]] const int col0,
                int& refused_count, Provider*... provider) noexcept {
         const int nc = NC > 0 ? NC : nrhs;
+        if (!valid(shape, nc)) {
+            refused_count = 0;
+            return false;
+        }
         const int ny = canonical ? 0 : nc;
         // Columns of y when fixed, for TDLS_ARROW_LUPP_DYN_YW.
         [[maybe_unused]] constexpr int ycols = NC;
