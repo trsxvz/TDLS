@@ -8,6 +8,9 @@
 # same way, one job per vendor: nvc++, the ROCm hipstdpar toolchain
 # and the oneAPI pstl offload. Running any of them for real stays on
 # machines that have a device.
+# The test suites compile at -O3 in the GCC and Clang jobs, the default
+# of TDLS_TESTS_OPTIMIZATION and the level of the Release builds, which
+# exercises the optimizer the most. The sanitizer job compiles at -O1.
 name: ci
 
 on:
@@ -18,17 +21,14 @@ on:
 
 jobs:
   tests:
-    # The optimization axis matters: each level is a different binary,
-    # and the levels catch different problems. -O1 is what the check
-    # target gives users and keeps the fast signal; -O3 covers the
-    # aggressive-optimizer codegen. The matrix jobs run in parallel.
-    name: tests (${{ matrix.compiler }}, ${{ matrix.optimization }})
+    # The current GCC and Clang of the runner image. The other jobs
+    # cover the compiler floors, MSVC and the GPU toolchains.
+    name: tests (${{ matrix.compiler }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         compiler: [g++, clang++]
-        optimization: [-O1, -O3]
     steps:
       - uses: actions/checkout@v4
       - name: Install the LLVM OpenMP runtime and oneTBB
@@ -37,29 +37,31 @@ jobs:
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
-          -DTDLS_TESTS_OPTIMIZATION=${{ matrix.optimization }}
       - name: Build
         run: cmake --build build -j4 --target buildtests
       - name: Run the test suites and the examples
         run: ctest --test-dir build --output-on-failure
 
   sanitizers:
-    name: tests (g++, ASan+UBSan, -O2)
+    name: tests (g++, ASan+UBSan, -O1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install the LLVM OpenMP runtime and oneTBB
         run: sudo apt-get update && sudo apt-get install -y libomp-dev libtbb-dev
       - name: Configure
-        # -O2 is the sanitizer sweet spot: enough optimization to
-        # exercise the paths the instrumentation perturbs, while higher
-        # levels elide memory accesses and the ASan checks with them.
+        # -O1 is the level recommended for AddressSanitizer: higher levels
+        # keep more values in registers or remove accesses, and their
+        # checks with them. Under the instrumentation, -O2 also compiles
+        # about 5 times slower. The Release flags are lowered as well,
+        # for the examples and the snippets.
         # -fno-sanitize-recover makes every UBSan finding fatal too, so
         # ctest actually fails instead of passing over printed errors.
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=g++
-          -DTDLS_TESTS_OPTIMIZATION=-O2
+          -DCMAKE_CXX_FLAGS_RELEASE="-O1 -DNDEBUG"
+          -DTDLS_TESTS_OPTIMIZATION=-O1
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
       - name: Build
         run: cmake --build build -j4 --target buildtests
