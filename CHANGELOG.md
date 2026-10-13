@@ -23,8 +23,9 @@ the API may change between minor versions.
   arrays at run time; dense or diagonal couplings; both layouts, each
   with its condensation path. Several right-hand sides through one
   condensation (`solve_inplace_multirhs`, `solve_multirhs`), each
-  column bitwise identical to `solve_inplace` on it alone, and the
-  border block of the inverse by unit columns of the border
+  column bitwise identical to `solve_inplace` on it alone under the
+  default `rhs_pass_width` (within rounding errors under another), and
+  the border block of the inverse by unit columns of the border
   (`solve_border_canonical_multirhs`), the tangent operator of a
   behaviour loaded through the border. Tests, documentation pages,
   snippets and examples.
