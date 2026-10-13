@@ -108,7 +108,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `constexpr` | compile-time certificates on both solvers |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
-| `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
+| `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, the stride between the columns past 2^32 by itself, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
 | `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1] |
 
 For the detail of any suite, the authoritative description is the
@@ -323,7 +323,7 @@ every batch.
 | `layouts` | the AoS, SoA and AoSoA batch addressing against the systems solved one by one, bitwise, on both solvers |
 | `entry_points` | `solve` against `solve_inplace` and the counting overloads against the others, bitwise, on both solvers |
 | `config_knobs` | the performance knobs keep the arithmetic, bitwise, on systems whose pivot checks stay clear of the threshold: every pass width, the gather, the Schur complement in place, the unroll policy; the refusals grow with `condensation_pivot_threshold`, 0 refusing only the singular blocks, and every threshold of the check and of the blocks keeps the backward error |
-| `wide_offsets` | element offsets beyond 2^32, as in the other families, a refused block making the second pass use the workspace |
+| `wide_offsets` | element offsets beyond 2^32, as in the other families, a refused block making the second pass use the workspace; the column strides of the TiledLUpp calls of the runtime solver past 2^32 |
 | `constexpr` | compile-time certificates on both solvers, through every path and the second pass, and their bitwise agreement |
 | `multirhs` | every column of `solve_inplace_multirhs` and `solve_multirhs` against `solve_inplace` on it alone, bitwise, the matrix they leave included: both solvers, internal and strided right-hand sides (the gaps untouched), refused blocks, passes, the gather, the Schur complement in place; `solve_border_canonical_multirhs` against the border rows of `solve_inplace` on the unit columns, in value (a zero may differ in sign) |
 | `streamed` | the streamed entry points against the stored ones, bitwise, on both solvers: `solve_inplace_streamed` against `solve_inplace`, `solve_border_canonical_multirhs_streamed` against `solve_border_canonical_multirhs`, `solve_inplace_streamed_or_tangent` against both, refused blocks included; the runtime solver against the compile-time one; the provider called exactly once per block, in order, and `converged()` once, after the last block; built with `-ffp-contract=off`, the two paths being distinct code |

@@ -361,12 +361,13 @@ struct storage_traits<DenseType, std::enable_if_t<detail::is_dense_v<DenseType>>
     //! elements of a matrix-like block (the xcol_stride of the _multirhs
     //! raw entry points)
     //! \param[in] o dense object
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr std::size_t
     col_stride(const DenseType& o) noexcept {
         if constexpr (has_runtime_extents) {
-            return runtime_col_stride(o) * runtime_view_stride(o);
+            return static_cast<std::size_t>(runtime_col_stride(o)) *
+                   static_cast<std::size_t>(runtime_view_stride(o));
         } else {
-            return stride(o);
+            return static_cast<std::size_t>(stride(o));
         }
     }
 };
@@ -641,10 +642,10 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
     using xt = storage_traits<std::remove_cv_t<SolutionType>>;
     static_assert(pass_width >= 0, "tdls adaptors: pass_width must not be negative");
     if constexpr (Ctx::runtime_sized) {
-        const int n    = mt::runtime_extent0(A);
-        const int m    = bt::columns(b);
-        const int rs   = xt::row_stride(x);
-        const int xcol = xt::col_stride(x);
+        const int n            = mt::runtime_extent0(A);
+        const int m            = bt::columns(b);
+        const int rs           = xt::row_stride(x);
+        const std::size_t xcol = xt::col_stride(x);
         if constexpr (inplace) {
             Ctx::dynamic_solver::template substitute_inplace_multirhs<pass_width>(
                 n, m, mt::pointer(A), mt::stride(A), pa::pointer(piv), pa::stride(piv),
@@ -657,8 +658,8 @@ substitute_multirhs_dispatch(const MatrixType& A, const PivotType& piv, const Rh
     } else {
         constexpr int M = bt::extent1;
         static_assert(M >= 1, "tdls adaptors: B must have at least one column");
-        const int rs   = xt::row_stride(x);
-        const int xcol = xt::col_stride(x);
+        const int rs           = xt::row_stride(x);
+        const std::size_t xcol = xt::col_stride(x);
         if constexpr (inplace) {
             Ctx::solver::template substitute_inplace_multirhs<M, false, pa::is_internal,
                                                               mt::is_internal, pass_width>(

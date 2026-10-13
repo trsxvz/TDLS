@@ -110,11 +110,11 @@ namespace tdls {
 #define TDLS_LUPP_DYN_B(i) b[TDLS_STRIDED(i, rhs_stride)]
 /// \def TDLS_LUPP_DYN_XW
 /// \brief Strided entry i of column w of a multi right-hand-side block.
-#define TDLS_LUPP_DYN_XW(w, i) x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(w, xcol_stride)]
+#define TDLS_LUPP_DYN_XW(w, i) x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(w, xcol_stride)]
 /// \def TDLS_LUPP_DYN_BW
 /// \brief Strided entry i of column w of a multi right-hand-side block of
 /// b, addressed exactly as TDLS_LUPP_DYN_XW (b and x share both strides).
-#define TDLS_LUPP_DYN_BW(w, i) b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(w, xcol_stride)]
+#define TDLS_LUPP_DYN_BW(w, i) b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(w, xcol_stride)]
 /// \def TDLS_LUPP_DYN_Y
 /// \brief Strided entry i of the fused right-hand side of solve_inplace.
 #define TDLS_LUPP_DYN_Y(i) y[TDLS_STRIDED(i, rhs_stride)]
@@ -1138,7 +1138,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     fwd_push_one(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                  const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-                 const int rhs_stride, const int xcol_stride, const int k0, const int m0,
+                 const int rhs_stride, const std::size_t xcol_stride, const int k0, const int m0,
                  const int ke, const int me) noexcept {
         T Lmk[tile_size * tile_size];
         load_tile_piv(n, A, A_stride, piv, piv_stride, m0, k0, Lmk, me, ke);
@@ -1167,7 +1167,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     fwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-             const int rhs_stride, const int xcol_stride, const int k) noexcept {
+             const int rhs_stride, const std::size_t xcol_stride, const int k) noexcept {
         const int k0 = k * tile_size;
         const int nt = num_tiles(n);
         const int ke = tile_size_at(k0, n);
@@ -1208,7 +1208,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     bwd_pull_one(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                  const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-                 const int rhs_stride, const int xcol_stride, const int k0, const int m0,
+                 const int rhs_stride, const std::size_t xcol_stride, const int k0, const int m0,
                  const int ke, const int me) noexcept {
         T Ukm[tile_size * tile_size];
         load_tile_piv(n, A, A_stride, piv, piv_stride, k0, m0, Ukm, ke, me);
@@ -1237,7 +1237,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     bwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-             const int rhs_stride, const int xcol_stride, const int k) noexcept {
+             const int rhs_stride, const std::size_t xcol_stride, const int k) noexcept {
         const int k0 = k * tile_size;
         const int nt = num_tiles(n);
         const int ke = tile_size_at(k0, n);
@@ -1276,7 +1276,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     bwd_only(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-             const int rhs_stride, const int xcol_stride) noexcept {
+             const int rhs_stride, const std::size_t xcol_stride) noexcept {
         for (int k = num_tiles(n) - 1; k >= 0; --k)
             bwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, k);
     }
@@ -1297,7 +1297,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     fwd_bwd(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
             const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-            const int rhs_stride, const int xcol_stride) noexcept {
+            const int rhs_stride, const std::size_t xcol_stride) noexcept {
         const int nt = num_tiles(n);
         for (int k = 0; k < nt; ++k)
             fwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, k);
@@ -1382,7 +1382,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     ke          extent of the diagonal tile
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_solve_tile_upper(const T* TDLS_RESTRICT t, T* TDLS_RESTRICT x, const int rhs_stride,
-                                const int xcol_stride, const int nrhs, const int k0,
+                                const std::size_t xcol_stride, const int nrhs, const int k0,
                                 const int ke) noexcept {
         for (int kk = 0; kk < ke; ++kk) {
             for (int w = 0; w < nrhs; ++w)
@@ -1407,7 +1407,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     me          extent of the target segment's tile
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_push_one(const T* TDLS_RESTRICT u, T* TDLS_RESTRICT x, const int rhs_stride,
-                        const int xcol_stride, const int nrhs, const int k0, const int m0,
+                        const std::size_t xcol_stride, const int nrhs, const int k0, const int m0,
                         const int ke, const int me) noexcept {
         for (int i = 0; i < me; ++i) {
             for (int w = 0; w < nrhs; ++w) {
@@ -1431,7 +1431,7 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     me          extent of the trailing segment's tile
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_pull_one(const T* TDLS_RESTRICT l, T* TDLS_RESTRICT x, const int rhs_stride,
-                        const int xcol_stride, const int nrhs, const int k0, const int m0,
+                        const std::size_t xcol_stride, const int nrhs, const int k0, const int m0,
                         const int ke, const int me) noexcept {
         for (int i = 0; i < ke; ++i) {
             for (int w = 0; w < nrhs; ++w) {
@@ -1453,8 +1453,8 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     ke          extent of the diagonal tile
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_solve_tile_lower_unit(const T* TDLS_RESTRICT l, T* TDLS_RESTRICT x,
-                                     const int rhs_stride, const int xcol_stride, const int nrhs,
-                                     const int k0, const int ke) noexcept {
+                                     const int rhs_stride, const std::size_t xcol_stride,
+                                     const int nrhs, const int k0, const int ke) noexcept {
         for (int kk = ke - 1; kk > 0; --kk) {
             for (int i = 0; i < kk; ++i) {
                 for (int w = 0; w < nrhs; ++w)
@@ -1479,7 +1479,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_fwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-                        const int rhs_stride, const int xcol_stride, const int k) noexcept {
+                        const int rhs_stride, const std::size_t xcol_stride, const int k) noexcept {
         const int k0 = k * tile_size;
         const int nt = num_tiles(n);
         const int ke = tile_size_at(k0, n);
@@ -1509,7 +1509,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_bwd_step(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-                        const int rhs_stride, const int xcol_stride, const int k) noexcept {
+                        const int rhs_stride, const std::size_t xcol_stride, const int k) noexcept {
         const int k0 = k * tile_size;
         const int nt = num_tiles(n);
         const int ke = tile_size_at(k0, n);
@@ -1538,7 +1538,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_bwd_only(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-                        const int rhs_stride, const int xcol_stride) noexcept {
+                        const int rhs_stride, const std::size_t xcol_stride) noexcept {
         for (int k = num_tiles(n) - 1; k >= 0; --k)
             transposed_bwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride,
                                 k);
@@ -1559,7 +1559,7 @@ struct TiledLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     transposed_fwd_bwd(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
-                       const int rhs_stride, const int xcol_stride) noexcept {
+                       const int rhs_stride, const std::size_t xcol_stride) noexcept {
         const int nt = num_tiles(n);
         for (int k = 0; k < nt; ++k)
             transposed_fwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride,
@@ -1686,11 +1686,10 @@ struct TiledLUppSolverDynamic {
     /// \param[out] x           nrhs solution columns
     /// \param[in]  rhs_stride  element stride of x
     /// \param[in]  xcol_stride element stride between columns of x
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute_canonical_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
-                                       const int A_stride, const int* TDLS_RESTRICT piv,
-                                       const int piv_stride, const int col0, T* TDLS_RESTRICT x,
-                                       const int rhs_stride, const int xcol_stride) noexcept {
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void substitute_canonical_multirhs_pass(
+        const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+        const int* TDLS_RESTRICT piv, const int piv_stride, const int col0, T* TDLS_RESTRICT x,
+        const int rhs_stride, const std::size_t xcol_stride) noexcept {
         if constexpr (transposed) {
             // Column-major layout: e_col unpermuted, x = P^T w at the end.
             for (int i = 0; i < n; ++i)
@@ -1698,7 +1697,8 @@ struct TiledLUppSolverDynamic {
                     TDLS_LUPP_DYN_XW(w, i) = (i == col0 + w) ? T(1) : T(0);
             transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED_WIDE(w, xcol_stride),
+                                  rhs_stride);
         } else {
             for (int i = 0; i < n; ++i) {
                 const int p = TDLS_LUPP_DYN_PIV(i);
@@ -1737,7 +1737,7 @@ struct TiledLUppSolverDynamic {
     substitute_canonical_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                   const int A_stride, const int* TDLS_RESTRICT piv,
                                   const int piv_stride, const int col0, T* TDLS_RESTRICT x,
-                                  const int rhs_stride, const int xcol_stride) noexcept {
+                                  const int rhs_stride, const std::size_t xcol_stride) noexcept {
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_canonical_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, col0, x,
@@ -1747,7 +1747,7 @@ struct TiledLUppSolverDynamic {
             // block being its single pass.
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
                 const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                const std::size_t off = TDLS_STRIDED_WIDE(c0, xcol_stride);
                 substitute_canonical_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, col0 + c0,
                                                    x + off, rhs_stride, xcol_stride);
             }
@@ -1775,7 +1775,7 @@ struct TiledLUppSolverDynamic {
     substitute_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                              const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
                              const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
-                             const int xcol_stride) noexcept {
+                             const std::size_t xcol_stride) noexcept {
         if constexpr (transposed) {
             // Column-major layout, as in substitute.
             for (int i = 0; i < n; ++i)
@@ -1783,7 +1783,8 @@ struct TiledLUppSolverDynamic {
                     TDLS_LUPP_DYN_XW(w, i) = TDLS_LUPP_DYN_BW(w, i);
             transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED_WIDE(w, xcol_stride),
+                                  rhs_stride);
         } else {
             for (int i = 0; i < n; ++i) {
                 const int p = TDLS_LUPP_DYN_PIV(i);
@@ -1826,7 +1827,7 @@ struct TiledLUppSolverDynamic {
     substitute_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride,
                         const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
-                        const int xcol_stride) noexcept {
+                        const std::size_t xcol_stride) noexcept {
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, b, x, rhs_stride,
@@ -1836,7 +1837,7 @@ struct TiledLUppSolverDynamic {
             // block being its single pass.
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
                 const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                const std::size_t off = TDLS_STRIDED_WIDE(c0, xcol_stride);
                 substitute_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, b + off, x + off,
                                          rhs_stride, xcol_stride);
             }
@@ -1893,15 +1894,17 @@ struct TiledLUppSolverDynamic {
     substitute_inplace_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                      const int A_stride, const int* TDLS_RESTRICT piv,
                                      const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
-                                     const int xcol_stride) noexcept {
+                                     const std::size_t xcol_stride) noexcept {
         if constexpr (transposed) {
             // Column-major layout, as in substitute_inplace.
             transposed_fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED_WIDE(w, xcol_stride),
+                                  rhs_stride);
         } else {
             for (int w = 0; w < nrhs; ++w)
-                permute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+                permute_inplace(n, piv, piv_stride, x + TDLS_STRIDED_WIDE(w, xcol_stride),
+                                rhs_stride);
             fwd_bwd(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
         }
     }
@@ -1923,7 +1926,7 @@ struct TiledLUppSolverDynamic {
     forward_inplace_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                   const int A_stride, const int* TDLS_RESTRICT piv,
                                   const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
-                                  const int xcol_stride) noexcept {
+                                  const std::size_t xcol_stride) noexcept {
         const int nt = num_tiles(n);
         if constexpr (transposed) {
             for (int k = 0; k < nt; ++k)
@@ -1931,7 +1934,8 @@ struct TiledLUppSolverDynamic {
                                     xcol_stride, k);
         } else {
             for (int w = 0; w < nrhs; ++w)
-                permute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+                permute_inplace(n, piv, piv_stride, x + TDLS_STRIDED_WIDE(w, xcol_stride),
+                                rhs_stride);
             for (int k = 0; k < nt; ++k)
                 fwd_step(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride, k);
         }
@@ -1954,11 +1958,12 @@ struct TiledLUppSolverDynamic {
     backward_inplace_multirhs_pass(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                    const int A_stride, const int* TDLS_RESTRICT piv,
                                    const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
-                                   const int xcol_stride) noexcept {
+                                   const std::size_t xcol_stride) noexcept {
         if constexpr (transposed) {
             transposed_bwd_only(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
             for (int w = 0; w < nrhs; ++w)
-                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED(w, xcol_stride), rhs_stride);
+                unpermute_inplace(n, piv, piv_stride, x + TDLS_STRIDED_WIDE(w, xcol_stride),
+                                  rhs_stride);
         } else {
             bwd_only(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
         }
@@ -1993,7 +1998,7 @@ struct TiledLUppSolverDynamic {
     substitute_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                                 const int A_stride, const int* TDLS_RESTRICT piv,
                                 const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
-                                const int xcol_stride) noexcept {
+                                const std::size_t xcol_stride) noexcept {
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2003,7 +2008,7 @@ struct TiledLUppSolverDynamic {
             // block being its single pass.
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
                 const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                const std::size_t off = TDLS_STRIDED_WIDE(c0, xcol_stride);
                 substitute_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
                                                  rhs_stride, xcol_stride);
             }
@@ -2032,7 +2037,7 @@ struct TiledLUppSolverDynamic {
     forward_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                              const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
                              T* TDLS_RESTRICT x, const int rhs_stride,
-                             const int xcol_stride) noexcept {
+                             const std::size_t xcol_stride) noexcept {
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             forward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2040,7 +2045,7 @@ struct TiledLUppSolverDynamic {
         } else {
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
                 const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                const std::size_t off = TDLS_STRIDED_WIDE(c0, xcol_stride);
                 forward_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
                                               rhs_stride, xcol_stride);
             }
@@ -2066,7 +2071,7 @@ struct TiledLUppSolverDynamic {
     backward_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
                               const int A_stride, const int* TDLS_RESTRICT piv,
                               const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
-                              const int xcol_stride) noexcept {
+                              const std::size_t xcol_stride) noexcept {
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             backward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2074,7 +2079,7 @@ struct TiledLUppSolverDynamic {
         } else {
             for (int c0 = 0; c0 < nrhs; c0 += pass_width) {
                 const int cw          = (pass_width > nrhs - c0) ? nrhs - c0 : pass_width;
-                const std::size_t off = TDLS_STRIDED(c0, xcol_stride);
+                const std::size_t off = TDLS_STRIDED_WIDE(c0, xcol_stride);
                 backward_inplace_multirhs_pass(n, cw, A, A_stride, piv, piv_stride, x + off,
                                                rhs_stride, xcol_stride);
             }
@@ -2156,7 +2161,7 @@ struct TiledLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                    int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
-                   T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
+                   T* TDLS_RESTRICT x, const int rhs_stride, const std::size_t xcol_stride,
                    int& oot_count) noexcept {
         if (!factorize<oot_diagnostics>(n, A, A_stride, piv, piv_stride, oot_count)) return false;
         substitute_multirhs<pass_width>(n, nrhs, A, A_stride, piv, piv_stride, b, x, rhs_stride,
@@ -2187,7 +2192,8 @@ struct TiledLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                    int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
-                   T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride) noexcept {
+                   T* TDLS_RESTRICT x, const int rhs_stride,
+                   const std::size_t xcol_stride) noexcept {
         int unused = 0;
         return solve_multirhs<pass_width, false>(n, nrhs, A, A_stride, piv, piv_stride, b, x,
                                                  rhs_stride, xcol_stride, unused);
@@ -2287,7 +2293,8 @@ struct TiledLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                            int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
-                           const int rhs_stride, const int xcol_stride, int& oot_count) noexcept {
+                           const int rhs_stride, const std::size_t xcol_stride,
+                           int& oot_count) noexcept {
         if (!factorize<oot_diagnostics>(n, A, A_stride, piv, piv_stride, oot_count)) return false;
         substitute_inplace_multirhs<pass_width>(n, nrhs, A, A_stride, piv, piv_stride, y,
                                                 rhs_stride, xcol_stride);
@@ -2316,7 +2323,7 @@ struct TiledLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                            int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
-                           const int rhs_stride, const int xcol_stride) noexcept {
+                           const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int unused = 0;
         return solve_inplace_multirhs<pass_width, false>(n, nrhs, A, A_stride, piv, piv_stride, y,
                                                          rhs_stride, xcol_stride, unused);

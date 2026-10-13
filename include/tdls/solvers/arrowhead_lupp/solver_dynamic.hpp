@@ -838,7 +838,7 @@ struct ArrowheadLUppSolverDynamic {
                                                                     piv_stride, rb, work_stride)
                                       : BorderSolver::solve_inplace_multirhs(
                                             B, ntan, Sbb, work_stride, piv, piv_stride, rb,
-                                            work_stride, B * work_stride);
+                                            work_stride, TDLS_STRIDED(B, work_stride));
             if (!ok) return StreamedOutcome::singular;
             for (int m = 0; m < ntan; ++m)
                 for (int r = 0; r < B; ++r)
@@ -1018,7 +1018,8 @@ struct ArrowheadLUppSolverDynamic {
         } else {
             if (!BorderSolver::solve_inplace_multirhs(
                     B, nc, work + TDLS_STRIDED(o.Sbb, work_stride), work_stride, piv, piv_stride,
-                    work + TDLS_STRIDED(o.rb, work_stride), work_stride, B * work_stride))
+                    work + TDLS_STRIDED(o.rb, work_stride), work_stride,
+                    TDLS_STRIDED(B, work_stride)))
                 return false;
         }
         for (int m = 0; m < nc; ++m)
@@ -1116,13 +1117,13 @@ struct ArrowheadLUppSolverDynamic {
                 }
             }
             BlockSolver::forward_inplace_multirhs(S, B + ny, Dl, work_stride, piv, piv_stride, W,
-                                                  work_stride, S * work_stride);
+                                                  work_stride, TDLS_STRIDED(S, work_stride));
             // Column c of U^-T A_kb is row c of the border multipliers.
             for (int e = 0; e < B * S; ++e)
                 ok = ok && u * detail::abs(TDLS_ARROW_LUPP_DYN_W(o.W + e)) <= T(1);
             if (!ok) return false;
             BlockSolver::backward_inplace_multirhs(S, B + ny, Dl, work_stride, piv, piv_stride, W,
-                                                   work_stride, S * work_stride);
+                                                   work_stride, TDLS_STRIDED(S, work_stride));
             condense_pass<NC>(shape, z, o, A, A_stride, piv, piv_stride, work, work_stride, y,
                               rhs_stride, xcol_stride, k, 0, B + ny, true, so...);
         } else {
@@ -1390,16 +1391,16 @@ struct ArrowheadLUppSolverDynamic {
             }
             if constexpr (multiplier_update) {
                 BlockSolver::forward_inplace_multirhs(S, w, Dl, work_stride, piv, piv_stride, W,
-                                                      work_stride, S * work_stride);
+                                                      work_stride, TDLS_STRIDED(S, work_stride));
             } else if constexpr (Config.gather_rhs) {
                 T* const X = work + TDLS_STRIDED(o.X, work_stride);
                 BlockSolver::substitute_multirhs(S, w, Dl, work_stride, piv, piv_stride, W, X,
-                                                 work_stride, S * work_stride);
+                                                 work_stride, TDLS_STRIDED(S, work_stride));
                 for (int e = 0; e < w * S; ++e)
                     TDLS_ARROW_LUPP_DYN_W(o.W + e) = TDLS_ARROW_LUPP_DYN_W(o.X + e);
             } else {
                 BlockSolver::substitute_inplace_multirhs(S, w, Dl, work_stride, piv, piv_stride, W,
-                                                         work_stride, S * work_stride);
+                                                         work_stride, TDLS_STRIDED(S, work_stride));
             }
         }
         for (int i = 0; i < S; ++i)

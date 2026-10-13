@@ -178,6 +178,21 @@
 
 
 
+/// \def TDLS_STRIDED_WIDE
+/// \brief Offset of entry i of a strided object, i times stride s, for a
+/// 64-bit stride s (std::size_t); i is a nonnegative int.
+///
+/// The stride between the columns of a multi right-hand-side block: a
+/// column of a batch in SoA lies the dimension times the number of
+/// systems away from the previous one, a product that may exceed 2^31
+/// where the strides of the entries do not.
+
+#ifndef TDLS_STRIDED_WIDE
+#define TDLS_STRIDED_WIDE(i, s) (static_cast<std::size_t>(static_cast<unsigned>(i)) * (s))
+#endif
+
+
+
 /// \def TDLS_UNROLL_FORCE
 /// \brief Full-unroll pragma in the local compiler dialect.
 ///

@@ -14,7 +14,10 @@
 /// made singular so that the second pass uses the workspace, and checks
 /// the results bitwise against the same system stored contiguously. A
 /// 32-bit product would wrap these offsets around onto other elements.
-/// Both solvers, both layouts.
+/// Both solvers, both layouts. The runtime solver passes TiledLUpp the
+/// strides between the columns of its blocks, block or border times the
+/// workspace stride: with blocks of 3 and a workspace stride of 2^31 - 1,
+/// both pass 2^32, through the multi right-hand-side path.
 
 #include <cstdint>
 #include <cstdio>
@@ -104,6 +107,53 @@ void wide_case(const std::uint64_t seed) {
     }
 }
 
+/// \brief The runtime solver with its workspace spread, the column
+/// strides of its TiledLUpp calls past 2^32, two right-hand sides.
+/// \tparam col column-major layout
+/// \param[in] seed generator seed
+template<bool col>
+void wide_columns_case(const std::uint64_t seed) {
+    constexpr tdls::ArrowheadShape shape3{4, 3, 2, 1};
+    constexpr auto config = [] {
+        tdls::ArrowheadLUppConfig<double> c;
+        c.coupling = tdls::ArrowheadCoupling::Diagonal;
+        c.storage  = tdls::ArrowheadStorage::Packed;
+        c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+        return c;
+    }();
+    using Dynamic      = tdls::ArrowheadLUppSolverDynamic<double, config>;
+    constexpr int nrhs = 2;
+    const int n = shape3.n(), wsize = Dynamic::workspace_size(shape3, nrhs);
+
+    auto p = tdls_tests::make_arrow_problem<double>(shape3, true, tdls_tests::ArrowBlocks::Dominant,
+                                                    seed);
+    tdls_tests::zero_block_unknown(p, 1, 0);
+    const auto M0 = tdls_tests::store_arrow<typename Dynamic::storage_map>(p);
+    std::vector<double> Y0(static_cast<std::size_t>(nrhs * n));
+    for (int m = 0; m < nrhs; ++m)
+        for (int i = 0; i < n; ++i)
+            Y0[static_cast<std::size_t>(m * n + i)] = p.b[static_cast<std::size_t>(i)] * (m + 1);
+
+    tdls_tests::HugeArena<double> w(static_cast<std::size_t>(wsize - 1) * vector_stride + 1);
+    if (w.data() == nullptr) {
+        std::printf("       not run: no lazily backed arena on this system\n");
+        return;
+    }
+    auto Mr = M0, Mw = M0;
+    auto Yr = Y0, Yw = Y0;
+    std::vector<double> wr(static_cast<std::size_t>(wsize));
+    std::vector<int> pr(static_cast<std::size_t>(Dynamic::pivot_size(shape3))), pw = pr;
+    int rr = 0, rw = 0;
+    const bool okr = Dynamic::solve_inplace_multirhs(shape3, nrhs, Mr.data(), 1, pr.data(), 1,
+                                                     wr.data(), 1, Yr.data(), 1, n, rr);
+    const bool okw = Dynamic::solve_inplace_multirhs(shape3, nrhs, Mw.data(), 1, pw.data(), 1,
+                                                     w.data(), vector_stride, Yw.data(), 1, n, rw);
+    TDLS_CHECK(okr && okw);
+    TDLS_CHECK(rr == 1 && rw == 1);
+    TDLS_CHECK(tdls_tests::same_bits(Mr, Mw));
+    TDLS_CHECK(tdls_tests::same_bits(Yr, Yw));
+}
+
 } // namespace
 
 TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/rowmajor") {
@@ -111,6 +161,12 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/rowmajor") {
 }
 TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/colmajor") {
     wide_case<true>(1200200);
+}
+TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/columns_rowmajor") {
+    wide_columns_case<false>(1200300);
+}
+TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/columns_colmajor") {
+    wide_columns_case<true>(1200400);
 }
 
 TDLS_TEST_MAIN

@@ -70,6 +70,12 @@ the API may change between minor versions.
   a batch over 2^32 elements, a SoA batch over 32 GiB of doubles on a
   large GPU, wrapped around silently. Same results bit for bit, no
   perceptible cost.
+- The stride between the columns of the multi-right-hand-side entry
+  points of TiledLUpp, `xcol_stride`, is a `std::size_t`
+  (`TDLS_STRIDED_WIDE`): in SoA, the dimension times the number of
+  systems may exceed 2^31. Calls with an int compile unchanged. The
+  runtime ArrowheadLUpp solver passes its column strides, block or
+  border times the workspace stride, the same way.
 - TiledLUpp now keeps the row in place by default
   (`relative_pivot_threshold` = 0.1). Fewer rows move, and the pivot
   arrays stay alike across the threads of a warp, whose pivot-driven

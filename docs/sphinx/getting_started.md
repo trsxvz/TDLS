@@ -163,4 +163,6 @@ cannot fail on a factorization that succeeded.
 The flat element index of an object (N*N for a matrix) must stay below
 2^31. Element offsets, index times stride, are computed in 64-bit
 arithmetic: a batch may exceed 2^32 elements, as a SoA batch over 32 GiB
-of doubles does on a large GPU.
+of doubles does on a large GPU. The stride between the columns of a
+multi right-hand-side block, the dimension times the number of systems
+in SoA, is a 64-bit integer (`std::size_t`).

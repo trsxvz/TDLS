@@ -10,7 +10,8 @@
 /// 64-bit arithmetic: a batch may hold more than 2^32 elements. Each cell
 /// spreads one system over tens of gigabytes of a lazily backed arena
 /// (huge_arena.hpp), with strides that take the offsets of the matrix, the
-/// pivots, the right-hand side and the columns of a block past 2^32, and
+/// pivots, the right-hand side and the columns of a block past 2^32, the
+/// stride between the columns itself past 2^32 (a 64-bit stride), and
 /// checks the results bitwise against the same system held in contiguous
 /// arrays. A 32-bit product would wrap these offsets around onto other
 /// elements. Both solvers, both layouts.
@@ -31,9 +32,11 @@ constexpr int nrhs = 4;
 /// Matrix stride: the last element, index N * N - 1 = 15, lands at
 /// 15 * (2^29 + 1) > 2^32.
 const int matrix_stride = tdls_tests::opaque((1 << 29) + 1);
-/// Vector and column stride: the last entry, index 3, lands at
-/// 3 * (2^31 - 1) > 2^32.
+/// Vector stride: the last entry, index 3, lands at 3 * (2^31 - 1) > 2^32.
 const int vector_stride = tdls_tests::opaque(2147483647);
+/// Stride between the columns of the block, 3 * 2^31 - 1: past 2^32 by
+/// itself.
+const std::size_t column_stride = 3 * static_cast<std::size_t>(vector_stride) + 2;
 
 /// \brief One reproducible, well-conditioned system and its right-hand
 /// sides, column after column.
@@ -57,7 +60,7 @@ struct Arenas {
     tdls_tests::HugeArena<double> A{static_cast<std::size_t>(N * N - 1) * matrix_stride + 1};
     tdls_tests::HugeArena<int> piv{static_cast<std::size_t>(N - 1) * vector_stride + 1};
     tdls_tests::HugeArena<double> y{static_cast<std::size_t>(N - 1) * vector_stride + 1};
-    tdls_tests::HugeArena<double> X{static_cast<std::size_t>(nrhs - 1) * vector_stride + N};
+    tdls_tests::HugeArena<double> X{(nrhs - 1) * column_stride + N};
     [[nodiscard]] bool ready() const {
         return A.data() != nullptr && piv.data() != nullptr && y.data() != nullptr &&
                X.data() != nullptr;
@@ -110,7 +113,7 @@ void static_case() {
         TDLS_CHECK_BITWISE(&y_ref[i], &at(arenas.y, i, vector_stride), 1);
     }
 
-    // The block: contiguous columns against columns vector_stride apart.
+    // The block: contiguous columns against columns column_stride apart.
     double X_ref[nrhs * N];
     for (int e = 0; e < nrhs * N; ++e)
         X_ref[e] = s.B[e];
@@ -118,12 +121,12 @@ void static_case() {
                                                                          X_ref, 1, 0);
     for (int w = 0; w < nrhs; ++w)
         for (int i = 0; i < N; ++i)
-            arenas.X.data()[static_cast<std::size_t>(w) * vector_stride + i] = s.B[w * N + i];
+            arenas.X.data()[static_cast<std::size_t>(w) * column_stride + i] = s.B[w * N + i];
     Solver::template substitute_inplace_multirhs<nrhs, false, true, true>(
-        A_ref, 1, piv_ref, 1, arenas.X.data(), 1, vector_stride);
+        A_ref, 1, piv_ref, 1, arenas.X.data(), 1, column_stride);
     for (int w = 0; w < nrhs; ++w)
         TDLS_CHECK_BITWISE(&X_ref[w * N],
-                           &arenas.X.data()[static_cast<std::size_t>(w) * vector_stride], N);
+                           &arenas.X.data()[static_cast<std::size_t>(w) * column_stride], N);
 }
 
 /// \brief Runtime solver: the same cell as static_case.
@@ -168,12 +171,12 @@ void dynamic_case() {
     Solver::substitute_inplace_multirhs(N, nrhs, A_ref, 1, piv_ref, 1, X_ref, 1, N);
     for (int w = 0; w < nrhs; ++w)
         for (int i = 0; i < N; ++i)
-            arenas.X.data()[static_cast<std::size_t>(w) * vector_stride + i] = s.B[w * N + i];
+            arenas.X.data()[static_cast<std::size_t>(w) * column_stride + i] = s.B[w * N + i];
     Solver::substitute_inplace_multirhs(N, nrhs, A_ref, 1, piv_ref, 1, arenas.X.data(), 1,
-                                        vector_stride);
+                                        column_stride);
     for (int w = 0; w < nrhs; ++w)
         TDLS_CHECK_BITWISE(&X_ref[w * N],
-                           &arenas.X.data()[static_cast<std::size_t>(w) * vector_stride], N);
+                           &arenas.X.data()[static_cast<std::size_t>(w) * column_stride], N);
 }
 
 } // namespace
