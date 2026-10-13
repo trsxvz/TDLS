@@ -484,7 +484,8 @@ struct ArrowheadLUppSolverStatic {
             // canonical solve, which writes neither x nor y
             if (refused_count > 0 &&
                 !second_pass<ntan, true, internal_rhs, internal_work, internal_matrix>(
-                    A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rt))
+                    A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rt,
+                    BlockSolver::singular_floor))
                 return StreamedOutcome::singular;
             bool ok;
             if constexpr (ntan == 1)
@@ -508,7 +509,8 @@ struct ArrowheadLUppSolverStatic {
         TDLS_ARROW_LUPP_FOR(r, acc1, B, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
         if (refused_count > 0 &&
             !second_pass<1, false, internal_rhs, internal_work, internal_matrix>(
-                A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rb))
+                A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rb,
+                BlockSolver::singular_floor))
             return StreamedOutcome::singular;
         if (!BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rb, 1))
             return StreamedOutcome::singular;
@@ -1007,7 +1009,8 @@ struct ArrowheadLUppSolverStatic {
                     else rb[m * B + r] = TDLS_ARROW_LUPP_YW(m, r);))
         if (refused_count > 0 &&
             !second_pass<nc, canonical, internal_rhs, internal_work, internal_matrix>(
-                A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused, Sbb, rb))
+                A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused, Sbb, rb,
+                BlockSolver::singular_floor))
             return false;
         int pb[B];
         if constexpr (nc == 1) {
@@ -1688,19 +1691,27 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_work   residency of work
     /// \tparam internal_matrix residency of A
-    /// \param[in,out] A           matrix in its storage; the refused blocks
-    ///                            receive their recovery data
-    /// \param[in]     A_stride    element stride of A
-    /// \param[out]    work        workspace: the front, then H_k beyond its
-    ///                            S columns
-    /// \param[in]     work_stride element stride of work
-    /// \param[in,out] y           right-hand sides
-    /// \param[in]     rhs_stride  element stride of y
-    /// \param[in]     xcol_stride element stride between columns of y
-    /// \param[in]     refused     bit k set for a refused block k
-    /// \param[in,out] Sbb         the border matrix, the final one on exit
-    /// \param[in,out] rb          its right-hand sides (column m at m * B),
-    ///                            the final ones on exit
+    /// \param[in,out] A              matrix in its storage; the refused blocks
+    ///                               receive their recovery data
+    /// \param[in]     A_stride       element stride of A
+    /// \param[out]    work           workspace: the front, then H_k beyond its
+    ///                               S columns
+    /// \param[in]     work_stride    element stride of work
+    /// \param[in,out] y              right-hand sides
+    /// \param[in]     rhs_stride     element stride of y
+    /// \param[in]     xcol_stride    element stride between columns of y
+    /// \param[in]     refused        bit k set for a refused block k
+    /// \param[in,out] Sbb            the border matrix, the final one on exit
+    /// \param[in,out] rb             its right-hand sides (column m at m * B),
+    ///                               the final ones on exit
+    /// \param[in]     singular_floor the singularity floor of the block solver
+    ///                               (BlockSolver::singular_floor): a smaller
+    ///                               pivot, zero or subnormal, is singular, and
+    ///                               its reciprocal could overflow. An argument
+    ///                               rather than a constant: hoisted as a
+    ///                               constant, it makes the AMDGPU backend of
+    ///                               LLVM 15 (ROCm 5.3) fail with "unhandled
+    ///                               SGPR spill to memory"
     /// \return false when a column of a refused block has no nonzero
     ///         candidate: the matrix is singular
     template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix>
@@ -1708,15 +1719,12 @@ struct ArrowheadLUppSolverStatic {
     second_pass(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                 const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                 [[maybe_unused]] const int xcol_stride, const unsigned* TDLS_RESTRICT refused,
-                T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb) noexcept {
+                T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb, const T singular_floor) noexcept {
         constexpr int fcols                  = front_cols_for<nc>;
         [[maybe_unused]] constexpr int ycols = nc;
         // First column of the right-hand sides in the front.
         constexpr int rhs0 = S + B + R;
         const T u          = condensation_pivot_threshold;
-        // The singularity floor of the block solver: a smaller pivot, zero
-        // or subnormal, is singular there, and its reciprocal could overflow.
-        constexpr T singular_floor = BlockSolver::singular_floor;
         // The border rows [T A_bk | Sbb | T | rb], T starting as the
         // injection of the R coupled rows.
         for (int r = 0; r < B; ++r) {
