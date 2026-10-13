@@ -13,6 +13,7 @@ OUTPUT_DIRECTORY       = _build/doxygen
 GENERATE_LATEX         = NO
 QUIET                  = YES
 WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = YES
 # Dependency and collaboration graphs need the dot tool of graphviz.
 HAVE_DOT               = YES
 DOT_IMAGE_FORMAT       = svg
