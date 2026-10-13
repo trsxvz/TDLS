@@ -805,13 +805,22 @@ struct ArrowheadLUppSolverDynamic {
             TDLS_ARROW_LUPP_DYN_W(o.refused + k) = ok ? T(0) : T(1);
             if (!ok) ++refused_count;
         }
-        for (int r = 0; r < B; ++r) {
-            const bool acc = !in_place && r >= R0 && r < R0 + R;
+        // The rows as stored and the accumulated rows in separate loops, as
+        // in solve_core.
+        const int acc0 = in_place ? B : R0;
+        const int acc1 = in_place ? B : R0 + R;
+        for (int r = 0; r < acc0; ++r)
             for (int c = 0; c < B; ++c)
                 TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
-                    acc ? TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c)
-                        : TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
-        }
+                    TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
+        for (int r = acc0; r < acc1; ++r)
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
+                    TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c);
+        for (int r = acc1; r < B; ++r)
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
+                    TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
         T* const Sbb = work + TDLS_STRIDED(o.Sbb, work_stride);
         T* const rb  = work + TDLS_STRIDED(o.rb, work_stride);
         if (converged()) {
@@ -837,11 +846,12 @@ struct ArrowheadLUppSolverDynamic {
                         TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
             return StreamedOutcome::tangent;
         }
-        for (int r = 0; r < B; ++r) {
-            const bool acc = !in_place && r >= R0 && r < R0 + R;
-            TDLS_ARROW_LUPP_DYN_W(o.rb + r) =
-                acc ? TDLS_ARROW_LUPP_DYN_W(o.racc + r - R0) : TDLS_ARROW_LUPP_DYN_Y(r);
-        }
+        for (int r = 0; r < acc0; ++r)
+            TDLS_ARROW_LUPP_DYN_W(o.rb + r) = TDLS_ARROW_LUPP_DYN_Y(r);
+        for (int r = acc0; r < acc1; ++r)
+            TDLS_ARROW_LUPP_DYN_W(o.rb + r) = TDLS_ARROW_LUPP_DYN_W(o.racc + r - R0);
+        for (int r = acc1; r < B; ++r)
+            TDLS_ARROW_LUPP_DYN_W(o.rb + r) = TDLS_ARROW_LUPP_DYN_Y(r);
         if (refused_count > 0 && !second_pass<1, false>(shape, z, o, A, A_stride, work, work_stride,
                                                         y, rhs_stride, y_xcol_stride, 1))
             return StreamedOutcome::singular;
@@ -964,21 +974,38 @@ struct ArrowheadLUppSolverDynamic {
         }
         // The border system: the accumulated rows, the others as stored;
         // column m of its right-hand sides at m * B.
-        for (int r = 0; r < B; ++r) {
-            const bool acc = !in_place && r >= R0 && r < R0 + R;
+        // The rows as stored and the accumulated rows in separate loops:
+        // GCC 11 and 12 vectorize a choice of source per entry wrongly (-O3
+        // with AVX2 or AVX-512).
+        const int acc0  = in_place ? B : R0;
+        const int acc1  = in_place ? B : R0 + R;
+        auto stored_row = [&](const int r) {
             for (int c = 0; c < B; ++c)
                 TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
-                    acc ? TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c)
-                        : TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
+                    TDLS_ARROW_LUPP_DYN_A(storage_map::abb(shape, r, c));
+            for (int m = 0; m < nc; ++m) {
+                if constexpr (canonical)
+                    TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) = r == col0 + m ? T(1) : T(0);
+                else
+                    TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) = TDLS_ARROW_LUPP_DYN_YW(m, r);
+            }
+        };
+        for (int r = 0; r < acc0; ++r)
+            stored_row(r);
+        for (int r = acc0; r < acc1; ++r) {
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
+                    TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c);
             for (int m = 0; m < nc; ++m) {
                 if constexpr (canonical)
                     TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) = r == col0 + m ? T(1) : T(0);
                 else
                     TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) =
-                        acc ? TDLS_ARROW_LUPP_DYN_W(o.racc + m * R + r - R0)
-                            : TDLS_ARROW_LUPP_DYN_YW(m, r);
+                        TDLS_ARROW_LUPP_DYN_W(o.racc + m * R + r - R0);
             }
         }
+        for (int r = acc1; r < B; ++r)
+            stored_row(r);
         if (refused_count > 0 &&
             !second_pass<NC, canonical>(shape, z, o, A, A_stride, work, work_stride, y, rhs_stride,
                                         xcol_stride, nc))

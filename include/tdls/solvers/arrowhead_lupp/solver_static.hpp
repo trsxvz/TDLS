@@ -459,11 +459,20 @@ struct ArrowheadLUppSolverStatic {
         }
         T Sbb[B * B];
         int pb[B];
-        TDLS_ARROW_LUPP_FOR(
-            r, 0, B, const bool acc = !in_place && r >= R0 && r < R0 + R; TDLS_ARROW_LUPP_FOR(
-                c, 0, B,
-                Sbb[r * B + c] = acc ? Sacc[(r - R0) * B + c]
-                                     : TDLS_ARROW_LUPP_A(storage_map::abb(shape_value(), r, c));))
+        // The rows as stored and the accumulated rows in separate loops, as
+        // in solve_core.
+        constexpr int acc0 = in_place ? B : R0;
+        constexpr int acc1 = in_place ? B : R0 + R;
+        TDLS_ARROW_LUPP_FOR(r, 0, acc0,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                                Sbb[r * B + c] = TDLS_ARROW_LUPP_A(
+                                                    storage_map::abb(shape_value(), r, c));))
+        TDLS_ARROW_LUPP_FOR(r, acc0, acc1,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B, Sbb[r * B + c] = Sacc[(r - R0) * B + c];))
+        TDLS_ARROW_LUPP_FOR(r, acc1, B,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                                Sbb[r * B + c] = TDLS_ARROW_LUPP_A(
+                                                    storage_map::abb(shape_value(), r, c));))
         if (converged()) {
             T rt[B * ntan];
             TDLS_ARROW_LUPP_FOR(
@@ -492,8 +501,9 @@ struct ArrowheadLUppSolverStatic {
             return StreamedOutcome::tangent;
         }
         T rb[B];
-        TDLS_ARROW_LUPP_FOR(r, 0, B, const bool acc = !in_place && r >= R0 && r < R0 + R;
-                            rb[r] = acc ? racc[r - R0] : TDLS_ARROW_LUPP_YW(0, r);)
+        TDLS_ARROW_LUPP_FOR(r, 0, acc0, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
+        TDLS_ARROW_LUPP_FOR(r, acc0, acc1, rb[r] = racc[r - R0];)
+        TDLS_ARROW_LUPP_FOR(r, acc1, B, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
         if (refused_count > 0 &&
             !second_pass<1, false, internal_rhs, internal_work, internal_matrix>(
                 A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rb))
@@ -968,14 +978,26 @@ struct ArrowheadLUppSolverStatic {
         // column m of its right-hand sides at m * B.
         T Sbb[B * B];
         T rb[B * nc];
-        TDLS_ARROW_LUPP_FOR(
-            r, 0, B, const bool acc = !in_place && r >= R0 && r < R0 + R; TDLS_ARROW_LUPP_FOR(
-                c, 0, B,
-                Sbb[r * B + c] = acc ? Sacc[(r - R0) * B + c]
-                                     : TDLS_ARROW_LUPP_A(storage_map::abb(shape_value(), r, c));)
-                TDLS_ARROW_LUPP_FOR(
-                    m, 0, nc, if constexpr (canonical) rb[m * B + r] = r == col0 + m ? T(1) : T(0);
-                    else rb[m * B + r] = acc ? racc[m * R + r - R0] : TDLS_ARROW_LUPP_YW(m, r);))
+        // The rows as stored and the accumulated rows in separate loops:
+        // GCC 11 and 12 vectorize a choice of source per entry wrongly (-O3
+        // with AVX2 or AVX-512, unroll_loops off).
+        constexpr int acc0 = in_place ? B : R0;
+        constexpr int acc1 = in_place ? B : R0 + R;
+        auto stored_row    = [&](const int r) {
+            TDLS_ARROW_LUPP_FOR(
+                c, 0, B, Sbb[r * B + c] = TDLS_ARROW_LUPP_A(storage_map::abb(shape_value(), r, c));)
+            TDLS_ARROW_LUPP_FOR(
+                m, 0, nc, if constexpr (canonical) rb[m * B + r] = r == col0 + m ? T(1) : T(0);
+                else rb[m * B + r] = TDLS_ARROW_LUPP_YW(m, r);)
+        };
+        TDLS_ARROW_LUPP_FOR(r, 0, acc0, stored_row(r);)
+        TDLS_ARROW_LUPP_FOR(r, acc0, acc1,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B, Sbb[r * B + c] = Sacc[(r - R0) * B + c];)
+                                TDLS_ARROW_LUPP_FOR(m, 0, nc,
+                                                    if constexpr (canonical) rb[m * B + r] =
+                                                        r == col0 + m ? T(1) : T(0);
+                                                    else rb[m * B + r] = racc[m * R + r - R0];))
+        TDLS_ARROW_LUPP_FOR(r, acc1, B, stored_row(r);)
         if (refused_count > 0 &&
             !second_pass<nc, canonical, internal_rhs, internal_work, internal_matrix>(
                 A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused, Sbb, rb))
