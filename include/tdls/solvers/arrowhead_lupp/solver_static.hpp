@@ -33,7 +33,7 @@
 ///      refused and left untouched for the second pass.
 ///   3. Otherwise the block is condensed: its contribution goes to the
 ///      Schur complement of the border, its recovery data in place of A_kb
-///      and y_k (see below).
+///      and y_k (see below; none for the canonical solves).
 /// Second pass, only when blocks were refused, in the workspace: each
 /// refused block is eliminated together with the border rows, by partial
 /// pivoting over its S rows and the B border rows. A border row may serve
@@ -73,6 +73,10 @@
 /// row-major layout with the dense coupling, for the accepted ones too;
 /// with schur_in_place, the coupled border rows of A hold the Schur
 /// complement of the accepted blocks. The other entries are only read.
+/// The canonical solves recover nothing and store no recovery data: they
+/// write in A only the Schur complement under schur_in_place and,
+/// streamed, the refused blocks. Without schur_in_place, a stored A thus
+/// comes out unchanged and serves the next columns.
 ///
 /// The caller pre-offsets every remote pointer with the system index and
 /// passes a runtime stride, as for the other families; the
@@ -249,6 +253,12 @@ struct ArrowheadLUppSolverStatic {
     /// pivot check reads its border part from the forward stage.
     template<int ny>
     static constexpr bool forward_check_for = col && pass_width_for<ny> == B + ny;
+    /// Whether the condensation stores the recovery data of the accepted
+    /// blocks (in place of A_kb and y_k, and U in D_k under the row-major
+    /// layout with the dense coupling): not without right-hand side in the
+    /// blocks (ny = 0), the canonical solve, which recovers nothing.
+    template<int ny>
+    static constexpr bool stores_recovery_for = ny > 0;
     /// Row-major with the dense coupling: the Schur complement is updated
     /// by M V, M = Cb U^-1 from the pivot check and V = L^-1 P [A_kb | y_k]
     /// the forward stage of the solve; the backward stage, on one column,
@@ -529,7 +539,10 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \param[in]     provider      the source of the blocks
-    /// \param[in,out] A             storage: A_bb on entry; overwritten
+    /// \param[in,out] A             storage: A_bb on entry; on exit the
+    ///                              refused blocks as given, the accepted
+    ///                              ones not written (see
+    ///                              solve_border_canonical_multirhs)
     /// \param[in]     A_stride      element stride of A
     /// \param[out]    work          workspace of multirhs_workspace_size<nrhs>
     ///                              entries
@@ -788,20 +801,25 @@ struct ArrowheadLUppSolverStatic {
     /// border), counting the refused blocks: rows 0 .. border - 1 of the
     /// solutions of A X = [e_col0 .. e_col0+nrhs-1]. These right-hand sides
     /// vanish on the rows of the blocks: the blocks are condensed without
-    /// right-hand side, and nothing is recovered. The cost is the
-    /// condensation of the matrix and nrhs substitutions of the border
-    /// system: the tangent operator of a behaviour whose loading enters the
-    /// border equations only. Each column equals the border rows of
-    /// solve_inplace on the unit column; a zero may differ in sign, the
-    /// blocks contributing exact zeros where solve_inplace subtracts zero
-    /// products. Under another rhs_pass_width than the default, the two
-    /// agree within rounding errors (see ArrowheadLUppConfig::rhs_pass_width).
+    /// right-hand side, and nothing is recovered, so no recovery data is
+    /// stored. The cost is the condensation of the matrix and nrhs
+    /// substitutions of the border system: the tangent operator of a
+    /// behaviour whose loading enters the border equations only. Each
+    /// column equals the border rows of solve_inplace on the unit column; a
+    /// zero may differ in sign, the blocks contributing exact zeros where
+    /// solve_inplace subtracts zero products. Under another rhs_pass_width
+    /// than the default, the two agree within rounding errors (see
+    /// ArrowheadLUppConfig::rhs_pass_width). A is only read, except the
+    /// coupled border rows under schur_in_place, which receive the Schur
+    /// complement of the accepted blocks: otherwise the same A serves the
+    /// next columns.
     /// \tparam nrhs            number of unit columns, in [1, border]
     /// \tparam internal_rhs    x is a caller-local array, column m from
     ///                         m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
-    /// \param[in,out] A             matrix in its storage; overwritten
+    /// \param[in,out] A             matrix in its storage; unchanged on exit,
+    ///                              but under schur_in_place
     /// \param[in]     A_stride      element stride of A
     /// \param[out]    work          workspace of multirhs_workspace_size<nrhs>
     ///                              entries
@@ -833,7 +851,8 @@ struct ArrowheadLUppSolverStatic {
     ///                         m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
-    /// \param[in,out] A           matrix in its storage; overwritten
+    /// \param[in,out] A           matrix in its storage; unchanged on exit,
+    ///                            but under schur_in_place
     /// \param[in]     A_stride    element stride of A
     /// \param[out]    work        workspace of multirhs_workspace_size<nrhs>
     ///                            entries
@@ -1122,7 +1141,7 @@ struct ArrowheadLUppSolverStatic {
             if constexpr (!multiplier_update) Mb[0] = T(0);
             ok = border_multipliers<internal_matrix>(A, A_stride, k, U, acoef, Mb) && ok;
             if (!ok) return false;
-            if constexpr (multiplier_update) {
+            if constexpr (multiplier_update && stores_recovery_for<ny>) {
                 TDLS_ARROW_LUPP_FOR(
                     l, 0, S,
                     TDLS_ARROW_LUPP_FOR(j, l, S,
@@ -1140,14 +1159,14 @@ struct ArrowheadLUppSolverStatic {
     /// blk.W, all at once, or in passes of rhs_pass_width columns through
     /// condense_pass when the pivot check does not read the forward stage
     /// (the arithmetic of the stored path, column by column), then the
-    /// recovery data stored and the Schur complement updated as
-    /// condense_pass does.
+    /// recovery data stored (unless ny = 0) and the Schur complement
+    /// updated as condense_pass does.
     /// \tparam ny              right-hand sides carried through the blocks
     ///                         (0 or 1)
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_matrix residency of A
     /// \param[in,out] A           matrix in its storage: the recovery data of
-    ///                            the block on exit
+    ///                            the block on exit (none when ny = 0)
     /// \param[in]     A_stride    element stride of A
     /// \param[in,out] y           right-hand sides: the recovery right-hand
     ///                            side of the block on exit
@@ -1194,7 +1213,7 @@ struct ArrowheadLUppSolverStatic {
                 // rhs_pass_width columns at a time, read from the block as
                 // the stored path reads them from the storage (only one
                 // slice alive at a time); all of them at once otherwise
-                if constexpr (multiplier_update) {
+                if constexpr (multiplier_update && stores_recovery_for<ny>) {
                     TDLS_ARROW_LUPP_FOR(
                         l, 0, S,
                         TDLS_ARROW_LUPP_FOR(j, l, S,
@@ -1207,11 +1226,13 @@ struct ArrowheadLUppSolverStatic {
                 return true;
             }
             if constexpr (multiplier_update) {
-                TDLS_ARROW_LUPP_FOR(
-                    l, 0, S,
-                    TDLS_ARROW_LUPP_FOR(j, l, S,
-                                        TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l, j)) =
-                                            U[l * S + j];))
+                if constexpr (stores_recovery_for<ny>) {
+                    TDLS_ARROW_LUPP_FOR(
+                        l, 0, S,
+                        TDLS_ARROW_LUPP_FOR(j, l, S,
+                                            TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l,
+                                                                             j)) = U[l * S + j];))
+                }
                 BlockSolver::template forward_inplace_multirhs<cols, true, true, true>(Dl, 1, pl, 1,
                                                                                        W, 1, S);
             } else if constexpr (Config.gather_rhs) {
@@ -1224,15 +1245,17 @@ struct ArrowheadLUppSolverStatic {
                     Dl, 1, pl, 1, W, 1, S);
             }
         }
-        // the recovery data and the Schur complement, all the columns (the
-        // entries are distinct per column: the order of the passes of the
-        // stored path does not matter)
-        TDLS_ARROW_LUPP_FOR(
-            i, 0, S,
-            TDLS_ARROW_LUPP_FOR(j, 0, cols,
-                                if (j < B) TDLS_ARROW_LUPP_A(
-                                    storage_map::akb(shape_value(), k, i, j)) = W[j * S + i];
-                                else TDLS_ARROW_LUPP_YW(j - B, B + k * S + i) = W[j * S + i];))
+        // the recovery data (not for the canonical solve) and the Schur
+        // complement, all the columns (the entries are distinct per column:
+        // the order of the passes of the stored path does not matter)
+        if constexpr (stores_recovery_for<ny>) {
+            TDLS_ARROW_LUPP_FOR(
+                i, 0, S,
+                TDLS_ARROW_LUPP_FOR(j, 0, cols,
+                                    if (j < B) TDLS_ARROW_LUPP_A(
+                                        storage_map::akb(shape_value(), k, i, j)) = W[j * S + i];
+                                    else TDLS_ARROW_LUPP_YW(j - B, B + k * S + i) = W[j * S + i];))
+        }
         if constexpr (multiplier_update) {
             TDLS_ARROW_LUPP_FOR(
                 r, 0, R,
@@ -1279,7 +1302,8 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_matrix residency of A
     /// \param[in,out] A           matrix in its storage: the recovery data of
-    ///                            the block, or the block itself when refused
+    ///                            the block (none when ny = 0), or the block
+    ///                            itself when refused
     /// \param[in]     A_stride    element stride of A
     /// \param[in,out] y           right-hand sides
     /// \param[in]     rhs_stride  element stride of y
@@ -1486,10 +1510,10 @@ struct ArrowheadLUppSolverStatic {
 
     /// \brief Columns c0 .. c0 + w of [A_kb | Y_k] (column B + m is column m
     /// of the right-hand sides): solved (V_k under the row-major layout with
-    /// the dense coupling, W_k otherwise), stored in place, folded into the
-    /// accumulated rows. The columns go in passes of pass_width_for<ny> so
-    /// that only one slice is alive at a time. When solved, Wsolved already
-    /// holds all of W_k (one pass).
+    /// the dense coupling, W_k otherwise), stored in place unless ny = 0
+    /// (stores_recovery_for), folded into the accumulated rows. The columns
+    /// go in passes of pass_width_for<ny> so that only one slice is alive
+    /// at a time. When solved, Wsolved already holds all of W_k (one pass).
     /// \tparam c0              first column of the pass
     /// \tparam solved          whether Wsolved holds the solved columns
     /// \tparam ny              right-hand sides carried through the blocks
@@ -1556,12 +1580,15 @@ struct ArrowheadLUppSolverStatic {
                                                                                        W, 1, S);
             }
         }
-        TDLS_ARROW_LUPP_FOR(
-            i, 0, S,
-            TDLS_ARROW_LUPP_FOR(j, 0, w,
-                                if (c0 + j < B) TDLS_ARROW_LUPP_A(
-                                    storage_map::akb(shape_value(), k, i, c0 + j)) = W[j * S + i];
-                                else TDLS_ARROW_LUPP_YW(c0 + j - B, B + k * S + i) = W[j * S + i];))
+        if constexpr (stores_recovery_for<ny>) {
+            TDLS_ARROW_LUPP_FOR(
+                i, 0, S,
+                TDLS_ARROW_LUPP_FOR(
+                    j, 0, w,
+                    if (c0 + j < B) TDLS_ARROW_LUPP_A(
+                        storage_map::akb(shape_value(), k, i, c0 + j)) = W[j * S + i];
+                    else TDLS_ARROW_LUPP_YW(c0 + j - B, B + k * S + i) = W[j * S + i];))
+        }
         if constexpr (multiplier_update) {
             TDLS_ARROW_LUPP_FOR(
                 r, 0, R,

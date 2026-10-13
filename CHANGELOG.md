@@ -27,8 +27,9 @@ the API may change between minor versions.
   default `rhs_pass_width` (within rounding errors under another), and
   the border block of the inverse by unit columns of the border
   (`solve_border_canonical_multirhs`), the tangent operator of a
-  behaviour loaded through the border. Tests, documentation pages,
-  snippets and examples.
+  behaviour loaded through the border; it stores no recovery data, so
+  that without `schur_in_place` the matrix comes out unchanged. Tests,
+  documentation pages, snippets and examples.
 - Streamed blocks in both ArrowheadLUpp solvers: the blocks come from a
   provider, called exactly once per block and in order when the solver
   condenses it, instead of a stored matrix (`solve_inplace_streamed`,

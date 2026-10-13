@@ -199,10 +199,11 @@ runtime one.
 Schur complement of the border: the border rows of the solutions for
 the unit columns of the border, `border` entries per column. These
 right-hand sides vanish on the blocks, which are condensed without
-right-hand side, and nothing is recovered. It is the tangent operator
-of a behaviour loaded through the border equations only, the
-macroscopic strain of a polycrystal for instance. `nrhs` is in
-[1, `border`].
+right-hand side, and nothing is recovered: no recovery data is stored.
+Without `schur_in_place`, the stored matrix thus comes out unchanged
+and serves the next columns. It is the tangent operator of a behaviour
+loaded through the border equations only, the macroscopic strain of a
+polycrystal for instance. `nrhs` is in [1, `border`].
 
 Six right-hand sides cost 1.2 to 2.9 times one, against 6 for six
 solves; six unit columns of the border cost 0.65 to 1.4 times one

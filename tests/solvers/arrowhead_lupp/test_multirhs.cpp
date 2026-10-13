@@ -17,7 +17,8 @@
 /// must return the border rows of solve_inplace on the unit columns of
 /// the border, equal in value (a zero may differ in sign: the canonical
 /// path starts from exact zeros where solve_inplace subtracts zero
-/// products).
+/// products), and leave the matrix as it was, bit for bit: it stores no
+/// recovery data, and only schur_in_place writes the coupled border rows.
 
 #include <cstdint>
 #include <vector>
@@ -155,6 +156,23 @@ void multirhs_case(const int count, const std::uint64_t seed) {
                     for (int r = 0; r < B; ++r)
                         E[static_cast<std::size_t>(m) * B + r] = y[static_cast<std::size_t>(r)];
                 }
+                // Nothing recovered, nothing stored: the matrix as it was,
+                // but for the Schur complement in the coupled border rows
+                // under schur_in_place.
+                auto unchanged = [&](const std::vector<double>& M) {
+                    auto E = M0;
+                    if constexpr (Config.schur_in_place) {
+                        constexpr int R0 = diag ? Shape.coupling_row : 0;
+                        constexpr int R  = diag ? Shape.block : B;
+                        for (int r = R0; r < R0 + R; ++r)
+                            for (int c = 0; c < B; ++c) {
+                                const auto e =
+                                    static_cast<std::size_t>(Static::storage_map::abb(Shape, r, c));
+                                E[e] = M[e];
+                            }
+                    }
+                    TDLS_CHECK(tdls_tests::same_bits(M, E));
+                };
                 auto equal = [&](const std::vector<double>& Z, const int zr, const int zx) {
                     int wrong = 0;
                     for (int m = 0; m < nrhs; ++m)
@@ -174,6 +192,7 @@ void multirhs_case(const int count, const std::uint64_t seed) {
                             M.data(), 1, wsm.data(), 1, col0, Z.data(), 1, 0, r)));
                     TDLS_CHECK(r == r1);
                     equal(Z, 1, B);
+                    unchanged(M);
                 }
                 {
                     auto M = M0;
@@ -182,6 +201,7 @@ void multirhs_case(const int count, const std::uint64_t seed) {
                         Static::template solve_border_canonical_multirhs<nrhs, false, false, false>(
                             M.data(), 1, wsm.data(), 1, col0, Z.data(), rs, rs * B)));
                     equal(Z, rs, rs * B);
+                    unchanged(M);
                 }
                 {
                     auto M = M0;
@@ -192,6 +212,7 @@ void multirhs_case(const int count, const std::uint64_t seed) {
                         rs * B, r));
                     TDLS_CHECK(r == r1);
                     equal(Z, rs, rs * B);
+                    unchanged(M);
                 }
             }
         }
