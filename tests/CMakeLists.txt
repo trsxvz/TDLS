@@ -6,12 +6,12 @@
 # ("examples").
 
 # Optimization flag of the test suites in the Release configuration.
-# The suites are correctness tests whose checks do not depend on the
-# level, while the fully-unrolled solver templates dominate compile
-# time at high levels, so -O1 is the fast default. The CI also builds
-# the suites at -O3 (optimizer coverage) and at -O2 under the
-# sanitizers.
-set(TDLS_TESTS_OPTIMIZATION "-O1" CACHE STRING
+# The default -O3 is the level of the Release builds of CMake: the
+# suites check the code that the users compile, where the optimizer
+# may miscompile it or exploit an undefined behaviour. -O1 builds the
+# fully-unrolled solver templates about 3.5 times faster, for quick
+# local iterations; the sanitizer job of the CI builds them at -O1.
+set(TDLS_TESTS_OPTIMIZATION "-O3" CACHE STRING
     "Optimization flag of the test suites in the Release configuration")
 # Clang >=22 flags the harness's __COUNTER__ (unique test-case ids) under
 # -Wc2y-extensions, which the tests' -Werror turns fatal. Suppress just

@@ -20,14 +20,13 @@ function(tdls_add_solver_suites)
         target_link_libraries(${target} PRIVATE tdls::tdls ${ARG_LIBRARIES})
         target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../common")
         target_compile_features(${target} PRIVATE cxx_std_20)
-        # These are correctness tests, not benchmarks. In the Release config
-        # the fully-unrolled solver templates expand into large functions
-        # whose high-level optimisation dominates compile time
-        # (test_cross_full alone: ~20s at -O3 vs ~6s at -O1 under g++),
-        # while the bitwise and backward-error checks are unaffected by the
-        # level. The suites therefore compile at TDLS_TESTS_OPTIMIZATION
-        # (default -O1; it trails the Release -O3 and wins), but only in
-        # Release, so a Debug build stays steppable.
+        # In the Release config the suites compile at TDLS_TESTS_OPTIMIZATION
+        # (default -O3, see ../CMakeLists.txt; it trails the Release flags
+        # and wins). The fully-unrolled solver templates expand into large
+        # functions whose high-level optimisation dominates compile time
+        # (test_cross_full alone: ~20s at -O3 vs ~6s at -O1 under g++), so
+        # the flag offers -O1 for quick local iterations. Only in Release,
+        # so that a Debug build stays steppable.
         if(NOT MSVC)
             target_compile_options(${target} PRIVATE
                 $<$<CONFIG:Release>:${TDLS_TESTS_OPTIMIZATION}> -Wall -Wextra -Wpedantic -Werror

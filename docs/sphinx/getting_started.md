@@ -79,9 +79,10 @@ ctest --test-dir build -L snippets   # rerun the documentation snippets
 
 Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
-In the Release configuration the test suites compile at `-O1`, which
-keeps the fully unrolled solver templates fast to build;
-`TDLS_TESTS_OPTIMIZATION` changes that flag.
+In the Release configuration the test suites compile at `-O3`, the
+level of the Release builds that use the library.
+`TDLS_TESTS_OPTIMIZATION` changes that flag: `-O1` builds the fully
+unrolled solver templates about 3.5 times faster.
 
 The OpenMP examples build when an OpenMP runtime is found, the
 parallel STL examples when the compiler offers a backend (nvc++, or

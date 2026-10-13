@@ -83,6 +83,12 @@ the API may change between minor versions.
   reads then hit the same offsets. The pivots, and the results in their
   last bits, may differ from 0.2.0; a threshold of 1 restores the
   previous choice, the largest in-tile candidate, bit for bit.
+- The test suites compile at `-O3` by default in the Release
+  configuration, the level of the Release builds that use the library;
+  it was `-O1`. `make check` and `spack install --test=root` thus check
+  the code that the optimizer transforms the most, for about 3.5 times
+  the compile time. `TDLS_TESTS_OPTIMIZATION=-O1` restores the previous
+  flag.
 
 ## [0.2.0] - 2026-10-11
 

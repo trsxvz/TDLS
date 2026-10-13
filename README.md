@@ -218,7 +218,7 @@ the GPU switches always default to OFF):
 | `TDLS_BUILD_TESTS` | build the test suites |
 | `TDLS_BUILD_EXAMPLES` | build the examples and the documentation snippets |
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
-| `TDLS_TESTS_OPTIMIZATION` | optimization flag of the test suites in the Release configuration (`-O1` by default) |
+| `TDLS_TESTS_OPTIMIZATION` | optimization flag of the test suites in the Release configuration (`-O3` by default; `-O1` builds them faster) |
 | `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
 | `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
 | `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
