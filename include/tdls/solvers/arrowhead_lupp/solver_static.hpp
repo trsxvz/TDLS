@@ -254,9 +254,11 @@ struct ArrowheadLUppSolverStatic {
         Config.rhs_pass_width == 0 || Config.rhs_pass_width > B + ny ? B + ny
                                                                      : Config.rhs_pass_width;
     /// Column-major and a single pass: [A_kb | Y_k] is loaded once, and the
-    /// pivot check reads its border part from the forward stage.
+    /// pivot check reads its border part from the forward stage (not with
+    /// register_blocks, whose check computes the border multipliers apart).
     template<int ny>
-    static constexpr bool forward_check_for = col && pass_width_for<ny> == B + ny;
+    static constexpr bool forward_check_for =
+        !Config.register_blocks && col && pass_width_for<ny> == B + ny;
     /// Whether the condensation stores the recovery data of the accepted
     /// blocks (in place of A_kb and y_k, and U in D_k under the row-major
     /// layout with the dense coupling): not without right-hand side in the
@@ -273,6 +275,8 @@ struct ArrowheadLUppSolverStatic {
     /// Schur complement accumulated in the border entries of A and y
     /// (ArrowheadLUppConfig::schur_in_place).
     static constexpr bool in_place = Config.schur_in_place;
+    /// Blocks eliminated in registers (ArrowheadLUppConfig::register_blocks).
+    static constexpr bool reg = Config.register_blocks;
 
     static_assert(Shape.border >= 1 && Shape.block >= 1 && Shape.blocks >= 1,
                   "ArrowheadLUppSolverStatic: border, block and blocks must be >= 1");
@@ -1109,7 +1113,16 @@ struct ArrowheadLUppSolverStatic {
                                                 Dl[col ? j * S + i : i * S + j] = TDLS_ARROW_LUPP_A(
                                                     storage_map::d(shape_value(), k, i, j));))
         int pl[S];
-        if (!BlockSolver::template factorize<true, true>(Dl, 1, pl, 1)) return false;
+        // Factored by TiledLUpp, or in registers: then Dl holds U in
+        // logical row order and the check of L is made.
+        bool ok = true;
+        if constexpr (reg) {
+            const int verdict = register_factor(Dl, pl);
+            if (verdict == 2) return false;
+            ok = verdict == 0;
+        } else {
+            if (!BlockSolver::template factorize<true, true>(Dl, 1, pl, 1)) return false;
+        }
         // The couplings of the block under the diagonal coupling; a
         // placeholder, never read, otherwise (initialized for the flow
         // analysis of the compilers, as the other placeholders below).
@@ -1121,10 +1134,12 @@ struct ArrowheadLUppSolverStatic {
             acoef[0] = T(0);
         }
         // U in logical row order, unless the forward stage of the solve
-        // gives the border multipliers.
-        T U[forward_check ? 1 : S * S];
-        if constexpr (forward_check) U[0] = T(0);
-        bool ok = lower_pass<!forward_check>(Dl, pl, U);
+        // gives the border multipliers, or the block is factored in
+        // registers (U is then Dl).
+        T U[forward_check || reg ? 1 : S * S];
+        if constexpr (forward_check || reg) U[0] = T(0);
+        if constexpr (!reg) ok = lower_pass<!forward_check>(Dl, pl, U);
+        const T* const Uf = reg ? Dl : U;
         if constexpr (forward_check) {
             T W[(B + ny) * S];
             TDLS_ARROW_LUPP_FOR(
@@ -1147,15 +1162,10 @@ struct ArrowheadLUppSolverStatic {
         } else {
             T Mb[multiplier_update ? R * S : 1];
             if constexpr (!multiplier_update) Mb[0] = T(0);
-            ok = border_multipliers<internal_matrix>(A, A_stride, k, U, acoef, Mb) && ok;
+            ok = border_multipliers<internal_matrix>(A, A_stride, k, Uf, acoef, Mb) && ok;
             if (!ok) return false;
-            if constexpr (multiplier_update && stores_recovery_for<ny>) {
-                TDLS_ARROW_LUPP_FOR(
-                    l, 0, S,
-                    TDLS_ARROW_LUPP_FOR(j, l, S,
-                                        TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l, j)) =
-                                            U[l * S + j];))
-            }
+            if constexpr (multiplier_update && stores_recovery_for<ny>)
+                store_upper<internal_matrix>(A, A_stride, k, Uf);
             condense_pass<0, false, ny, internal_rhs, internal_matrix>(
                 A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc, nullptr);
         }
@@ -1200,11 +1210,19 @@ struct ArrowheadLUppSolverStatic {
         T* const Dl                          = blk.Dl;
         T* const W                           = blk.W;
         int pl[S];
-        if (!BlockSolver::template factorize<true, true>(Dl, 1, pl, 1)) return false;
+        bool ok = true;
+        if constexpr (reg) {
+            const int verdict = register_factor(Dl, pl);
+            if (verdict == 2) return false;
+            ok = verdict == 0;
+        } else {
+            if (!BlockSolver::template factorize<true, true>(Dl, 1, pl, 1)) return false;
+        }
         const T* const acoef = blk.Abk;
-        T U[forward_check ? 1 : S * S];
-        if constexpr (forward_check) U[0] = T(0);
-        bool ok = lower_pass<!forward_check>(Dl, pl, U);
+        T U[forward_check || reg ? 1 : S * S];
+        if constexpr (forward_check || reg) U[0] = T(0);
+        if constexpr (!reg) ok = lower_pass<!forward_check>(Dl, pl, U);
+        const T* const Uf = reg ? Dl : U;
         T Mb[multiplier_update ? R * S : 1];
         if constexpr (!multiplier_update) Mb[0] = T(0);
         if constexpr (forward_check) {
@@ -1216,34 +1234,29 @@ struct ArrowheadLUppSolverStatic {
             BlockSolver::template backward_inplace_multirhs<cols, true, true, true>(Dl, 1, pl, 1, W,
                                                                                     1, S);
         } else {
-            ok = border_multipliers<internal_matrix>(A, A_stride, k, U, acoef, Mb, bp) && ok;
+            ok = border_multipliers<internal_matrix>(A, A_stride, k, Uf, acoef, Mb, bp) && ok;
             if (!ok) return false;
             if constexpr (pass_width_for<ny> < cols) {
                 // rhs_pass_width columns at a time, read from the block as
                 // the stored path reads them from the storage (only one
                 // slice alive at a time); all of them at once otherwise
-                if constexpr (multiplier_update && stores_recovery_for<ny>) {
-                    TDLS_ARROW_LUPP_FOR(
-                        l, 0, S,
-                        TDLS_ARROW_LUPP_FOR(j, l, S,
-                                            TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l,
-                                                                             j)) = U[l * S + j];))
-                }
+                if constexpr (multiplier_update && stores_recovery_for<ny>)
+                    store_upper<internal_matrix>(A, A_stride, k, Uf);
                 condense_pass<0, false, ny, internal_rhs, internal_matrix>(
                     A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc,
                     nullptr, bp);
                 return true;
             }
             if constexpr (multiplier_update) {
-                if constexpr (stores_recovery_for<ny>) {
-                    TDLS_ARROW_LUPP_FOR(
-                        l, 0, S,
-                        TDLS_ARROW_LUPP_FOR(j, l, S,
-                                            TDLS_ARROW_LUPP_A(storage_map::d(shape_value(), k, l,
-                                                                             j)) = U[l * S + j];))
-                }
-                BlockSolver::template forward_inplace_multirhs<cols, true, true, true>(Dl, 1, pl, 1,
-                                                                                       W, 1, S);
+                if constexpr (stores_recovery_for<ny>)
+                    store_upper<internal_matrix>(A, A_stride, k, Uf);
+                if constexpr (reg)
+                    register_solve<cols>(Dl, pl, W);
+                else
+                    BlockSolver::template forward_inplace_multirhs<cols, true, true, true>(
+                        Dl, 1, pl, 1, W, 1, S);
+            } else if constexpr (reg) {
+                register_solve<cols>(Dl, pl, W);
             } else if constexpr (Config.gather_rhs) {
                 T X[cols * S];
                 BlockSolver::template substitute_multirhs<cols, true, true, true>(Dl, 1, pl, 1, W,
@@ -1477,10 +1490,236 @@ struct ArrowheadLUppSolverStatic {
     multipliers_pass(T* TDLS_RESTRICT m, const int first, const T* TDLS_RESTRICT U,
                      const T u) noexcept {
         bool ok = true;
-        TDLS_ARROW_LUPP_FOR(l, first, S, m[l] *= U[l * S + l];
-                            ok = ok && u * detail::abs(m[l]) <= T(1);
-                            TDLS_ARROW_LUPP_FOR(j, l + 1, S, m[j] -= m[l] * U[l * S + j];))
+        if constexpr (reg) {
+            // The same operations over full ranges, the triangle selected
+            // inside, so that U stays in registers (see register_factor).
+            TDLS_ARROW_LUPP_FOR(
+                l, 0, S, if (l >= first) {
+                    m[l] *= U[l * S + l];
+                    ok = ok && u * detail::abs(m[l]) <= T(1);
+                    TDLS_ARROW_LUPP_FOR(j, 0, S, if (j > l) m[j] -= m[l] * U[l * S + j];)
+                })
+        } else {
+            TDLS_ARROW_LUPP_FOR(l, first, S, m[l] *= U[l * S + l];
+                                ok = ok && u * detail::abs(m[l]) <= T(1);
+                                TDLS_ARROW_LUPP_FOR(j, l + 1, S, m[j] -= m[l] * U[l * S + j];))
+        }
         return ok;
+    }
+
+    /// \brief Stores U of block k, in logical row order, in the upper
+    /// triangle of D_k (its diagonal holds 1 / pivot): the recovery data
+    /// of the row-major layout with the dense coupling.
+    /// \tparam internal_matrix residency of A
+    /// \param[out] A        matrix in its storage
+    /// \param[in]  A_stride element stride of A
+    /// \param[in]  k        block
+    /// \param[in]  U        U of the block in logical row order
+    template<bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    store_upper(T* TDLS_RESTRICT A, const int A_stride, const int k,
+                const T* TDLS_RESTRICT U) noexcept {
+        if constexpr (reg) {
+            TDLS_ARROW_LUPP_FOR(l, 0, S,
+                                TDLS_ARROW_LUPP_FOR(j, 0, S,
+                                                    if (j >= l) TDLS_ARROW_LUPP_A(storage_map::d(
+                                                        shape_value(), k, l, j)) = U[l * S + j];))
+        } else {
+            TDLS_ARROW_LUPP_FOR(l, 0, S,
+                                TDLS_ARROW_LUPP_FOR(j, l, S,
+                                                    TDLS_ARROW_LUPP_A(storage_map::d(
+                                                        shape_value(), k, l, j)) = U[l * S + j];))
+        }
+    }
+
+    /// \brief Factors F in place in registers (ArrowheadLUppConfig::
+    /// register_blocks). F is the block as TiledLUpp factors it, D_k or
+    /// D_k^T under the column-major layout, S x S by rows. The pivot rule
+    /// is the in-tile rule of TiledLUpp over a single tile; the rows are
+    /// interchanged physically and whole. On exit F holds L below its
+    /// diagonal and U above it, in logical row order, with 1 / pivot on the
+    /// diagonal (the format of TiledLUpp, row by row), and p[j] is the row
+    /// interchanged with row j at step j. The multipliers of L are checked
+    /// as lower_pass checks them. Once the loops are unrolled, every index
+    /// is known at compile time and F stays in registers.
+    /// \param[in,out] F the block on entry, its factors on exit
+    /// \param[out]    p the interchanges
+    /// \return 0 when L passes the check, 1 when it fails it, 2 when a
+    ///         column has no candidate above the singularity floor of
+    ///         TiledLUpp (BlockSolver::singular_floor)
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    register_factor(T* TDLS_RESTRICT F, int* TDLS_RESTRICT p) noexcept {
+        bool ok       = true;
+        bool singular = false;
+        TDLS_ARROW_LUPP_FOR(j, 0, S, ok = register_step(F, p, j, singular) && ok;)
+        return singular ? 2 : ok ? 0 : 1;
+    }
+
+    /// \brief Step j of register_factor: the pivot of column j, the
+    /// interchange, the elimination below the pivot. Every loop runs over
+    /// a full range, the triangle selected inside: nvcc does not unroll a
+    /// loop whose trip count depends on an outer index, and the run-time
+    /// indices of the rolled loop would send F to the stack.
+    /// \param[in,out] F        the block, factored up to column j
+    /// \param[out]    p        the interchanges
+    /// \param[in]     j        column
+    /// \param[in,out] singular set when the column has no candidate above
+    ///                         the singularity floor
+    /// \return false when a multiplier of the column fails the check
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    register_step(T* TDLS_RESTRICT F, int* TDLS_RESTRICT p, const int j, bool& singular) noexcept {
+        const T u             = condensation_pivot_threshold;
+        constexpr T rel       = BlockSolver::relative_pivot_threshold;
+        constexpr T oot       = BlockSolver::oot_pivot_threshold;
+        constexpr T floor_val = BlockSolver::singular_floor;
+        // The best candidate of the column; the row in place keeps the
+        // pivot down to rel times it (threshold pivoting of TiledLUpp).
+        T best = detail::abs(F[j * S + j]);
+        int r  = j;
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S, const T a = detail::abs(F[i * S + j]); if (i > j && a > best) {
+                best = a;
+                r    = i;
+            })
+        if constexpr (rel < T(1)) {
+            const T in_place = detail::abs(F[j * S + j]);
+            if (in_place >= rel * best && in_place >= oot) r = j;
+        }
+        const bool pivot_ok = best >= floor_val;
+        singular            = singular || !pivot_ok;
+        p[j]                = r;
+        // Rarely taken: the branch stays uniform across a warp.
+        if (r != j) register_interchange<S>(F, j, r, 1, S);
+        const T inv  = pivot_ok ? T(1) / F[j * S + j] : T(0);
+        F[j * S + j] = inv;
+        bool ok      = true;
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S, if (i > j) {
+                const T l    = F[i * S + j] * inv;
+                F[i * S + j] = l;
+                ok           = ok && u * detail::abs(l) <= T(1);
+                TDLS_ARROW_LUPP_FOR(c, 0, S, if (c > j) F[i * S + c] -= l * F[j * S + c];)
+            })
+        return ok;
+    }
+
+    /// \brief Interchanges rows j and r > j of the n columns of X, entry
+    /// (i, c) at i * rs + c * cs: a test of every unrolled row index
+    /// against r (TileOperations::swap_rows), so that no index is known at
+    /// run time only.
+    /// \tparam n number of columns
+    /// \param[in,out] X  the columns
+    /// \param[in]     j  first row
+    /// \param[in]     r  second row
+    /// \param[in]     cs column stride of X
+    /// \param[in]     rs row stride of X
+    template<int n>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    register_interchange(T* TDLS_RESTRICT X, const int j, const int r, const int cs,
+                         const int rs) noexcept {
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S, if (i > j && i == r) {
+                TDLS_ARROW_LUPP_FOR(c, 0, n, const T t = X[j * rs + c * cs];
+                                    X[j * rs + c * cs] = X[i * rs + c * cs];
+                                    X[i * rs + c * cs] = t;)
+            })
+    }
+
+    /// \brief Solves w columns in place in registers with the factors of
+    /// register_factor, column c at c * S: W := D_k^-1 W, or the forward
+    /// stage alone, L^-1 P W, under the row-major layout with the dense
+    /// coupling (multiplier_update). Under the column-major layout F = D_k^T
+    /// and P F = L U, so D_k = U^T L^T P: U^-T, then L^-T, then the
+    /// interchanges in reverse order.
+    /// \tparam w number of columns
+    /// \param[in]     F factors
+    /// \param[in]     p interchanges
+    /// \param[in,out] W columns
+    template<int w>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    register_solve(const T* TDLS_RESTRICT F, const int* TDLS_RESTRICT p,
+                   T* TDLS_RESTRICT W) noexcept {
+        if constexpr (!col) {
+            // P W, the interchanges in their order, then L^-1 and U^-1.
+            TDLS_ARROW_LUPP_FOR(j, 0, S, if (p[j] != j) register_interchange<w>(W, j, p[j], S, 1);)
+            TDLS_ARROW_LUPP_FOR(j, 0, S, register_lower_column<w>(F, W, j);)
+            if constexpr (!multiplier_update) {
+                TDLS_ARROW_LUPP_FOR(t, 0, S, register_upper_row<w>(F, W, S - 1 - t);)
+            }
+        } else {
+            // U^-T, then L^-T, then the interchanges in reverse order.
+            TDLS_ARROW_LUPP_FOR(j, 0, S, register_upper_transposed_column<w>(F, W, j);)
+            TDLS_ARROW_LUPP_FOR(t, 0, S, register_lower_transposed_row<w>(F, W, S - 1 - t);)
+            TDLS_ARROW_LUPP_FOR(t, 0, S, const int j = S - 1 - t;
+                                if (p[j] != j) register_interchange<w>(W, j, p[j], S, 1);)
+        }
+    }
+
+    /// \brief Column j of the forward substitution by L (unit diagonal):
+    /// the rows below j of the w columns lose L(i, j) times row j.
+    /// \tparam w number of columns
+    /// \param[in]     F factors
+    /// \param[in,out] W columns, column c at c * S
+    /// \param[in]     j column of L
+    template<int w>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    register_lower_column(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W, const int j) noexcept {
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S, if (i > j) {
+                const T l = F[i * S + j];
+                TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + i] -= l * W[c * S + j];)
+            })
+    }
+
+    /// \brief Row j of the backward substitution by U: row j of the w
+    /// columns, the rows below it solved already.
+    /// \tparam w number of columns
+    /// \param[in]     F factors (1 / pivot on the diagonal)
+    /// \param[in,out] W columns, column c at c * S
+    /// \param[in]     j row of U
+    template<int w>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    register_upper_row(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W, const int j) noexcept {
+        TDLS_ARROW_LUPP_FOR(
+            c, 0, w, T v = W[c * S + j];
+            TDLS_ARROW_LUPP_FOR(q, 0, S, if (q > j) v -= F[j * S + q] * W[c * S + q];)
+                W[c * S + j] = v * F[j * S + j];)
+    }
+
+    /// \brief Column j of the forward substitution by U^T: row j of the w
+    /// columns is solved, then the rows below it lose U(j, q) times it.
+    /// \tparam w number of columns
+    /// \param[in]     F factors (1 / pivot on the diagonal)
+    /// \param[in,out] W columns, column c at c * S
+    /// \param[in]     j column of U^T
+    template<int w>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    register_upper_transposed_column(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W,
+                                     const int j) noexcept {
+        TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + j] *= F[j * S + j];)
+        TDLS_ARROW_LUPP_FOR(
+            q, 0, S, if (q > j) {
+                const T uq = F[j * S + q];
+                TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + q] -= uq * W[c * S + j];)
+            })
+    }
+
+    /// \brief Row j of the backward substitution by L^T (unit diagonal):
+    /// row j of the w columns loses L(q, j) times each row q below it,
+    /// solved already.
+    /// \tparam w number of columns
+    /// \param[in]     F factors
+    /// \param[in,out] W columns, column c at c * S
+    /// \param[in]     j row of L^T
+    template<int w>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    register_lower_transposed_row(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W,
+                                  const int j) noexcept {
+        TDLS_ARROW_LUPP_FOR(
+            q, 0, S, if (q > j) {
+                const T l = F[q * S + j];
+                TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + j] -= l * W[c * S + q];)
+            })
     }
 
     /// \brief Subtracts v from entry (R0 + r, c) of the Schur complement
@@ -1577,7 +1816,9 @@ struct ArrowheadLUppSolverStatic {
                                                         shape_value(), k, i, c0 + j))
                                                   : TDLS_ARROW_LUPP_YW(c0 + j - B, B + k * S + i);))
             }
-            if constexpr (multiplier_update) {
+            if constexpr (reg) {
+                register_solve<w>(Dl, pl, W);
+            } else if constexpr (multiplier_update) {
                 BlockSolver::template forward_inplace_multirhs<w, true, true, true>(Dl, 1, pl, 1, W,
                                                                                     1, S);
             } else if constexpr (Config.gather_rhs) {

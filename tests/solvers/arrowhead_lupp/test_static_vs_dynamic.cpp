@@ -54,6 +54,14 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
     return c;
 }
 
+/// \brief The configuration c with its blocks eliminated in registers.
+/// \param[in] c configuration
+/// \return c with register_blocks set
+constexpr tdls::ArrowheadLUppConfig<double> registers(tdls::ArrowheadLUppConfig<double> c) {
+    c.register_blocks = true;
+    return c;
+}
+
 /// \brief Compares the two solvers on a standard batch.
 /// \tparam Shape  shape of the matrices
 /// \tparam Config configuration
@@ -145,6 +153,24 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/gather_in_place_unroll") 
         12, 503500);
     bridge_case<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0, false, false,
                                          false)>(12, 503600);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/register_blocks") {
+    using S = ArrowheadStorage;
+    bridge_case<polycrystal, registers(path_config(S::Packed, true, false, 0))>(12, 504100);
+    bridge_case<polycrystal, registers(path_config(S::Packed, true, false, 2))>(12, 504200);
+    bridge_case<polycrystal, registers(path_config(S::Full, true, true, 0))>(12, 504300);
+    bridge_case<polycrystal, registers(path_config(S::Bsr, true, true, 5))>(12, 504400);
+    bridge_case<uneven_dense, registers(path_config(S::Csr, false, false, 0))>(12, 504500);
+    bridge_case<uneven_dense, registers(path_config(S::Packed, false, false, 3))>(12, 504600);
+    bridge_case<uneven_dense, registers(path_config(S::Packed, false, true, 0))>(12, 504700);
+    bridge_case<uneven, registers(path_config(S::Packed, true, true, 2))>(12, 504800);
+    bridge_case<iwan, registers(path_config(S::Packed, false, false, 0))>(12, 504900);
+    bridge_case<thin_border, registers(path_config(S::Packed, false, true, 0))>(12, 505000);
+    bridge_case<polycrystal, registers(path_config(S::Packed, true, false, 0, false, true))>(
+        12, 505100);
+    bridge_case<polycrystal,
+                registers(path_config(S::Packed, true, false, 0, false, false, false))>(12, 505200);
 }
 
 TDLS_TEST_MAIN

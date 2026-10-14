@@ -72,6 +72,14 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
     return c;
 }
 
+/// \brief The configuration c with its blocks eliminated in registers.
+/// \param[in] c configuration
+/// \return c with register_blocks set
+constexpr tdls::ArrowheadLUppConfig<double> registers(tdls::ArrowheadLUppConfig<double> c) {
+    c.register_blocks = true;
+    return c;
+}
+
 /// \brief Calls of the provider and of converged() during one solve.
 struct CallLog {
     int blocks    = 0;    ///< provider calls
@@ -391,6 +399,27 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/gather_in_place_unroll") {
                                               false, false)>(604500);
     both_residencies<polycrystal, path_config(ArrowheadStorage::Packed, true, false, 0, false,
                                               false, true, true)>(604600);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/register_blocks") {
+    using S = ArrowheadStorage;
+    both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 0))>(605100);
+    both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 2))>(605200);
+    both_residencies<polycrystal, registers(path_config(S::Csr, true, true, 0))>(605300);
+    both_residencies<polycrystal, registers(path_config(S::Bsr, true, true, 2))>(605400);
+    both_residencies<uneven_dense, registers(path_config(S::Full, false, false, 0))>(605500);
+    both_residencies<uneven_dense, registers(path_config(S::Packed, false, false, 3))>(605600);
+    both_residencies<uneven_dense, registers(path_config(S::Packed, false, true, 4))>(605700);
+    both_residencies<uneven, registers(path_config(S::Packed, true, true, 0))>(605800);
+    both_residencies<iwan, registers(path_config(S::Packed, false, true, 0))>(605900);
+    both_residencies<thin_border, registers(path_config(S::Csr, false, true, 0))>(606000);
+    both_residencies<big_block, registers(path_config(S::Packed, false, false, 0))>(606100);
+    both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 0, false, true))>(
+        606200);
+    both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 0, false, false,
+                                                        false))>(606300);
+    both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 0, false, false,
+                                                        true, true))>(606400);
 }
 
 TDLS_TEST_MAIN

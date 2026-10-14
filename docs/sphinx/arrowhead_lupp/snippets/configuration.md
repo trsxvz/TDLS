@@ -108,6 +108,19 @@ diagonal coupling.
 :dedent: 4
 ```
 
+## Blocks in registers
+
+Each block factored by physical row interchanges, every index known at
+compile time, instead of by TiledLUpp: on GPU the block and its
+right-hand sides stay in registers.
+
+```{literalinclude} ../../../snippets/arrowhead_lupp/config_register_blocks.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## Schur complement in place
 
 The Schur complement accumulated in the border entries of the storage and of the right-hand side.

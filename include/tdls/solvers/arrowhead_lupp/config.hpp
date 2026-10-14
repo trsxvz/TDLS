@@ -200,6 +200,25 @@ struct ArrowheadLUppConfig {
     /// whether the pivots move or not. To measure per shape.
     bool gather_rhs = false;
 
+    /// Eliminates each diagonal block in registers (true) instead of by
+    /// TiledLUpp (false). TiledLUpp keeps its pivots logical: it writes the
+    /// factored block back at the rows its pivot array gives, an index
+    /// known at run time only, so that on GPU the block, its pivots and
+    /// the right-hand sides [A_kb | y_k] of the block live in the local
+    /// memory of the thread, the stack. With this knob, the block is
+    /// factored by physical row interchanges, every index known at compile
+    /// time once the loops are unrolled, and the right-hand sides are
+    /// solved the same way: all of it stays in registers. The pivot rule
+    /// is the in-tile rule of TiledLUpp over a single tile of the size of
+    /// the block (block_relative_pivot_threshold, block_oot_pivot_threshold;
+    /// block_tile_size and gather_rhs are ignored), the layouts and the
+    /// pivot check unchanged; the recovery data and the second pass are
+    /// those of the default path. With block_tile_size at least the block,
+    /// the pivots are those of TiledLUpp and the results agree within
+    /// rounding errors. For small blocks: the loops are unrolled over the
+    /// block, S^3 operations. Ignored by the runtime solver.
+    bool register_blocks = false;
+
     /// Accumulates the Schur complement in place, in the border entries of
     /// A and y (true), or in a local array of the coupled border rows,
     /// alive across the sweep over the blocks (false). In place frees

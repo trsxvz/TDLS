@@ -298,7 +298,7 @@ gets its own register allocation.
 
 ## Configuration
 
-`ArrowheadLUppConfig<T>` is an aggregate of thirteen knobs, passed to the
+`ArrowheadLUppConfig<T>` is an aggregate of fourteen knobs, passed to the
 solvers as a constexpr value. Designated initializers override
 individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 
@@ -314,6 +314,7 @@ individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 | `border_tile_size` | 3 | tile size of TiledLUpp on the border system |
 | `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1] for the compile-time solver (the runtime solver takes any width from 0, one pass above border + nrhs); 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU (RTX 5080) under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there; under the column-major layout, a width can move a block across the threshold of the pivot check, the results then differing by rounding errors |
 | `gather_rhs` | `false` | permutes the rows of the columns $[A_{kb} \mid y_k]$ of a block by its pivots, through a gather into a second buffer instead of cycles in place; used only where the condensation runs the whole solve (row-major with the diagonal coupling, column-major in several passes); changes the register allocation, to measure per shape on GPU |
+| `register_blocks` | `false` | factors each block by physical row interchanges, every index known at compile time, instead of by TiledLUpp, whose logical pivots keep the block, its pivots and its right-hand sides on the stack of the thread on GPU; the in-tile pivot rule of TiledLUpp over one tile of the size of the block (`block_tile_size` and `gather_rhs` ignored), the recovery data and the second pass unchanged; the runtime solver runs the same operations, so that both stay bitwise identical. On an RTX 5080, polycrystal of 30 grains, with passes of 2 columns: the streamed path 1.5 times faster on small batches in float, 1.1 times at saturation, 1.5 times at saturation in double; on 6 CPU cores in double, in one pass, 1.1 to 1.6 times faster stored and 1.2 to 1.9 times streamed (gcc 13, clang 17). For small blocks: the loops unroll over the block |
 | `schur_in_place` | `false` | accumulates the Schur complement in the border entries of A and y instead of a local array; fewer registers, more memory traffic |
 | `unroll_loops` | `true` | forced unrolling of the loops over the entries of a block and of the border, passed on to the TiledLUpp solvers; ignored by the runtime solver |
 | `streamed_out_of_line` | `false` | keeps the streamed entry points of the compile-time solver out of line on GPU (CUDA, HIP, SYCL), where the inliner may merge them into a large caller and allocate its registers worse; 19 % faster on a polycrystal of 240 grains (RTX 5080), to measure per provider; ignored elsewhere and by the runtime solver |

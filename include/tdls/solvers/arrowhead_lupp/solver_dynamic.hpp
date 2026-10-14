@@ -1107,24 +1107,40 @@ struct ArrowheadLUppSolverDynamic {
                     TDLS_ARROW_LUPP_DYN_W(o.Dl + (col ? j * S + i : i * S + j)) =
                         TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, i, j));
         }
-        if (!BlockSolver::factorize(S, Dl, work_stride, piv, piv_stride)) return false;
+        // Factored by TiledLUpp, or by physical interchanges
+        // (register_blocks): Dl then holds U in logical row order and the
+        // check of L is made.
+        bool ok = true;
+        if constexpr (Config.register_blocks) {
+            const int verdict = physical_factor(z, o, work, work_stride, piv, piv_stride);
+            if (verdict == 2) return false;
+            ok = verdict == 0;
+        } else {
+            if (!BlockSolver::factorize(S, Dl, work_stride, piv, piv_stride)) return false;
+        }
         if constexpr (diag && !streamed) {
             for (int i = 0; i < S; ++i)
                 TDLS_ARROW_LUPP_DYN_W(o.acoef + i) =
                     TDLS_ARROW_LUPP_DYN_A(storage_map::abk_diag(shape, k, i));
         }
-        const bool forward_check = col && z.pass_width == B + ny;
+        const bool forward_check = !Config.register_blocks && col && z.pass_width == B + ny;
         // The multipliers L, and U in logical row order unless the forward
         // stage of the solve gives the border multipliers.
-        bool ok = true;
-        for (int l = 0; l < S; ++l) {
-            const int p = piv[TDLS_STRIDED(l, piv_stride)];
-            for (int j = 0; j < S; ++j) {
-                if (j < l) {
-                    ok = ok && u * detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + p * S + j)) <= T(1);
-                } else if (!forward_check) {
+        if constexpr (Config.register_blocks) {
+            for (int l = 0; l < S; ++l)
+                for (int j = l; j < S; ++j)
                     TDLS_ARROW_LUPP_DYN_W(o.U + l * S + j) =
-                        TDLS_ARROW_LUPP_DYN_W(o.Dl + p * S + j);
+                        TDLS_ARROW_LUPP_DYN_W(o.Dl + l * S + j);
+        } else {
+            for (int l = 0; l < S; ++l) {
+                const int p = piv[TDLS_STRIDED(l, piv_stride)];
+                for (int j = 0; j < S; ++j) {
+                    if (j < l) {
+                        ok = ok && u * detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + p * S + j)) <= T(1);
+                    } else if (!forward_check) {
+                        TDLS_ARROW_LUPP_DYN_W(o.U + l * S + j) =
+                            TDLS_ARROW_LUPP_DYN_W(o.Dl + p * S + j);
+                    }
                 }
             }
         }
@@ -1206,7 +1222,7 @@ struct ArrowheadLUppSolverDynamic {
         const int B = z.B, S = z.S;
         const int ny                         = canonical ? 0 : NC > 0 ? NC : nrhs;
         [[maybe_unused]] constexpr int ycols = NC;
-        const bool forward_check             = col && z.pass_width == B + ny;
+        const bool forward_check = !Config.register_blocks && col && z.pass_width == B + ny;
         for (int e = 0; e < S * S; ++e)
             TDLS_ARROW_LUPP_DYN_W(so.Dsave + e) = TDLS_ARROW_LUPP_DYN_W(o.Dl + e);
         if (forward_check)
@@ -1297,6 +1313,147 @@ struct ArrowheadLUppSolverDynamic {
             }
         }
         return ok;
+    }
+
+    /// \brief Factors the block at o.Dl in place in the workspace
+    /// (ArrowheadLUppConfig::register_blocks): the operations of
+    /// ArrowheadLUppSolverStatic::register_factor in the same order, so
+    /// that both solvers agree bit for bit. The in-tile pivot rule of
+    /// TiledLUpp over a single tile, the rows interchanged physically and
+    /// whole; on exit the block holds L below its diagonal and U above it,
+    /// in logical row order, 1 / pivot on the diagonal, and piv[j] the row
+    /// interchanged with row j at step j.
+    /// \param[in]     z           sizes of the shape
+    /// \param[in]     o           the offsets of the workspace (Dl)
+    /// \param[in,out] work        workspace
+    /// \param[in]     work_stride element stride of work
+    /// \param[out]    piv         the interchanges
+    /// \param[in]     piv_stride  element stride of piv
+    /// \return 0 when L passes the check, 1 when it fails it, 2 when a
+    ///         column has no candidate above the singularity floor of
+    ///         TiledLUpp
+    TDLS_HOST_DEVICE static constexpr int
+    physical_factor(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
+                    int* TDLS_RESTRICT piv, const int piv_stride) noexcept {
+        const int S           = z.S;
+        const T u             = condensation_pivot_threshold;
+        constexpr T rel       = BlockSolver::relative_pivot_threshold;
+        constexpr T oot       = BlockSolver::oot_pivot_threshold;
+        constexpr T floor_val = BlockSolver::singular_floor;
+        bool ok               = true;
+        bool singular         = false;
+        for (int j = 0; j < S; ++j) {
+            T best = detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j));
+            int r  = j;
+            for (int i = j + 1; i < S; ++i) {
+                const T a = detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + j));
+                if (a > best) {
+                    best = a;
+                    r    = i;
+                }
+            }
+            if constexpr (rel < T(1)) {
+                const T in_place = detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j));
+                if (in_place >= rel * best && in_place >= oot) r = j;
+            }
+            const bool pivot_ok              = best >= floor_val;
+            singular                         = singular || !pivot_ok;
+            piv[TDLS_STRIDED(j, piv_stride)] = r;
+            if (r != j) {
+                for (int c = 0; c < S; ++c) {
+                    const T t = TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + c);
+                    TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + c) =
+                        TDLS_ARROW_LUPP_DYN_W(o.Dl + r * S + c);
+                    TDLS_ARROW_LUPP_DYN_W(o.Dl + r * S + c) = t;
+                }
+            }
+            const T inv = pivot_ok ? T(1) / TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j) : T(0);
+            TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j) = inv;
+            for (int i = j + 1; i < S; ++i) {
+                const T l = TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + j) * inv;
+                TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + j) = l;
+                ok                                      = ok && u * detail::abs(l) <= T(1);
+                for (int c = j + 1; c < S; ++c)
+                    TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + c) -=
+                        l * TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + c);
+            }
+        }
+        return singular ? 2 : ok ? 0 : 1;
+    }
+
+    /// \brief Solves the w columns at o.W in place with the factors of
+    /// physical_factor, the operations of
+    /// ArrowheadLUppSolverStatic::register_solve in the same order: W :=
+    /// D_k^-1 W, or L^-1 P W alone under the row-major layout with the
+    /// dense coupling; under the column-major layout, U^-T, then L^-T,
+    /// then the interchanges in reverse order.
+    /// \param[in]     z           sizes of the shape
+    /// \param[in]     o           the offsets of the workspace (Dl, W)
+    /// \param[in,out] work        workspace
+    /// \param[in]     work_stride element stride of work
+    /// \param[in]     piv         the interchanges
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in]     w           number of columns
+    TDLS_HOST_DEVICE static constexpr void
+    physical_solve(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
+                   const int* TDLS_RESTRICT piv, const int piv_stride, const int w) noexcept {
+        const int S = z.S;
+        // F(i, j) and W(c, i): the factors and the columns
+#define TDLS_ARROW_LUPP_DYN_LU(i, j) TDLS_ARROW_LUPP_DYN_W(o.Dl + (i) * S + (j))
+#define TDLS_ARROW_LUPP_DYN_RC(c, i) TDLS_ARROW_LUPP_DYN_W(o.W + (c) * S + (i))
+        if constexpr (!col) {
+            for (int j = 0; j < S; ++j) {
+                const int r = piv[TDLS_STRIDED(j, piv_stride)];
+                if (r != j)
+                    for (int c = 0; c < w; ++c) {
+                        const T t                    = TDLS_ARROW_LUPP_DYN_RC(c, j);
+                        TDLS_ARROW_LUPP_DYN_RC(c, j) = TDLS_ARROW_LUPP_DYN_RC(c, r);
+                        TDLS_ARROW_LUPP_DYN_RC(c, r) = t;
+                    }
+            }
+            for (int j = 0; j < S; ++j)
+                for (int i = j + 1; i < S; ++i) {
+                    const T l = TDLS_ARROW_LUPP_DYN_LU(i, j);
+                    for (int c = 0; c < w; ++c)
+                        TDLS_ARROW_LUPP_DYN_RC(c, i) -= l * TDLS_ARROW_LUPP_DYN_RC(c, j);
+                }
+            if constexpr (!multiplier_update) {
+                for (int j = S - 1; j >= 0; --j)
+                    for (int c = 0; c < w; ++c) {
+                        T v = TDLS_ARROW_LUPP_DYN_RC(c, j);
+                        for (int q = j + 1; q < S; ++q)
+                            v -= TDLS_ARROW_LUPP_DYN_LU(j, q) * TDLS_ARROW_LUPP_DYN_RC(c, q);
+                        TDLS_ARROW_LUPP_DYN_RC(c, j) = v * TDLS_ARROW_LUPP_DYN_LU(j, j);
+                    }
+            }
+        } else {
+            for (int j = 0; j < S; ++j) {
+                for (int c = 0; c < w; ++c)
+                    TDLS_ARROW_LUPP_DYN_RC(c, j) *= TDLS_ARROW_LUPP_DYN_LU(j, j);
+                for (int q = j + 1; q < S; ++q) {
+                    const T uq = TDLS_ARROW_LUPP_DYN_LU(j, q);
+                    for (int c = 0; c < w; ++c)
+                        TDLS_ARROW_LUPP_DYN_RC(c, q) -= uq * TDLS_ARROW_LUPP_DYN_RC(c, j);
+                }
+            }
+            for (int j = S - 1; j >= 0; --j)
+                for (int q = j + 1; q < S; ++q) {
+                    const T l = TDLS_ARROW_LUPP_DYN_LU(q, j);
+                    for (int c = 0; c < w; ++c)
+                        TDLS_ARROW_LUPP_DYN_RC(c, j) -= l * TDLS_ARROW_LUPP_DYN_RC(c, q);
+                }
+            for (int j = S - 1; j >= 0; --j) {
+                const int r = piv[TDLS_STRIDED(j, piv_stride)];
+                if (r != j)
+                    for (int c = 0; c < w; ++c) {
+                        const T v                    = TDLS_ARROW_LUPP_DYN_RC(c, j);
+                        TDLS_ARROW_LUPP_DYN_RC(c, j) = TDLS_ARROW_LUPP_DYN_RC(c, r);
+                        TDLS_ARROW_LUPP_DYN_RC(c, r) = v;
+                    }
+            }
+        }
+#undef TDLS_ARROW_LUPP_DYN_LU
+#undef TDLS_ARROW_LUPP_DYN_RC
     }
 
     /// \brief Turns one border row, at offset m of the workspace, into its
@@ -1420,7 +1577,9 @@ struct ArrowheadLUppSolverDynamic {
                                 ? TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c0 + j))
                                 : TDLS_ARROW_LUPP_DYN_YW(c0 + j - B, B + k * S + i);
             }
-            if constexpr (multiplier_update) {
+            if constexpr (Config.register_blocks) {
+                physical_solve(z, o, work, work_stride, piv, piv_stride, w);
+            } else if constexpr (multiplier_update) {
                 BlockSolver::forward_inplace_multirhs(S, w, Dl, work_stride, piv, piv_stride, W,
                                                       work_stride, TDLS_STRIDED(S, work_stride));
             } else if constexpr (Config.gather_rhs) {

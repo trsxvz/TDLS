@@ -36,15 +36,18 @@ namespace {
 
 /// \brief Configuration of one cell: Packed storage, a coupling, a layout.
 /// \tparam T scalar type
-/// \param[in] diag   diagonal coupling
-/// \param[in] col    column-major layout
+/// \param[in] diag      diagonal coupling
+/// \param[in] col       column-major layout
+/// \param[in] registers blocks eliminated in registers (register_blocks)
 /// \return the configuration
 template<typename T>
-constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col) {
+constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col,
+                                                   const bool registers = false) {
     tdls::ArrowheadLUppConfig<T> c;
-    c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
-    c.storage  = tdls::ArrowheadStorage::Packed;
-    c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+    c.coupling        = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
+    c.storage         = tdls::ArrowheadStorage::Packed;
+    c.layout          = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+    c.register_blocks = registers;
     return c;
 }
 
@@ -57,12 +60,13 @@ constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool c
 /// \tparam Shape  shape of the matrices
 /// \tparam diag   diagonal coupling (and pattern)
 /// \tparam col    column-major layout
+/// \tparam reg    blocks eliminated in registers (register_blocks)
 /// \param[in] count     number of systems
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, tdls::ArrowheadShape Shape, bool diag, bool col>
+template<typename T, tdls::ArrowheadShape Shape, bool diag, bool col, bool reg = false>
 void anchor_case(const int count, const double tolerance, const std::uint64_t seed) {
-    constexpr auto config = cell_config<T>(diag, col);
+    constexpr auto config = cell_config<T>(diag, col, reg);
     using Solver          = tdls::ArrowheadLUppSolverStatic<T, Shape, config>;
     constexpr int n       = Shape.n();
 
@@ -161,5 +165,38 @@ TDLS_ARROW_ANCHOR_DIAGONAL(float, 6, 6, 30, 0, 30, 1e-5, 310100)
 TDLS_ARROW_ANCHOR_DENSE(float, 1, 1, 12, 60, 1e-5, 310200)
 TDLS_ARROW_ANCHOR_DIAGONAL(long double, 12, 6, 30, 6, 30, 1e-12, 320100)
 TDLS_ARROW_ANCHOR_DENSE(long double, 8, 6, 10, 60, 1e-12, 320200)
+
+/// Emits the four anchor cases of one (type, shape) cell with the blocks
+/// eliminated in registers: both couplings, both layouts. The seeds are
+/// those of the default cells of the same shape where there is one, whose
+/// floors of refused blocks hold.
+#define TDLS_ARROW_ANCHOR_REGISTERS(T, B, S, NB, B0, COUNT, TOL, SEED_DENSE, SEED_DIAGONAL)        \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/static/registers/" #T "/B=" #B ",S=" #S ",NB=" #NB        \
+                   ",dense,row") {                                                                 \
+        anchor_case<T, tdls::ArrowheadShape{B, S, NB, 0}, false, false, true>(COUNT, TOL,          \
+                                                                              SEED_DENSE);         \
+    }                                                                                              \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/static/registers/" #T "/B=" #B ",S=" #S ",NB=" #NB        \
+                   ",dense,col") {                                                                 \
+        anchor_case<T, tdls::ArrowheadShape{B, S, NB, 0}, false, true, true>(COUNT, TOL,           \
+                                                                             SEED_DENSE + 1);      \
+    }                                                                                              \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/static/registers/" #T "/B=" #B ",S=" #S ",NB=" #NB        \
+                   ",diagonal,row") {                                                              \
+        anchor_case<T, tdls::ArrowheadShape{B, S, NB, B0}, true, false, true>(COUNT, TOL,          \
+                                                                              SEED_DIAGONAL);      \
+    }                                                                                              \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/static/registers/" #T "/B=" #B ",S=" #S ",NB=" #NB        \
+                   ",diagonal,col") {                                                              \
+        anchor_case<T, tdls::ArrowheadShape{B, S, NB, B0}, true, true, true>(COUNT, TOL,           \
+                                                                             SEED_DIAGONAL + 1);   \
+    }
+
+// The blocks eliminated in registers: blocks of one unknown, a border not
+// a multiple of the block, the polycrystal, in double and float.
+TDLS_ARROW_ANCHOR_REGISTERS(double, 1, 1, 12, 0, 60, 1e-12, 300100, 300110)
+TDLS_ARROW_ANCHOR_REGISTERS(double, 8, 6, 10, 2, 60, 1e-12, 300400, 300410)
+TDLS_ARROW_ANCHOR_REGISTERS(double, 12, 6, 30, 6, 30, 1e-12, 300800, 300800)
+TDLS_ARROW_ANCHOR_REGISTERS(float, 6, 6, 30, 0, 30, 1e-5, 310100, 310100)
 
 TDLS_TEST_MAIN

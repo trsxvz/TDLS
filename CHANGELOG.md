@@ -5,6 +5,19 @@ All notable changes to TDLS are recorded here. The format follows
 versions follow [Semantic Versioning](https://semver.org/). Until 1.0.0
 the API may change between minor versions.
 
+## [Unreleased]
+
+### Added
+
+- ArrowheadLUpp: `register_blocks`, each diagonal block factored by
+  physical row interchanges, every index known at compile time, instead
+  of by TiledLUpp, whose logical pivots keep the block, its pivots and
+  its right-hand sides on the stack of the thread on GPU. The in-tile
+  pivot rule of TiledLUpp over one tile of the size of the block, the
+  pivot check, the recovery data and the second pass unchanged; the
+  runtime solver runs the same operations, so that both solvers stay
+  bitwise identical. Off by default.
+
 ## [0.3.0] - 2026-10-14
 
 ### Added
@@ -292,6 +305,7 @@ from device code.
 - Documentation site with the Doxygen reference and a snippet gallery.
 - CMake package for `find_package(tdls)` and the Spack package `tdls`.
 
+[Unreleased]: https://github.com/trsxvz/TDLS/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/trsxvz/TDLS/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/trsxvz/TDLS/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/trsxvz/TDLS/releases/tag/v0.1.0
