@@ -40,6 +40,12 @@
 /// the arithmetic sequence is the same, only addressing and loop mechanics
 /// differ.
 ///
+/// Every entry point passes its dimensions through
+/// detail::runtime_dimension first: nvcc miscompiles this solver for
+/// Blackwell GPUs (sm_100 and later) when a dimension known at compile
+/// time propagates into its loops (issue #16), and the solver is meant
+/// to run on runtime dimensions anyway. Nothing changes elsewhere.
+///
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (dimensions unknown at compile time, fast builds).
 ///
@@ -1076,9 +1082,10 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix.
     template<bool oot_diagnostics = true, bool fuse_rhs = false>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+    factorize(int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, int& oot_count, T* TDLS_RESTRICT y = nullptr,
               const int rhs_stride = 1) noexcept {
+        n = detail::runtime_dimension(n);
 
         if constexpr (oot_diagnostics) oot_count = 0;
 
@@ -1110,8 +1117,9 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     piv_stride element stride of piv
     /// \return false on a singular matrix.
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+    factorize(int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride) noexcept {
+        n          = detail::runtime_dimension(n);
         int unused = 0;
         return factorize<false>(n, A, A_stride, piv, piv_stride, unused);
     }
@@ -1631,9 +1639,10 @@ struct TiledLUppSolverDynamic {
     /// \param[out] x          solution
     /// \param[in]  rhs_stride element stride of b and x
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute(const int n, const T* TDLS_RESTRICT A, const int A_stride,
-               const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
-               T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
+    substitute(int n, const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
+               const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+               const int rhs_stride) noexcept {
+        n = detail::runtime_dimension(n);
         if constexpr (transposed) {
             // Column-major layout: b consumed unpermuted, x = P^T w at the end.
             for (int i = 0; i < n; ++i)
@@ -1662,9 +1671,10 @@ struct TiledLUppSolverDynamic {
     /// \param[out] x          solution
     /// \param[in]  rhs_stride element stride of x
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute_canonical(const int n, const T* TDLS_RESTRICT A, const int A_stride,
+    substitute_canonical(int n, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
+        n = detail::runtime_dimension(n);
         substitute_canonical_multirhs_pass(n, 1, A, A_stride, piv, piv_stride, col, x, rhs_stride,
                                            0);
     }
@@ -1734,10 +1744,12 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  xcol_stride element stride between columns of x
     template<int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute_canonical_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
-                                  const int A_stride, const int* TDLS_RESTRICT piv,
-                                  const int piv_stride, const int col0, T* TDLS_RESTRICT x,
-                                  const int rhs_stride, const std::size_t xcol_stride) noexcept {
+    substitute_canonical_multirhs(int n, int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                                  const int* TDLS_RESTRICT piv, const int piv_stride,
+                                  const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
+                                  const std::size_t xcol_stride) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_canonical_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, col0, x,
@@ -1824,10 +1836,12 @@ struct TiledLUppSolverDynamic {
     /// \param[in]  xcol_stride element stride between columns of b and x
     template<int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+    substitute_multirhs(int n, int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
                         const int* TDLS_RESTRICT piv, const int piv_stride,
                         const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
                         const std::size_t xcol_stride) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, b, x, rhs_stride,
@@ -1859,9 +1873,10 @@ struct TiledLUppSolverDynamic {
     /// \param[in,out] x          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of x
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute_inplace(const int n, const T* TDLS_RESTRICT A, const int A_stride,
+    substitute_inplace(int n, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride) noexcept {
+        n = detail::runtime_dimension(n);
         if constexpr (transposed) {
             // Column-major layout: the sweeps on the unpermuted x, then the
             // inverse cycle rotation (x = P^T w).
@@ -1995,10 +2010,12 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     xcol_stride element stride between columns of x
     template<int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    substitute_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
-                                const int A_stride, const int* TDLS_RESTRICT piv,
-                                const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
+    substitute_inplace_multirhs(int n, int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                                const int* TDLS_RESTRICT piv, const int piv_stride,
+                                T* TDLS_RESTRICT x, const int rhs_stride,
                                 const std::size_t xcol_stride) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2034,10 +2051,11 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     xcol_stride element stride between columns of x
     template<int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    forward_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
-                             const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
-                             T* TDLS_RESTRICT x, const int rhs_stride,
-                             const std::size_t xcol_stride) noexcept {
+    forward_inplace_multirhs(int n, int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                             const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                             const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             forward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2068,10 +2086,12 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     xcol_stride element stride between columns of x
     template<int pass_width = 0>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    backward_inplace_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A,
-                              const int A_stride, const int* TDLS_RESTRICT piv,
-                              const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
+    backward_inplace_multirhs(int n, int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                              const int* TDLS_RESTRICT piv, const int piv_stride,
+                              T* TDLS_RESTRICT x, const int rhs_stride,
                               const std::size_t xcol_stride) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             backward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2107,9 +2127,10 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix.
     template<bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+    solve(int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           int& oot_count) noexcept {
+        n = detail::runtime_dimension(n);
         if (!factorize<oot_diagnostics>(n, A, A_stride, piv, piv_stride, oot_count)) return false;
         substitute(n, A, A_stride, piv, piv_stride, b, x, rhs_stride);
         return true;
@@ -2128,9 +2149,10 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of b and x
     /// \return false on a singular matrix.
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+    solve(int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
           const int rhs_stride) noexcept {
+        n          = detail::runtime_dimension(n);
         int unused = 0;
         return solve<false>(n, A, A_stride, piv, piv_stride, b, x, rhs_stride, unused);
     }
@@ -2159,10 +2181,11 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix.
     template<int pass_width = 0, bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
-                   int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
-                   T* TDLS_RESTRICT x, const int rhs_stride, const std::size_t xcol_stride,
-                   int& oot_count) noexcept {
+    solve_multirhs(int n, int nrhs, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                   const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+                   const int rhs_stride, const std::size_t xcol_stride, int& oot_count) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         if (!factorize<oot_diagnostics>(n, A, A_stride, piv, piv_stride, oot_count)) return false;
         substitute_multirhs<pass_width>(n, nrhs, A, A_stride, piv, piv_stride, b, x, rhs_stride,
                                         xcol_stride);
@@ -2190,10 +2213,11 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix.
     template<int pass_width = 0>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
-                   int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
-                   T* TDLS_RESTRICT x, const int rhs_stride,
-                   const std::size_t xcol_stride) noexcept {
+    solve_multirhs(int n, int nrhs, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                   const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
+                   const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        n          = detail::runtime_dimension(n);
+        nrhs       = detail::runtime_dimension(nrhs);
         int unused = 0;
         return solve_multirhs<pass_width, false>(n, nrhs, A, A_stride, piv, piv_stride, b, x,
                                                  rhs_stride, xcol_stride, unused);
@@ -2227,9 +2251,10 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix (y left partially updated).
     template<bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve_inplace(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+    solve_inplace(int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& oot_count) noexcept {
+        n = detail::runtime_dimension(n);
         if (!factorize<oot_diagnostics, true>(n, A, A_stride, piv, piv_stride, oot_count, y,
                                               rhs_stride))
             return false;
@@ -2257,8 +2282,9 @@ struct TiledLUppSolverDynamic {
     /// \param[in]     rhs_stride element stride of y
     /// \return false on a singular matrix (y left partially updated).
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve_inplace(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+    solve_inplace(int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride) noexcept {
+        n          = detail::runtime_dimension(n);
         int unused = 0;
         return solve_inplace<false>(n, A, A_stride, piv, piv_stride, y, rhs_stride, unused);
     }
@@ -2291,10 +2317,12 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix (y left untouched).
     template<int pass_width = 0, bool oot_diagnostics = true>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve_inplace_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
+    solve_inplace_multirhs(int n, int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                            int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
                            const int rhs_stride, const std::size_t xcol_stride,
                            int& oot_count) noexcept {
+        n    = detail::runtime_dimension(n);
+        nrhs = detail::runtime_dimension(nrhs);
         if (!factorize<oot_diagnostics>(n, A, A_stride, piv, piv_stride, oot_count)) return false;
         substitute_inplace_multirhs<pass_width>(n, nrhs, A, A_stride, piv, piv_stride, y,
                                                 rhs_stride, xcol_stride);
@@ -2321,9 +2349,11 @@ struct TiledLUppSolverDynamic {
     /// \return false on a singular matrix (y left untouched).
     template<int pass_width = 0>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    solve_inplace_multirhs(const int n, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
+    solve_inplace_multirhs(int n, int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                            int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT y,
                            const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        n          = detail::runtime_dimension(n);
+        nrhs       = detail::runtime_dimension(nrhs);
         int unused = 0;
         return solve_inplace_multirhs<pass_width, false>(n, nrhs, A, A_stride, piv, piv_stride, y,
                                                          rhs_stride, xcol_stride, unused);

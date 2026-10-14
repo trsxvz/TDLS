@@ -109,6 +109,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
 | `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, the stride between the columns past 2^32 by itself, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
+| `device_constant_dimension` | the runtime solver called from a kernel with dimensions known at compile time, through every substitution entry point, in both layouts and both layouts of a block of right-hand sides, against the same solves on the host within 1e-12; built with the GPU examples (`TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES`), skipped without a device |
 | `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1] |
 
 For the detail of any suite, the authoritative description is the

@@ -251,3 +251,34 @@ tdls_add_stop_cases(
     MESSAGES
         "the runtime solver runs with tdls::NoSync"
         "was not zero before its first use")
+
+# Device suite of TiledLUppSolverDynamic with dimensions known at compile
+# time (issue #16), built with the toolchain of the GPU examples
+# (TDLS_BUILD_CUDA_EXAMPLES or TDLS_BUILD_HIP_EXAMPLES); it returns 77,
+# a skipped test, without a device.
+if(TDLS_BUILD_CUDA_EXAMPLES OR TDLS_BUILD_HIP_EXAMPLES)
+    set(target tdls_test_tiledlupp_device_constant_dimension)
+    if(TDLS_BUILD_CUDA_EXAMPLES)
+        if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
+            set(CMAKE_CUDA_ARCHITECTURES native)
+        endif()
+        enable_language(CUDA)
+    else()
+        enable_language(HIP)
+        set_source_files_properties(tiled_lupp/test_device_constant_dimension.cu
+                                    PROPERTIES LANGUAGE HIP)
+    endif()
+    add_executable(${target} EXCLUDE_FROM_ALL tiled_lupp/test_device_constant_dimension.cu)
+    add_dependencies(buildtests ${target})
+    target_link_libraries(${target} PRIVATE tdls::tdls)
+    target_include_directories(${target} PRIVATE "${CMAKE_SOURCE_DIR}/examples/common")
+    if(TDLS_BUILD_CUDA_EXAMPLES AND CMAKE_VERSION VERSION_LESS 3.26)
+        target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-std=c++20>)
+    else()
+        set_target_properties(${target} PROPERTIES CUDA_STANDARD 20 CUDA_STANDARD_REQUIRED ON
+                                                   HIP_STANDARD 20 HIP_STANDARD_REQUIRED ON)
+    endif()
+    add_test(NAME solvers.tiledlupp.device_constant_dimension COMMAND ${target})
+    set_tests_properties(solvers.tiledlupp.device_constant_dimension
+                         PROPERTIES LABELS "solvers" SKIP_RETURN_CODE 77)
+endif()
