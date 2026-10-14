@@ -305,6 +305,34 @@ struct ArrowheadLUppSolverStatic {
     using BlockSolver  = TiledLUppSolverStatic<T, S, detail::arrowhead_block_config(Config)>;
     using BorderSolver = TiledLUppSolverStatic<T, B, detail::arrowhead_border_config(Config)>;
 
+    // The recomputed solve runs the second pass of the solver of its store
+    // of refused blocks, another instantiation.
+    template<typename U, ArrowheadShape OtherShape, ArrowheadLUppConfig<U> OtherConfig>
+    friend struct ArrowheadLUppSolverStatic;
+    /// Configuration of the store of the refused blocks of a recomputed
+    /// solve: Packed, the Schur complement apart, the other knobs as Config.
+    static constexpr ArrowheadLUppConfig<T> store_config = [] {
+        ArrowheadLUppConfig<T> c = Config;
+        c.storage                = ArrowheadStorage::Packed;
+        c.schur_in_place         = false;
+        c.streamed_out_of_line   = false;
+        return c;
+    }();
+    /// \brief The shape of the store of capacity refused blocks, by value
+    /// (see shape_value).
+    /// \tparam capacity number of blocks the store holds (at least 1)
+    /// \return {B, S, capacity, R0}
+    template<int capacity>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr ArrowheadShape
+    store_shape() noexcept {
+        return {B, S, capacity, R0};
+    }
+    /// The solver of the store of capacity refused blocks: a matrix of the
+    /// same border and block, with capacity blocks, in the Packed storage.
+    template<int capacity>
+    using RefusedStore =
+        ArrowheadLUppSolverStatic<T, ArrowheadShape{B, S, capacity, R0}, store_config>;
+
   public:
     /// \brief Block k of a streamed solve: the working arrays of the
     /// solver themselves, which the caller fills through the accessors when
@@ -318,6 +346,10 @@ struct ArrowheadLUppSolverStatic {
         T Dl[S * S];             ///< D_k in the layout of the factorization
         T W[(B + 1) * S];        ///< [A_kb | y_k], column c at c * S
         T Abk[diag ? S : B * S]; ///< A_bk: coupled rows (diagonal) or B x S (dense)
+        /// Set by solve_inplace_recomputed when it asks for the block again,
+        /// in its recovery: the provider may then skip what it accumulates
+        /// once per pass, a residual for instance. False otherwise.
+        bool recovery = false;
         /// \param[in] i row of the block
         /// \param[in] j column of the block
         /// \return entry (i, j) of D_k
@@ -884,6 +916,356 @@ struct ArrowheadLUppSolverStatic {
             A, A_stride, work, work_stride, col0, x, rhs_stride, xcol_stride, refused_count);
     }
 
+    /// \brief Outcome of solve_inplace_recomputed.
+    enum class RecomputedOutcome {
+        solved,   ///< y holds the solution
+        singular, ///< the matrix is singular; y is untouched
+        deferred  ///< more blocks refused than the capacity of the store; y is
+                  ///< untouched, for a solve that stores them
+                  ///< (solve_inplace_streamed)
+    };
+
+    /// \brief Entries of the workspace of solve_inplace_recomputed with a
+    /// store of capacity refused blocks: the front of the second pass, the
+    /// refused blocks in the Packed storage of a matrix of capacity blocks
+    /// and their right-hand sides; none for a capacity of 0.
+    template<int capacity>
+    static constexpr int recomputed_workspace_size =
+        capacity == 0
+            ? 0
+            : RefusedStore<capacity>::workspace_size + RefusedStore<capacity>::storage_size +
+                  RefusedStore<capacity>::dimension;
+
+    /// \brief Solves A x = y in place, the blocks recomputed: provider(k,
+    /// blk) fills block k (StreamedBlock) once while the solver condenses
+    /// it, k = 0, 1, ... in order, and once more, blk.recovery set, while it
+    /// recovers the unknowns of the block, in decreasing k. Nothing of an
+    /// accepted block is stored: the solver factors the block again and
+    /// solves x_k = D_k^-1 (y_k - A_kb x_b). The matrix is never stored, and
+    /// the workspace holds only the refused blocks, at most capacity of
+    /// them, which the second pass eliminates as solve_inplace_streamed
+    /// does. The provider must give the same entries every time it fills
+    /// the same block, y_k included. The caller gives the border: A_bb,
+    /// entry (r, c) at (r * border + c) * Abb_stride, or (c * border + r) *
+    /// Abb_stride under the column-major layout, and the border rows of y.
+    /// Nothing is written to y until the solution: y is untouched when the
+    /// matrix is singular, or when more than capacity blocks are refused
+    /// (deferred), so that the caller can solve that system with
+    /// solve_inplace_streamed. A deferred solve stops at the refused block
+    /// beyond the capacity: the provider is not called for the later
+    /// blocks.
+    ///
+    /// The border solution, and the unknowns of the refused blocks, are
+    /// those of solve_inplace_streamed bit for bit (under the same
+    /// contraction of multiply-adds); the unknowns of an accepted block
+    /// agree within rounding errors, solved from one column instead of
+    /// recovered from the solved columns [A_kb | y_k].
+    ///
+    /// On GPU, the solve then streams nothing of the matrix through memory:
+    /// one thread per system keeps the block and the Schur complement in
+    /// registers with register_blocks. The cost is a second call of the
+    /// provider, and a second factorization, per block: it pays where
+    /// memory is the bound, on GPU, not on CPU, where the caches hold the
+    /// recovery data.
+    /// \tparam capacity        number of refused blocks the workspace holds,
+    ///                         in [0, blocks]
+    /// \tparam internal_rhs    y is a caller-local array (stride ignored)
+    /// \tparam internal_work   work is a caller-local array (stride ignored)
+    /// \tparam internal_matrix Abb is a caller-local array (stride ignored)
+    /// \tparam Provider        callable (int k, StreamedBlock& blk)
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in]     Abb           the border block A_bb, B x B in the layout
+    ///                              of the configuration
+    /// \param[in]     Abb_stride    element stride of Abb
+    /// \param[out]    work          workspace of
+    ///                              recomputed_workspace_size<capacity>
+    ///                              entries (none for a capacity of 0)
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the solution on exit when solved
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[out]    refused_count number of refused blocks
+    /// \return solved, singular, or deferred when more than capacity blocks
+    ///         are refused
+// gcc cannot always prove that the provider writes every entry of the
+// streamed block before it is read, and reports the reads through
+// -Wmaybe-uninitialized at -O3 (see condense_or_store_streamed): the report
+// is spurious. The suppression is scoped to this function and to that
+// warning only.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+    template<int capacity, bool internal_rhs, bool internal_work, bool internal_matrix,
+             typename Provider>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOutcome
+    solve_inplace_recomputed(Provider&& provider, const T* TDLS_RESTRICT Abb, const int Abb_stride,
+                             [[maybe_unused]] T* TDLS_RESTRICT work,
+                             [[maybe_unused]] const int work_stride, T* TDLS_RESTRICT y,
+                             const int rhs_stride, int& refused_count) noexcept {
+        static_assert(capacity >= 0 && capacity <= NB,
+                      "ArrowheadLUppSolverStatic: the capacity of the store of refused blocks "
+                      "must be in [0, blocks]");
+        static_assert(!in_place, "ArrowheadLUppSolverStatic: the recomputed solve accumulates the "
+                                 "Schur complement apart (schur_in_place off)");
+        // Rows R0 .. R0 + R of the Schur complement and of its right-hand
+        // side.
+        T Sacc[R * B];
+        T racc[R];
+        TDLS_ARROW_LUPP_FOR(r, 0, R,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                                Sacc[r * B + c] = border_entry<internal_matrix>(
+                                                    Abb, Abb_stride, R0 + r, c);) racc[r] =
+                                TDLS_ARROW_LUPP_Y(R0 + r);)
+        constexpr int words = (NB + 31) / 32;
+        unsigned refused[words];
+        TDLS_ARROW_LUPP_FOR(e, 0, words, refused[e] = 0u;)
+        int count     = 0;
+        refused_count = 0;
+        for (int k = 0; k < NB; ++k) {
+            StreamedBlock blk;
+            blk.recovery = false;
+            provider(k, blk);
+            // A save of the block, to keep it as given if it is refused: D_k,
+            // and [A_kb | y_k] when the check reads the forward stage.
+            constexpr bool forward_check = forward_check_for<1>;
+            T Dsave[S * S];
+            T Wsave[forward_check ? (B + 1) * S : 1];
+            TDLS_ARROW_LUPP_FOR(e, 0, S * S, Dsave[e] = blk.Dl[e];)
+            if constexpr (forward_check) {
+                TDLS_ARROW_LUPP_FOR(e, 0, (B + 1) * S, Wsave[e] = blk.W[e];)
+            } else {
+                Wsave[0] = T(0);
+            }
+            if (condense_streamed<1, true, true, true>(nullptr, 1, nullptr, 1, 0, k, Sacc, racc,
+                                                       blk))
+                continue;
+            // Refused: kept in the store as the provider gave it, or the
+            // solve is deferred.
+            ++count;
+            refused_count = count;
+            refused[k >> 5] |= 1u << (k & 31);
+            if constexpr (capacity == 0) {
+                return RecomputedOutcome::deferred;
+            } else {
+                if (count > capacity) return RecomputedOutcome::deferred;
+                TDLS_ARROW_LUPP_FOR(e, 0, S * S, blk.Dl[e] = Dsave[e];)
+                if constexpr (forward_check) {
+                    TDLS_ARROW_LUPP_FOR(e, 0, (B + 1) * S, blk.W[e] = Wsave[e];)
+                }
+                keep_refused<capacity, internal_work>(work, work_stride, count - 1, blk);
+            }
+        }
+        // The border system: the accumulated rows, the others as given.
+        T Sbb[B * B];
+        T rb[B];
+        TDLS_ARROW_LUPP_FOR(
+            r, 0, B, const bool acc = r >= R0 && r < R0 + R;
+            TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                Sbb[r * B + c] =
+                                    acc ? Sacc[(acc ? r - R0 : 0) * B + c]
+                                        : border_entry<internal_matrix>(Abb, Abb_stride, r, c);)
+                rb[r] = acc ? racc[acc ? r - R0 : 0] : TDLS_ARROW_LUPP_Y(r);)
+        if constexpr (capacity > 0) {
+            if (count > 0 &&
+                !second_pass_refused<capacity, internal_work>(work, work_stride, count, Sbb, rb))
+                return RecomputedOutcome::singular;
+        }
+        int pb[B];
+        if (!BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rb, 1))
+            return RecomputedOutcome::singular;
+        // The accepted blocks, recomputed, the last one first; then the
+        // refused ones from the store; then the border.
+        for (int k = NB - 1; k >= 0; --k) {
+            if ((refused[k >> 5] >> (k & 31)) & 1u) continue;
+            StreamedBlock blk;
+            blk.recovery = true;
+            provider(k, blk);
+            T x[S];
+            TDLS_ARROW_LUPP_FOR(i, 0, S, x[i] = blk.W[B * S + i];
+                                TDLS_ARROW_LUPP_FOR(c, 0, B, x[i] -= blk.W[c * S + i] * rb[c];))
+            recover_block(blk.Dl, x);
+            TDLS_ARROW_LUPP_FOR(i, 0, S, TDLS_ARROW_LUPP_Y(B + k * S + i) = x[i];)
+        }
+        if constexpr (capacity > 0) {
+            if (count > 0)
+                recover_refused<capacity, internal_rhs, internal_work>(
+                    work, work_stride, y, rhs_stride, refused, count, rb);
+        }
+        TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_Y(r) = rb[r];)
+        return RecomputedOutcome::solved;
+    }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+  private:
+    /// \brief Entry (r, c) of the border block given to
+    /// solve_inplace_recomputed, in the layout of the configuration.
+    /// \tparam internal_matrix Abb is a caller-local array (stride ignored)
+    /// \param[in] Abb        the border block
+    /// \param[in] Abb_stride element stride of Abb
+    /// \param[in] r          row
+    /// \param[in] c          column
+    /// \return A_bb(r, c)
+    template<bool internal_matrix>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr T
+    border_entry(const T* TDLS_RESTRICT Abb, const int Abb_stride, const int r,
+                 const int c) noexcept {
+        const int e = col ? c * B + r : r * B + c;
+        return Abb[internal_matrix ? unsigned(e) : TDLS_STRIDED(e, Abb_stride)];
+    }
+
+    /// \brief Keeps a refused block of solve_inplace_recomputed, as the
+    /// provider gave it, in place j of the store: D_k, A_kb, A_bk in the
+    /// Packed storage of the store, y_k in its right-hand side.
+    /// \tparam capacity      capacity of the store
+    /// \tparam internal_work work is a caller-local array (stride ignored)
+    /// \param[out] work        workspace
+    /// \param[in]  work_stride element stride of work
+    /// \param[in]  j           place in the store
+    /// \param[in]  blk         the block as the provider gave it
+    template<int capacity, bool internal_work>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    keep_refused(T* TDLS_RESTRICT work, const int work_stride, const int j,
+                 const StreamedBlock& blk) noexcept {
+        using Store       = RefusedStore<capacity>;
+        using Map         = typename Store::storage_map;
+        constexpr int off = Store::workspace_size;
+        constexpr int oy  = off + Store::storage_size;
+        TDLS_ARROW_LUPP_FOR(
+            i, 0, S,
+            TDLS_ARROW_LUPP_FOR(j2, 0, S,
+                                TDLS_ARROW_LUPP_W(off + Map::d(store_shape<capacity>(), j, i, j2)) =
+                                    blk.Dl[col ? j2 * S + i : i * S + j2];)
+                TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                    TDLS_ARROW_LUPP_W(off + Map::akb(store_shape<capacity>(), j, i,
+                                                                     c)) = blk.W[c * S + i];)
+                    TDLS_ARROW_LUPP_W(oy + B + j * S + i) = blk.W[B * S + i];)
+        if constexpr (diag) {
+            TDLS_ARROW_LUPP_FOR(
+                i, 0, S,
+                TDLS_ARROW_LUPP_W(off + Map::abk_diag(store_shape<capacity>(), j, i)) = blk.Abk[i];)
+        } else {
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, B,
+                TDLS_ARROW_LUPP_FOR(i, 0, S,
+                                    TDLS_ARROW_LUPP_W(off + Map::abk(store_shape<capacity>(), j, r,
+                                                                     i)) = blk.Abk[r * S + i];))
+        }
+    }
+
+    /// \brief The second pass of solve_inplace_recomputed: the count
+    /// refused blocks of the store eliminated with the border rows by the
+    /// second pass of the solver of the store, which runs on the
+    /// workspace.
+    /// \tparam capacity      capacity of the store
+    /// \tparam internal_work work is a caller-local array (stride ignored)
+    /// \param[in,out] work        workspace
+    /// \param[in]     work_stride element stride of work
+    /// \param[in]     count       number of refused blocks
+    /// \param[in,out] Sbb         the border matrix, the final one on exit
+    /// \param[in,out] rb          its right-hand side, the final one on exit
+    /// \return false when the matrix is singular
+    template<int capacity, bool internal_work>
+    TDLS_HOST_DEVICE static constexpr bool
+    second_pass_refused(T* TDLS_RESTRICT work, const int work_stride, const int count,
+                        T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb) noexcept {
+        using Store         = RefusedStore<capacity>;
+        constexpr int off   = Store::workspace_size;
+        constexpr int oy    = off + Store::storage_size;
+        constexpr int words = (capacity + 31) / 32;
+        unsigned held[words];
+        for (int e = 0; e < words; ++e)
+            held[e] = 0u;
+        for (int j = 0; j < count; ++j)
+            held[j >> 5] |= 1u << (j & 31);
+        T* const store  = work + (internal_work ? off : TDLS_STRIDED(off, work_stride));
+        T* const ystore = work + (internal_work ? oy : TDLS_STRIDED(oy, work_stride));
+        return Store::template second_pass<1, false, internal_work, internal_work, internal_work>(
+            store, work_stride, work, work_stride, ystore, work_stride, 0, held, Sbb, rb,
+            BlockSolver::singular_floor);
+    }
+
+    /// \brief The unknowns of a recomputed accepted block: x := D_k^-1 x,
+    /// D_k given as the provider filled it, factored again as the
+    /// condensation factored it.
+    /// \param[in,out] Dl the block in the layout of the factorization;
+    ///                   its factors on exit
+    /// \param[in,out] x  y_k - A_kb x_b on entry, x_k on exit
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    recover_block(T* TDLS_RESTRICT Dl, T* TDLS_RESTRICT x) noexcept {
+        int pl[S];
+        if constexpr (reg) {
+            (void)register_factor(Dl, pl);
+            register_solve<1, true>(Dl, pl, x);
+        } else {
+            (void)BlockSolver::template factorize<true, true>(Dl, 1, pl, 1);
+            BlockSolver::template substitute_inplace<true, true, true>(Dl, 1, pl, 1, x, 1);
+        }
+    }
+
+    /// \brief Recovers the refused blocks of solve_inplace_recomputed from
+    /// the store, the last one first: x_k = c_k - G_k x_b - H_k w, w
+    /// gathering the couplings A_bj x_j (the R coupled rows) of the
+    /// refused blocks recovered so far, as recover does.
+    /// \tparam capacity      capacity of the store
+    /// \tparam internal_rhs  y is a caller-local array (stride ignored)
+    /// \tparam internal_work work is a caller-local array (stride ignored)
+    /// \param[in]     work        workspace: the store, after the second pass
+    /// \param[in]     work_stride element stride of work
+    /// \param[out]    y           the unknowns of the refused blocks
+    /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     refused     bit k set for a refused block k
+    /// \param[in]     count       number of refused blocks
+    /// \param[in]     rb          the border solution
+    template<int capacity, bool internal_rhs, bool internal_work>
+    TDLS_HOST_DEVICE static constexpr void
+    recover_refused(const T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
+                    const int rhs_stride, const unsigned* TDLS_RESTRICT refused, const int count,
+                    const T* TDLS_RESTRICT rb) noexcept {
+        using Store         = RefusedStore<capacity>;
+        using Map           = typename Store::storage_map;
+        constexpr int off   = Store::workspace_size;
+        constexpr int oy    = off + Store::storage_size;
+        constexpr int fcols = front_cols_for<1>;
+        T w[R];
+        for (int a = 0; a < R; ++a)
+            w[a] = T(0);
+        int j = count;
+        for (int k = NB - 1; k >= 0; --k) {
+            if (!((refused[k >> 5] >> (k & 31)) & 1u)) continue;
+            --j;
+            T s[S];
+            for (int i = 0; i < S; ++i) {
+                s[i] = TDLS_ARROW_LUPP_W(oy + B + j * S + i);
+                for (int c = 0; c < B; ++c)
+                    s[i] -=
+                        TDLS_ARROW_LUPP_W(off + Map::akb(store_shape<capacity>(), j, i, c)) * rb[c];
+                for (int a = 0; a < R; ++a) {
+                    const T h =
+                        a < S ? TDLS_ARROW_LUPP_W(off + Map::d(store_shape<capacity>(), j, i, a))
+                              : TDLS_ARROW_LUPP_W(front_rows * fcols + (j * S + i) * extra_cols +
+                                                  a - S);
+                    s[i] -= h * w[a];
+                }
+            }
+            if constexpr (diag) {
+                for (int i = 0; i < S; ++i)
+                    w[i] += TDLS_ARROW_LUPP_W(off + Map::abk_diag(store_shape<capacity>(), j, i)) *
+                            s[i];
+            } else {
+                for (int r = 0; r < B; ++r)
+                    for (int i = 0; i < S; ++i)
+                        w[r] +=
+                            TDLS_ARROW_LUPP_W(off + Map::abk(store_shape<capacity>(), j, r, i)) *
+                            s[i];
+            }
+            for (int i = 0; i < S; ++i)
+                TDLS_ARROW_LUPP_Y(B + k * S + i) = s[i];
+        }
+    }
+
   private:
     /// \brief solve_inplace_streamed_or_tangent kept out of line on GPU
     /// (ArrowheadLUppConfig::streamed_out_of_line): the same call, its
@@ -1195,9 +1577,11 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in,out] racc        accumulated rows of its right-hand sides
     /// \param[in,out] blk         the block as the provider filled it;
     ///                            overwritten
+    /// \tparam recompute       no recovery data stored, A and y untouched
+    ///                         (solve_inplace_recomputed)
     /// \return true when the block is condensed, false when it fails the
     ///         pivot check
-    template<int ny, bool internal_rhs, bool internal_matrix>
+    template<int ny, bool internal_rhs, bool internal_matrix, bool recompute = false>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     condense_streamed(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y,
                       const int rhs_stride, [[maybe_unused]] const std::size_t xcol_stride,
@@ -1240,15 +1624,15 @@ struct ArrowheadLUppSolverStatic {
                 // rhs_pass_width columns at a time, read from the block as
                 // the stored path reads them from the storage (only one
                 // slice alive at a time); all of them at once otherwise
-                if constexpr (multiplier_update && stores_recovery_for<ny>)
+                if constexpr (multiplier_update && stores_recovery_for<ny> && !recompute)
                     store_upper<internal_matrix>(A, A_stride, k, Uf);
-                condense_pass<0, false, ny, internal_rhs, internal_matrix>(
+                condense_pass<0, false, ny, internal_rhs, internal_matrix, recompute>(
                     A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc,
                     nullptr, bp);
                 return true;
             }
             if constexpr (multiplier_update) {
-                if constexpr (stores_recovery_for<ny>)
+                if constexpr (stores_recovery_for<ny> && !recompute)
                     store_upper<internal_matrix>(A, A_stride, k, Uf);
                 if constexpr (reg)
                     register_solve<cols>(Dl, pl, W);
@@ -1267,10 +1651,11 @@ struct ArrowheadLUppSolverStatic {
                     Dl, 1, pl, 1, W, 1, S);
             }
         }
-        // the recovery data (not for the canonical solve) and the Schur
-        // complement, all the columns (the entries are distinct per column:
-        // the order of the passes of the stored path does not matter)
-        if constexpr (stores_recovery_for<ny>) {
+        // the recovery data (not for the canonical solve, nor for the
+        // recomputed one) and the Schur complement, all the columns (the
+        // entries are distinct per column: the order of the passes of the
+        // stored path does not matter)
+        if constexpr (stores_recovery_for<ny> && !recompute) {
             TDLS_ARROW_LUPP_FOR(
                 i, 0, S,
                 TDLS_ARROW_LUPP_FOR(j, 0, cols,
@@ -1631,11 +2016,14 @@ struct ArrowheadLUppSolverStatic {
     /// coupling (multiplier_update). Under the column-major layout F = D_k^T
     /// and P F = L U, so D_k = U^T L^T P: U^-T, then L^-T, then the
     /// interchanges in reverse order.
-    /// \tparam w number of columns
+    /// \tparam w        number of columns
+    /// \tparam backward whether the row-major solve runs its backward stage
+    ///                  (always, but for the forward stage alone of the
+    ///                  condensation with the dense coupling)
     /// \param[in]     F factors
     /// \param[in]     p interchanges
     /// \param[in,out] W columns
-    template<int w>
+    template<int w, bool backward = !multiplier_update>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     register_solve(const T* TDLS_RESTRICT F, const int* TDLS_RESTRICT p,
                    T* TDLS_RESTRICT W) noexcept {
@@ -1643,7 +2031,7 @@ struct ArrowheadLUppSolverStatic {
             // P W, the interchanges in their order, then L^-1 and U^-1.
             TDLS_ARROW_LUPP_FOR(j, 0, S, if (p[j] != j) register_interchange<w>(W, j, p[j], S, 1);)
             TDLS_ARROW_LUPP_FOR(j, 0, S, register_lower_column<w>(F, W, j);)
-            if constexpr (!multiplier_update) {
+            if constexpr (backward) {
                 TDLS_ARROW_LUPP_FOR(t, 0, S, register_upper_row<w>(F, W, S - 1 - t);)
             }
         } else {
@@ -1767,6 +2155,8 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam ny              right-hand sides carried through the blocks
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_matrix residency of A
+    /// \tparam recompute       no recovery data stored
+    ///                         (solve_inplace_recomputed)
     /// \tparam Streamed        none on the stored path; streamed, the block
     ///                         type: the columns and A_bk read from blk, not
     ///                         from A and y
@@ -1786,7 +2176,7 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     Wsolved     the solved columns when solved
     /// \param[in]     blk         streamed: the block
     template<int c0, bool solved, int ny, bool internal_rhs, bool internal_matrix,
-             typename... Streamed>
+             bool recompute = false, typename... Streamed>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     condense_pass(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   [[maybe_unused]] const std::size_t xcol_stride, const int k,
@@ -1831,7 +2221,7 @@ struct ArrowheadLUppSolverStatic {
                                                                                        W, 1, S);
             }
         }
-        if constexpr (stores_recovery_for<ny>) {
+        if constexpr (stores_recovery_for<ny> && !recompute) {
             TDLS_ARROW_LUPP_FOR(
                 i, 0, S,
                 TDLS_ARROW_LUPP_FOR(
@@ -1867,7 +2257,7 @@ struct ArrowheadLUppSolverStatic {
                                                 r, c0 + j, sum);))
         }
         if constexpr (c0 + w < cols)
-            condense_pass<c0 + w, false, ny, internal_rhs, internal_matrix>(
+            condense_pass<c0 + w, false, ny, internal_rhs, internal_matrix, recompute>(
                 A, A_stride, y, rhs_stride, xcol_stride, k, Dl, pl, acoef, Mb, Sacc, racc, nullptr,
                 blk...);
     }

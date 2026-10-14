@@ -20,6 +20,7 @@ foreach(snippet
         static_streamed
         static_streamed_border_canonical
         static_streamed_tangent
+        static_recomputed
         dynamic_streamed
         dynamic_streamed_border_canonical
         dynamic_streamed_tangent

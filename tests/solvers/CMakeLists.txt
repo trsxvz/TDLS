@@ -176,7 +176,8 @@ tdls_add_solver_suites(
         wide_offsets
         constexpr
         multirhs
-        streamed)
+        streamed
+        recomputed)
 
 tdls_add_reject_cases(
     FAMILY arrowheadlupp

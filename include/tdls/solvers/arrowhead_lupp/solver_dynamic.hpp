@@ -92,6 +92,14 @@ namespace tdls {
 /// \brief Entry (r, c) of the front of the second pass, row-major at the
 /// start of the workspace.
 #define TDLS_ARROW_LUPP_DYN_F(r, c) TDLS_ARROW_LUPP_DYN_W((r) * front_cols + (c))
+/// \def TDLS_ARROW_LUPP_DYN_LU
+/// \brief Entry (i, j) of the factors of the block in the workspace, by
+/// rows (physical_solve).
+#define TDLS_ARROW_LUPP_DYN_LU(i, j) TDLS_ARROW_LUPP_DYN_W(o.Dl + (i) * S + (j))
+/// \def TDLS_ARROW_LUPP_DYN_RC
+/// \brief Entry i of column c of the right-hand sides of the block in the
+/// workspace (physical_solve).
+#define TDLS_ARROW_LUPP_DYN_RC(c, i) TDLS_ARROW_LUPP_DYN_W(o.W + (c) * S + (i))
 
 
 
@@ -1398,9 +1406,6 @@ struct ArrowheadLUppSolverDynamic {
     physical_solve(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
                    const int* TDLS_RESTRICT piv, const int piv_stride, const int w) noexcept {
         const int S = z.S;
-        // F(i, j) and W(c, i): the factors and the columns
-#define TDLS_ARROW_LUPP_DYN_LU(i, j) TDLS_ARROW_LUPP_DYN_W(o.Dl + (i) * S + (j))
-#define TDLS_ARROW_LUPP_DYN_RC(c, i) TDLS_ARROW_LUPP_DYN_W(o.W + (c) * S + (i))
         if constexpr (!col) {
             for (int j = 0; j < S; ++j) {
                 const int r = piv[TDLS_STRIDED(j, piv_stride)];
@@ -1452,8 +1457,6 @@ struct ArrowheadLUppSolverDynamic {
                     }
             }
         }
-#undef TDLS_ARROW_LUPP_DYN_LU
-#undef TDLS_ARROW_LUPP_DYN_RC
     }
 
     /// \brief Turns one border row, at offset m of the workspace, into its
@@ -1888,6 +1891,8 @@ struct ArrowheadLUppSolverDynamic {
 #undef TDLS_ARROW_LUPP_DYN_YW
 #undef TDLS_ARROW_LUPP_DYN_W
 #undef TDLS_ARROW_LUPP_DYN_F
+#undef TDLS_ARROW_LUPP_DYN_LU
+#undef TDLS_ARROW_LUPP_DYN_RC
 
 
 

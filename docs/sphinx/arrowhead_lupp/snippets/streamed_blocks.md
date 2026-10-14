@@ -85,6 +85,20 @@ $$
 :dedent: 4
 ```
 
+## Recomputed blocks
+
+The blocks asked for twice, nothing of the matrix stored: the border
+block alone, by rows, and a store of refused blocks large enough that
+the solve is never deferred. The solution agrees with the stored solve
+within rounding errors.
+
+```{literalinclude} ../../../snippets/arrowhead_lupp/static_recomputed.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## The runtime solver
 
 `ArrowheadLUppSolverDynamic` has the same entry points, the shape first.

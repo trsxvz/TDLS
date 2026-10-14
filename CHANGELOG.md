@@ -17,6 +17,13 @@ the API may change between minor versions.
   pivot check, the recovery data and the second pass unchanged; the
   runtime solver runs the same operations, so that both solvers stay
   bitwise identical. Off by default.
+- ArrowheadLUpp: `solve_inplace_recomputed` of the compile-time solver,
+  the blocks asked for twice, once to condense them and once to recover
+  their unknowns, nothing of an accepted block stored: no matrix
+  storage, the border block given alone, a workspace that holds only
+  the refused blocks, at most a capacity of them (`deferred` beyond,
+  y untouched). `StreamedBlock::recovery` tells the provider which call
+  it serves.
 
 ## [0.3.0] - 2026-10-14
 

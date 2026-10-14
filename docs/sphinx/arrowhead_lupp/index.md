@@ -289,6 +289,43 @@ The streamed path is selected at compile time (`if constexpr`): the
 stored entry points keep their signatures, and their code is that of a
 solver without the streamed entry points.
 
+### Recomputed blocks
+
+A streamed solve still writes the recovery data of every block, about
+the size of the matrix, and reads them back. `solve_inplace_recomputed`
+of the compile-time solver stores nothing of an accepted block: it asks
+the provider for every block twice, once to condense it and once more,
+`blk.recovery` set, to recover its unknowns, the last block first; it
+factors the block again and solves
+$x_k = D_k^{-1} (y_k - A_{kb} x_b)$. The caller gives the border block
+alone, $B \times B$ in the layout of the configuration, and the border
+rows of y; no matrix storage. A refused block is kept as given in the
+workspace, which holds `capacity` of them, a template argument:
+`recomputed_workspace_size<capacity>` entries, none for a capacity of
+0. When more blocks are refused, the solve stops and returns
+`deferred`, y untouched, so that the caller solves that system with
+`solve_inplace_streamed`; a singular matrix also leaves y untouched.
+
+The contract of the provider is that of the streamed solve, but for
+the second call: it must give the same entries every time it fills the
+same block, y_k included, and may skip in the recovery what it
+accumulates once per pass. The border solution and the unknowns of the
+refused blocks are those of `solve_inplace_streamed` bit for bit; the
+unknowns of an accepted block agree within rounding errors, solved from
+one column instead of recovered from the solved columns
+$[A_{kb} \mid y_k]$.
+
+It pays where memory is the bound. On an RTX 5080, in float, a
+polycrystal of 30 grains at 262144 systems, one thread per system: 8.6
+ms streamed, 1.9 ms recomputed with `register_blocks`, 17.8 ms for the
+assembly and the stored solve; 240 grains: 15.0, 3.5 and 32.3 ms. In
+double on that GPU, whose FP64 runs at 1/64 of its FP32, the second
+factorization costs more than the traffic it saves: the streamed solve
+with `register_blocks` and passes of 2 columns stays faster (25 ms
+against 33 ms). On CPU the caches hold the recovery data: on 6 cores in
+double, the streamed solve with `register_blocks` in one pass is the
+fastest.
+
 On GPU, the provider is compiled inside the loop of the solver: a call
 the compiler leaves out of line in it passes its arguments through the
 local memory, which can cost more than the stored matrix saves. Check
