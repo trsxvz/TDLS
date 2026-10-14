@@ -28,7 +28,7 @@ int main() {
 
     int piv_right[4], piv_left[4];
 
-    // the same factors from two update orders
+    // the same factorization, up to rounding, from two update orders
     const bool ok_right =
         RightLooking::solve_inplace<true, true, true>(A_right, 1, piv_right, 1, y_right, 1);
     const bool ok_left =

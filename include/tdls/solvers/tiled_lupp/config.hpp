@@ -51,11 +51,11 @@ struct TiledLUppConfig {
 
     /// Tile extent: the matrix is processed as a grid of tile_size x
     /// tile_size register tiles. This is the main performance axis of the
-    /// solvers. Tune it per system dimension (measured optima in tfelGPU,
-    /// the source project: 3, 4 or 6 depending on N). Both TiledLUpp solvers only
-    /// require tile_size >= 1. The tile size may exceed the dimension (the
-    /// grid is then a single partial tile), and tile_size = 1 degenerates
-    /// into an untiled scalar elimination.
+    /// solvers. Tune it per system dimension: the optimum measured in
+    /// tfelGPU, the source project, depends on N. Both TiledLUpp solvers
+    /// only require tile_size >= 1. The tile size may exceed the
+    /// dimension (the grid is then a single partial tile), and
+    /// tile_size = 1 degenerates into an untiled scalar elimination.
     int tile_size = 3;
 
     /// Elimination schedule of the tiled factorization, see Schedule.
@@ -103,29 +103,33 @@ struct TiledLUppConfig {
 
     /// Singularity floor: the factorization is declared singular when even
     /// the best candidate of the out-of-tile recovery stays below it, or
-    /// when the best pivot of a trailing tile does. The floor only guards
-    /// the pivots below oot_pivot_threshold (a pivot reaching it is accepted
-    /// directly), so it must not exceed oot_pivot_threshold, and it
-    /// must be positive, a zero floor letting a zero pivot through; the
-    /// solvers enforce both contracts at compile time. `numeric_limits<T>::min()`
-    /// rejects only a zero/subnormal pivot, a genuine structural
-    /// singularity. A merely small pivot is kept on purpose: the loss of
-    /// stability is surfaced by the backward error and overflow is caught
-    /// downstream by the caller, whereas an absolute floor wrongly flags
-    /// well-conditioned matrices at small scale.
+    /// when the best pivot of the last diagonal tile does, where no row is
+    /// left to search. The floor only guards the pivots below
+    /// oot_pivot_threshold (a pivot reaching it is accepted directly), so
+    /// it must not exceed oot_pivot_threshold, and it must be positive, a
+    /// zero floor letting a zero pivot through; the solvers enforce both
+    /// contracts at compile time. `numeric_limits<T>::min()` rejects only
+    /// a zero/subnormal pivot, a genuine structural singularity. A merely
+    /// small pivot is kept on purpose: the loss of stability is surfaced
+    /// by the backward error and overflow is caught downstream by the
+    /// caller, whereas an absolute floor wrongly flags well-conditioned
+    /// matrices at small scale.
     StructuralReal<T> singular_floor = std::numeric_limits<T>::min();
 
     /// Unroll policy, applied through a two-branch `if constexpr` (the
     /// pragma dialect itself lives in core/macros.hpp). The knob does not
     /// govern every loop on purpose: only the loops where offering the
-    /// choice can noticeably change the performance, those indexing the
-    /// register tiles (the in-tile scalar loops). true: they carry a
-    /// forced-unroll pragma, the guard that keeps tiles in registers on
-    /// GPU backends, where a rolled loop indexes the tile dynamically and
-    /// demotes it to slow local memory. false: no unroll pragma anywhere,
-    /// for faster compiles, GPU performance not guaranteed. The tile
-    /// sweeps walk memory, not registers, and carry no pragma in either
-    /// branch. Every TDLS family names this knob unroll_loops.
+    /// choice can noticeably change the performance. These are the loops
+    /// indexing the register tiles (the in-tile scalar loops) and, in the
+    /// compile-time solver, the loops over the N entries of the pivot and
+    /// vector operands. true: they carry a forced-unroll pragma, the guard
+    /// that keeps the tiles and the caller-local operands in registers on
+    /// GPU backends, where a rolled loop indexes them dynamically and
+    /// demotes them to slow local memory. false: no unroll pragma
+    /// anywhere, for faster compiles, GPU performance not guaranteed. The
+    /// tile sweeps walk memory, not registers, and carry no pragma in
+    /// either branch. The runtime solver carries no pragma and ignores
+    /// the knob. Every TDLS family names this knob unroll_loops.
     bool unroll_loops = true;
 
     /// Memory layout of the matrix, in both solvers and both residency
@@ -135,14 +139,15 @@ struct TiledLUppConfig {
     /// convention and the default: S = A and P A = L U. The forward pass
     /// is folded into the factorization by solve_inplace, then U x = y.
     /// Column-major: S = A^T, and the pivoting interchanges columns of A.
-    /// This is partial pivoting of A^T, as stable. Since A = U^T L^T P,
-    /// the solve runs through the transposed factors. First U^T z = b,
-    /// folded into the factorization by solve_inplace. Then L^T w = z,
-    /// which divides by nothing, and x = P^T w. A matrix stored
-    /// column-major and its transpose stored row-major are thus the same
-    /// array, factored the same way bit for bit. The first solves
-    /// A x = b, the second A^T x = b. A factorization keeps the layout of
-    /// its configuration, so its substitutions share it by construction.
+    /// This is partial pivoting of A^T, as stable as partial pivoting of
+    /// A. Since A = U^T L^T P, the solve runs through the transposed
+    /// factors. First U^T z = b, folded into the factorization by
+    /// solve_inplace. Then L^T w = z, which divides by nothing, and
+    /// x = P^T w. A matrix stored column-major and its transpose stored
+    /// row-major are thus the same array, factored the same way bit for
+    /// bit. The first solves A x = b, the second A^T x = b. A
+    /// factorization keeps the layout of its configuration, so its
+    /// substitutions share it by construction.
     /// The vector operands and the pivot are one-dimensional and
     /// unaffected.
     MatrixLayout layout = MatrixLayout::RowMajor;

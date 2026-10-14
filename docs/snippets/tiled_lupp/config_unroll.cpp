@@ -26,7 +26,8 @@ int main() {
 
     int piv[4];
 
-    // no unroll pragma: same values, faster builds
+    // no unroll pragma: faster builds, the same values when the compiler contracts
+    // multiply-adds alike in both
     const bool ok_unrolled =
         Unrolled::solve_inplace<true, true, true>(A_unrolled, 1, piv, 1, y_unrolled, 1);
     const bool ok_rolled =

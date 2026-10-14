@@ -19,7 +19,8 @@ int main() {
     const std::vector<double> expected = {1, 2, 3};
 
     // snippet begin
-    // the grid is a single partial tile: 3 of its 8 x 8 slots are used, the others never touched
+    // the grid is a single partial tile: 3 x 3 of its 8 x 8 slots are used, the others
+    // never touched
     constexpr auto wide = tdls::TiledLUppConfig<double>{.tile_size = 8};
     using Solver        = tdls::TiledLUppSolverDynamic<double, wide>;
 

@@ -1,7 +1,7 @@
 # Batches and layouts
 
 Three systems with the same solution, laid out as each snippet says.
-The batch is filled above the shown code. On CPU, one loop over the
+The batch is filled outside the shown code. On CPU, one loop over the
 systems, or OpenMP over the cores; on GPU, one thread per system, in
 the last snippet.
 
@@ -37,7 +37,7 @@ $$
 ## AoS batch
 
 Array of structures: the objects of a system are contiguous, the
-stride is 1. Element k of system s sits at:
+stride is 1. Element k of the matrix of system s sits at:
 
 $$
 \text{index}(s, k) = 16\,s + k
@@ -70,7 +70,7 @@ $$
 
 Array of structures of arrays: blocks of W = 2 interleaved systems,
 the stride is W. The batch is padded to 4 systems so that every block
-is full. Element k of system s sits at:
+is full. Element k of the matrix of system s sits at:
 
 $$
 \text{index}(s, k) = 32 \left\lfloor s / 2 \right\rfloor + 2\,k + (s \bmod 2)

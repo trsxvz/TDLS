@@ -30,7 +30,8 @@ int main() {
     std::vector<int> piv_dynamic(n);
     int piv_static[5];
 
-    // same shape, same configuration: the same arithmetic, bit for bit
+    // same shape, same configuration: the same arithmetic, bit for bit when the compiler
+    // contracts multiply-adds alike in both
     const bool ok_dynamic =
         Dynamic::solve_inplace(n, A_dynamic.data(), 1, piv_dynamic.data(), 1, y_dynamic.data(), 1);
     const bool ok_static =

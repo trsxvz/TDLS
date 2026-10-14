@@ -73,8 +73,9 @@ $$
 ## Solve in place
 
 Factorization and substitution in one call, one buffer. The forward
-substitution is folded into the factorization, so the result is bitwise
-the one of factorize then substitute in place.
+substitution is folded into the factorization. The result is bitwise
+identical to that of factorize then substitute in place, when the
+compiler contracts multiply-adds alike in both (see {doc}`../index`).
 
 $$
 A = \left(\begin{array}{cc|cc}
@@ -323,7 +324,8 @@ $$
 ## Constant evaluation
 
 The whole solve runs during constant evaluation. The data lives inside
-the constexpr function, so the whole program is shown.
+the constexpr function, so the shown code is the function itself, then
+the constant that calls it and its check.
 
 $$
 A = \left(\begin{array}{cc|cc}

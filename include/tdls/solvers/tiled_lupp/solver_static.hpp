@@ -20,8 +20,9 @@
 /// that the residency booleans keep in registers too. Pivoting is
 /// logical: piv[] maps logical row -> physical row, rows are physically
 /// swapped only inside the diagonal tile. Inside the tile, the row in
-/// place keeps the pivot while it reaches Config.relative_pivot_threshold
-/// times the best in-tile candidate (threshold pivoting, in-tile only).
+/// place keeps the pivot when it reaches both
+/// Config.relative_pivot_threshold times the best in-tile candidate and
+/// Config.oot_pivot_threshold (threshold pivoting, in-tile only).
 /// When the best in-tile pivot falls below Config.oot_pivot_threshold, the
 /// search extends below the tile (out-of-tile pivoting) and candidate
 /// values are corrected on the fly for the eliminations they have not
@@ -35,12 +36,12 @@
 /// into the factorization by solve_inplace, then U x = y. Under the
 /// column-major layout, P A^T = L U, so A = U^T L^T P. The pivoting
 /// interchanges columns of A: this is partial pivoting of A^T, as
-/// stable. The solve is the mirror of the row-major one. First U^T z = b,
-/// folded into the factorization by solve_inplace. Then L^T w = z, which
-/// divides by nothing since L has a unit diagonal, and x = P^T w. Both
-/// layouts run the same factorization on the same bytes. A stored
-/// column-major gives, bitwise, the factored array and the pivots of the
-/// row-major solver given A^T. The layout is a compile-time choice. The
+/// stable as partial pivoting of A. The solve is the mirror of the
+/// row-major one. First U^T z = b, folded into the factorization by
+/// solve_inplace. Then L^T w = z, which divides by nothing since L has a
+/// unit diagonal, and x = P^T w. Both layouts run the same factorization
+/// on the same bytes. A stored column-major gives, bitwise, the factored
+/// array and the pivots of the row-major solver given A^T. The layout is a compile-time choice. The
 /// rest of this documentation speaks of the rows of S.
 ///
 /// **Addressing convention (backend-agnostic, no accessor objects).**
@@ -192,6 +193,11 @@ namespace tdls {
 /// The columns are solved in passes of pass_width columns (0 = one
 /// single pass); every L/U tile is loaded once per pass, and per-column
 /// results match nrhs single-column calls bitwise whatever the cutting.
+/// A compiler that fuses multiplications and additions differently in
+/// the two code paths (GCC with -march=native does) changes the last
+/// bits. -ffp-contract=off (--fmad=false for nvcc) keeps them identical.
+/// The same holds for every bitwise identity between two code paths
+/// stated below.
 /// nrhs is a template parameter here and a runtime argument of the
 /// runtime solver, as the dimension itself; pass_width, a scheduling
 /// knob rather than a dimension, is a template parameter in both. It
@@ -1678,7 +1684,9 @@ struct TiledLUppSolverStatic {
        then x = P^T w. The right-hand side is indexed by the columns of S
        and is never permuted before the sweeps. The tile kernels below are
        shared by the fused forward pass of solve_inplace and by the
-       separate passes, which therefore agree bitwise.
+       separate passes, which therefore agree bitwise when the compiler
+       contracts multiply-adds alike in both (-ffp-contract=off, or
+       --fmad=false for nvcc).
        ===================================================================== */
 
     /// \brief In-tile forward solve with U^T: x_k segment := U(k,k)^-T x_k
@@ -2321,8 +2329,9 @@ struct TiledLUppSolverStatic {
     /// columns; within a pass, every L/U tile is loaded once for all the
     /// columns of the pass. Per-column arithmetic is identical whatever
     /// the cutting, and identical to nrhs separate substitute_canonical
-    /// calls: results match them bitwise (nrhs = 1 collapses to
-    /// substitute_canonical exactly).
+    /// calls: results match them bitwise when the compiler contracts
+    /// multiply-adds alike in both (see the class documentation; nrhs = 1
+    /// collapses to substitute_canonical exactly).
     /// \tparam nrhs            number of consecutive canonical columns
     /// \tparam internal_rhs    residency of x
     /// \tparam internal_piv    residency of piv
@@ -2475,8 +2484,9 @@ struct TiledLUppSolverStatic {
     /// columns; within a pass, every L/U tile is loaded once for all the
     /// columns of the pass. Per-column arithmetic is identical whatever
     /// the cutting, and identical to nrhs separate substitute calls:
-    /// results match them bitwise (nrhs = 1 collapses to substitute
-    /// exactly).
+    /// results match them bitwise when the compiler contracts
+    /// multiply-adds alike in both (see the class documentation; nrhs = 1
+    /// collapses to substitute exactly).
     /// \tparam nrhs            total number of right-hand-side columns
     /// \tparam internal_rhs    residency of b and x
     /// \tparam internal_piv    residency of piv
@@ -2830,7 +2840,9 @@ struct TiledLUppSolverStatic {
     /// pass_width columns; within a pass, every L/U tile is loaded once
     /// for all the columns of the pass. Per-column values are identical
     /// whatever the cutting, and match nrhs separate substitute_inplace
-    /// calls bitwise (nrhs = 1 collapses to substitute_inplace exactly).
+    /// calls bitwise when the compiler contracts multiply-adds alike in
+    /// both (see the class documentation; nrhs = 1 collapses to
+    /// substitute_inplace exactly).
     /// \tparam nrhs            total number of right-hand-side columns
     /// \tparam internal_rhs    residency of x
     /// \tparam internal_piv    residency of piv
@@ -3105,12 +3117,13 @@ struct TiledLUppSolverStatic {
     /// its tile reloads with it; only the backward pass remains. y follows the
     /// rows through pivoting (swap hook in factor_diag_column), which
     /// makes the result bitwise-identical to factorize +
-    /// substitute_inplace. Under the column-major layout, the U panels
-    /// are applied instead (U^T z = b, each diagonal tile solved as soon
-    /// as it is factored), y is not swapped, and the backward pass
-    /// L^T w = z is followed by x = P^T w: the same sweep kernels as
-    /// substitute_inplace, and a final permutation that only moves
-    /// values, hence the same bitwise identity.
+    /// substitute_inplace when the compiler contracts multiply-adds alike
+    /// in both (see the class documentation). Under the column-major
+    /// layout, the U panels are applied instead (U^T z = b, each diagonal
+    /// tile solved as soon as it is factored), y is not swapped, and the
+    /// backward pass L^T w = z is followed by x = P^T w: the same sweep
+    /// kernels as substitute_inplace, and a final permutation that only
+    /// moves values, hence the same bitwise identity.
     ///
     /// \tparam internal_rhs residency of y
     /// \tparam internal_piv residency of piv

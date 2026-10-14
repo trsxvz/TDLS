@@ -25,9 +25,10 @@ the extent of each tile at compile time, the runtime solver at run
 time.
 
 The pivot is searched inside the diagonal tile first. There, the row
-in place keeps the pivot while it reaches `relative_pivot_threshold`
-times the best in-tile candidate; otherwise the best in-tile candidate
-wins. This relative threshold governs the in-tile choice only. When the
+in place keeps the pivot when it reaches both
+`relative_pivot_threshold` times the best in-tile candidate and
+`oot_pivot_threshold`; otherwise the best in-tile candidate wins. This
+relative threshold governs the in-tile choice only. When the
 best in-tile candidate falls below `oot_pivot_threshold`, the search
 extends to the rows under the tile: out-of-tile pivoting. Each candidate is
 corrected on the fly for the eliminations it has not received yet.
@@ -56,12 +57,13 @@ layouts, and both layouts run the same factorization code.
   S = A and P A = L U. The forward pass L y = P b is folded into the
   factorization by `solve_inplace`. Then comes U x = y.
 - Column-major layout (`ColMajor`): S = A^T. The pivoting interchanges
-  columns of A. This is partial pivoting of A^T, as stable. Since
-  A = U^T L^T P, the solve runs through the transposed factors. First
-  U^T z = b, folded into the factorization by `solve_inplace`. Then
-  L^T w = z, and x = P^T w. L has a unit diagonal, so the backward
-  pass divides by nothing. The right-hand side is not permuted before
-  the sweeps. The solution is permuted once, at the end.
+  columns of A. This is partial pivoting of A^T, as stable as partial
+  pivoting of A. Since A = U^T L^T P, the solve runs through the
+  transposed factors. First U^T z = b, folded into the factorization by
+  `solve_inplace`. Then L^T w = z, and x = P^T w. L has a unit
+  diagonal, so the backward pass divides by nothing. The right-hand
+  side is not permuted before the sweeps. The solution is permuted
+  once, at the end.
 
 The layout is a compile-time knob. The choice costs nothing at run
 time, and the column-major code leaves the row-major one untouched. A
@@ -85,7 +87,12 @@ booleans and no unroll pragma. It is the flexibility path: dimensions
 unknown at compile time, faster builds.
 
 At equal shape and configuration, the two solvers execute the same
-arithmetic and produce bitwise identical results.
+arithmetic and produce bitwise identical results. A compiler that fuses
+multiplications and additions differently in the two (GCC with
+`-march=native` does) changes the last bits. Build with
+`-ffp-contract=off` (`--fmad=false` for nvcc) to compare them bit for
+bit. The same holds for
+every bitwise identity of these pages between two code paths.
 
 ## Configuration
 
@@ -100,8 +107,8 @@ individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 | `oot_pivot_threshold` | 1e-10 for `double` and `long double`<br>1e-4 for `float` | an in-tile pivot at least this large is accepted without searching below the tile |
 | `oot_first_acceptable` | `true` | the search below the tile stops at the first candidate reaching `oot_pivot_threshold` |
 | `relative_pivot_threshold` | 0.1 | in the diagonal tile only, the row in place keeps the pivot when it reaches this fraction of the best in-tile candidate and `oot_pivot_threshold`; 1 takes the best in-tile candidate; in (0, 1] |
-| `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in a trailing tile; positive, at most `oot_pivot_threshold` |
-| `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops, whose unrolling keeps the tiles in registers on GPU; the tile sweeps never carry a pragma; ignored by the runtime solver |
+| `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in the last diagonal tile, where no row is left to search; positive, at most `oot_pivot_threshold` |
+| `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops and the loops over the N entries of the pivot and vector operands, whose unrolling keeps the tiles and the caller-local operands in registers on GPU; the tile sweeps never carry a pragma; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; column-major factors A^T and solves through the transposed factors (see above) |
 
 The floating-point knobs are written as plain `T` values. They are stored
@@ -111,7 +118,7 @@ template argument on every compiler.
 Every factorizing entry point has an overload with a trailing
 `int& oot_count`. It counts the columns whose best in-tile pivot fell
 below `oot_pivot_threshold`, the trigger of the out-of-tile search. A weak
-pivot of a trailing tile counts too, although no row is left to
+pivot of the last diagonal tile counts too, although no row is left to
 search. Without the argument, the counter is compiled out.
 
 ## Snippets
@@ -121,9 +128,10 @@ the system it solves, then the code between the two markers of its
 source under `docs/snippets/tiled_lupp/`. ctest runs them all under
 the `snippets` label.
 
-Above the shown code, the program declares what the formula displays:
-the matrix as a row-major `double` array, the right-hand sides, and
-the expected solution. Below the shown code, it checks its result.
+Above the shown code, the program usually declares what the formula
+displays: the matrix, row-major, the right-hand sides and the expected
+solution. The pages say when a snippet does otherwise. Below the shown
+code, it checks its result.
 
 The pages go from the simplest call to the knobs and the batches, CPU
 first, then GPU where it applies.

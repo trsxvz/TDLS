@@ -38,7 +38,10 @@
 /// For equal shapes (same n, tile_size, schedule, TiledLUppConfig
 /// thresholds), results are bitwise identical to the compile-time solver:
 /// the arithmetic sequence is the same, only addressing and loop mechanics
-/// differ.
+/// differ. A compiler that contracts multiplications and additions into
+/// fused multiply-adds differently in the two (GCC with -march=native
+/// does) changes the last bits. -ffp-contract=off (--fmad=false for nvcc)
+/// keeps them identical.
 ///
 /// Every entry point passes its dimensions through
 /// detail::runtime_dimension first: nvcc miscompiles this solver for
@@ -151,7 +154,8 @@ namespace tdls {
 /// solve_multirhs, solve_inplace_multirhs).
 /// The columns are solved in passes of pass_width columns (0 = one
 /// single pass); every L/U tile is loaded once per pass, and per-column
-/// results match nrhs single-column calls bitwise whatever the cutting.
+/// results match nrhs single-column calls bitwise whatever the cutting,
+/// under the same contraction of multiply-adds (see above).
 /// nrhs is a runtime argument here, as every dimension of this variant
 /// (the compile-time solver takes it as a template parameter, under the
 /// same name). pass_width is a scheduling knob, not a dimension: it
@@ -1728,7 +1732,8 @@ struct TiledLUppSolverDynamic {
     /// loaded once for all the columns of the pass. Per-column
     /// arithmetic is identical whatever the cutting, and identical to
     /// nrhs separate substitute_canonical calls: results match them
-    /// bitwise (nrhs = 1 collapses to substitute_canonical exactly).
+    /// bitwise under the same contraction of multiply-adds (see the file
+    /// documentation; nrhs = 1 collapses to substitute_canonical exactly).
     /// \tparam pass_width columns solved together per pass; the default
     ///         0, or any value >= nrhs, means one single pass of nrhs
     ///         columns
@@ -1818,8 +1823,9 @@ struct TiledLUppSolverDynamic {
     /// passes of pass_width columns; within a pass, every L/U tile is
     /// loaded once for all the columns of the pass. Per-column
     /// arithmetic is identical whatever the cutting, and identical to
-    /// nrhs separate substitute calls: results match them bitwise
-    /// (nrhs = 1 collapses to substitute exactly).
+    /// nrhs separate substitute calls: results match them bitwise under
+    /// the same contraction of multiply-adds (see the file documentation;
+    /// nrhs = 1 collapses to substitute exactly).
     /// \tparam pass_width columns solved together per pass; the default
     ///         0, or any value >= nrhs, means one single pass of nrhs
     ///         columns
@@ -1993,7 +1999,8 @@ struct TiledLUppSolverDynamic {
     /// passes of pass_width columns; within a pass, every L/U tile is
     /// loaded once for all the columns of the pass. Per-column values
     /// are identical whatever the cutting, and match nrhs separate
-    /// substitute_inplace calls bitwise (nrhs = 1 collapses to
+    /// substitute_inplace calls bitwise under the same contraction of
+    /// multiply-adds (see the file documentation; nrhs = 1 collapses to
     /// substitute_inplace exactly).
     /// \tparam pass_width columns solved together per pass; the default
     ///         0, or any value >= nrhs, means one single pass of nrhs
@@ -2231,7 +2238,8 @@ struct TiledLUppSolverDynamic {
     /// its tile reloads with it; only the backward pass remains. y follows the
     /// rows through pivoting (swap hook in factor_diag_column), which
     /// makes the result bitwise-identical to factorize +
-    /// substitute_inplace. Under the column-major layout, the U panels
+    /// substitute_inplace under the same contraction of multiply-adds
+    /// (see the file documentation). Under the column-major layout, the U panels
     /// are applied instead (U^T z = b, each diagonal tile solved as soon
     /// as it is factored), y is not swapped, and the backward pass
     /// L^T w = z is followed by x = P^T w: the same sweep kernels as

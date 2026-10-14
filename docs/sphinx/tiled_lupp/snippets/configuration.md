@@ -5,7 +5,8 @@ are listed on the {doc}`family page <../index>`.
 
 ## Defaults
 
-The default value, and the two solvers named on it. Tiles of 3 cut
+The default configuration, and the two solvers instantiated with it:
+it is also the default of their configuration argument. Tiles of 3 cut
 this 4 x 4 matrix into a full tile and a trailing tile of 1.
 
 $$
@@ -225,7 +226,8 @@ $$
 ## No forced unrolling
 
 The same solve with and without the unroll pragmas: bitwise identical
-factors and solution.
+factors and solution, when the compiler contracts multiply-adds alike
+in both (see {doc}`../index`).
 
 $$
 A = \left(\begin{array}{cc|cc}
@@ -259,13 +261,13 @@ A = \left(\begin{array}{cc|cc}
 0 & 1 & 6 & 1 \\
 1 & 0 & 3 & 7
 \end{array}\right)
-\ \text{stored as}\ 
-\begin{pmatrix}
+\ \text{stored row by row as}\ 
+A^{\mathsf T} = \begin{pmatrix}
 4 & 2 & 0 & 1 \\
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 3 \\
 2 & 0 & 1 & 7
-\end{pmatrix}^{\mathsf T}, \quad
+\end{pmatrix}, \quad
 b = \begin{pmatrix} 14 \\ 15 \\ 24 \\ 38 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
