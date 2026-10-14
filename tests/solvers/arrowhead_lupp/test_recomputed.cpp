@@ -1,7 +1,7 @@
 /// \file
-/// \brief Bridge suite: the recomputed entry point of the compile-time
-/// ArrowheadLUpp solver against the streamed one, and the contract of the
-/// provider.
+/// \brief Bridge suite: the recomputed entry points of the ArrowheadLUpp
+/// solvers against the streamed ones, the runtime solver against the
+/// compile-time one, and the contract of the provider.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -23,7 +23,14 @@
 ///   - singular: y untouched;
 ///   - the provider: the condensation asks for the blocks in order, the
 ///     recovery asks for every accepted block once, the last one first,
-///     with blk.recovery set, and never for a refused one.
+///     with blk.recovery set, and never for a refused one;
+///   - solve_inplace_recomputed_or_tangent: converged, the tangent of
+///     solve_inplace_streamed_or_tangent bit for bit, y untouched, every
+///     block asked for once; not converged, the solution of
+///     solve_inplace_recomputed bit for bit;
+///   - the runtime solver: every outcome, refused count, solution and
+///     tangent of the compile-time one bit for bit; a capacity out of
+///     [0, blocks] rejected.
 /// The rows of the blocks of y start as NaN, so that a read of them would
 /// show: the recomputed solve takes y_k from the provider. Built with
 /// -ffp-contract=off where the compiler knows the flag
@@ -116,9 +123,10 @@ bool same_bits(const std::vector<double>& a, const std::vector<double>& b) {
 
 /// \brief Counts of the batch, so that no branch is vacuous.
 struct Floors {
-    int solved_refused = 0; ///< solved with refused blocks in the store
-    int deferred       = 0; ///< deferred
-    int singular       = 0; ///< singular
+    int solved_refused  = 0; ///< solved with refused blocks in the store
+    int deferred        = 0; ///< deferred
+    int singular        = 0; ///< singular
+    int tangent_refused = 0; ///< tangent with refused blocks in the store
 };
 
 /// \brief Runs the comparisons on a batch.
@@ -143,6 +151,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
     std::vector<double> ws   = strided(Static::workspace_size),
                         wall = strided(Static::template recomputed_workspace_size<NB> + 1),
                         wone = strided(Static::template recomputed_workspace_size<1> + 1);
+    static_assert(Static::template recomputed_workspace_size<0> == 0);
+    static_assert(Static::template recomputed_workspace_size<0, 2> == 0);
     Floors floors;
     for (int s = 0; s < count; ++s) {
         auto p = tdls_tests::batch_problem<double>(Shape, diag, s, seed);
@@ -232,6 +242,115 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             ++floors.deferred;
         }
 
+        // the runtime solver, bit for bit
+        {
+            using Dynamic          = tdls::ArrowheadLUppSolverDynamic<double, Config>;
+            using DO               = typename Dynamic::RecomputedOutcome;
+            std::vector<double> wd = strided(Dynamic::recomputed_workspace_size(Shape, NB) + 1);
+            std::vector<int> piv(static_cast<std::size_t>(Dynamic::pivot_size(Shape)) * st, -1);
+            auto yd = rhs();
+            int rd  = 0;
+            CallLog logd;
+            const DO od = Dynamic::solve_inplace_recomputed(Shape, NB, make_provider<diag>(p, logd),
+                                                            Abb.data(), st, piv.data(), st,
+                                                            wd.data(), st, yd.data(), st, rd);
+            TDLS_CHECK(static_cast<int>(od) == static_cast<int>(o1));
+            TDLS_CHECK(rd == r1);
+            TDLS_CHECK(same_bits(yd, y1));
+            TDLS_CHECK(log1.recovered == logd.recovered);
+            // a capacity out of range
+            auto ye = rhs();
+            int re  = 0;
+            TDLS_CHECK(Dynamic::solve_inplace_recomputed(
+                           Shape, NB + 1, make_provider<diag>(p, logd), Abb.data(), st, piv.data(),
+                           st, wd.data(), st, ye.data(), st, re) == DO::singular);
+            TDLS_CHECK(Dynamic::recomputed_workspace_size(Shape, -1) == 0);
+        }
+
+        // the Newton pass: the tangent when converged, the correction
+        // otherwise
+        {
+            using Dynamic      = tdls::ArrowheadLUppSolverDynamic<double, Config>;
+            using SO           = typename Static::StreamedOutcome;
+            constexpr int ntan = B < 4 ? B - 1 : 3; // col0 + ntan <= border
+            const auto xstride = static_cast<std::size_t>(B * st);
+            auto yes           = [] { return true; };
+            auto no            = [] { return false; };
+            std::vector<double> wt =
+                strided(Static::template recomputed_workspace_size<NB, ntan> + 1);
+            std::vector<double> wst = strided(Static::template multirhs_workspace_size<ntan>);
+            // the streamed reference
+            auto At = strided(Map::size(Shape));
+            for (int r = 0; r < B; ++r)
+                for (int c = 0; c < B; ++c) {
+                    const auto e = static_cast<std::size_t>(Map::abb(Shape, r, c));
+                    At[e * st]   = Ms[e];
+                }
+            auto yt0 = rhs();
+            auto xt0 = strided(B * ntan);
+            int q0   = 0;
+            CallLog logt0;
+            const SO s0 = Static::template solve_inplace_streamed_or_tangent<ntan, in, in, in>(
+                make_provider<diag>(p, logt0), yes, At.data(), st, wst.data(), st, yt0.data(), st,
+                1, xt0.data(), st, xstride, q0);
+            // recomputed, converged
+            auto yt1         = rhs();
+            const auto yt1in = yt1;
+            auto xt1         = strided(B * ntan);
+            int q1           = 0;
+            CallLog logt1;
+            const RO t1 =
+                Static::template solve_inplace_recomputed_or_tangent<ntan, NB, in, in, in>(
+                    make_provider<diag>(p, logt1), yes, Abb.data(), st, wt.data(), st, yt1.data(),
+                    st, 1, xt1.data(), st, xstride, q1);
+            TDLS_CHECK(q1 == q0);
+            TDLS_CHECK((t1 == RO::tangent) == (s0 == SO::tangent));
+            TDLS_CHECK(same_bits(yt1, yt1in));
+            TDLS_CHECK(logt1.ordered && logt1.next == NB && logt1.recovered.empty());
+            if (t1 == RO::tangent) TDLS_CHECK(same_bits(xt1, xt0));
+            // recomputed, not converged: the solution of solve_inplace_recomputed
+            auto yt2         = rhs();
+            auto xt2         = strided(B * ntan);
+            const auto xt2in = xt2;
+            int q2           = 0;
+            CallLog logt2;
+            const RO t2 =
+                Static::template solve_inplace_recomputed_or_tangent<ntan, NB, in, in, in>(
+                    make_provider<diag>(p, logt2), no, Abb.data(), st, wt.data(), st, yt2.data(),
+                    st, 1, xt2.data(), st, xstride, q2);
+            TDLS_CHECK(t2 == o1);
+            TDLS_CHECK(q2 == r1);
+            TDLS_CHECK(same_bits(yt2, y1));
+            TDLS_CHECK(same_bits(xt2, xt2in));
+            TDLS_CHECK(logt2.recovered == log1.recovered);
+            // the runtime solver, converged and not
+            using DO = typename Dynamic::RecomputedOutcome;
+            std::vector<double> wdt =
+                strided(Dynamic::recomputed_workspace_size(Shape, NB, ntan) + 1);
+            std::vector<int> piv(static_cast<std::size_t>(Dynamic::pivot_size(Shape)) * st, -1);
+            auto yt3 = rhs();
+            auto xt3 = strided(B * ntan);
+            int q3   = 0;
+            CallLog logt3;
+            const DO t3 = Dynamic::solve_inplace_recomputed_or_tangent(
+                Shape, ntan, NB, make_provider<diag>(p, logt3), yes, Abb.data(), st, piv.data(), st,
+                wdt.data(), st, yt3.data(), st, 1, xt3.data(), st, xstride, q3);
+            TDLS_CHECK(static_cast<int>(t3) == static_cast<int>(t1));
+            TDLS_CHECK(q3 == q1);
+            TDLS_CHECK(same_bits(xt3, xt1));
+            TDLS_CHECK(same_bits(yt3, yt1));
+            auto yt4 = rhs();
+            auto xt4 = strided(B * ntan);
+            int q4   = 0;
+            CallLog logt4;
+            const DO t4 = Dynamic::solve_inplace_recomputed_or_tangent(
+                Shape, ntan, NB, make_provider<diag>(p, logt4), no, Abb.data(), st, piv.data(), st,
+                wdt.data(), st, yt4.data(), st, 1, xt4.data(), st, xstride, q4);
+            TDLS_CHECK(static_cast<int>(t4) == static_cast<int>(t2));
+            TDLS_CHECK(same_bits(yt4, yt2));
+            if (t1 == RO::tangent && q1 > 0) ++floors.tangent_refused;
+        }
+
         // a store of one
         if (r0 >= 2) {
             auto y3         = rhs();
@@ -249,6 +368,7 @@ void recomputed_case(const int count, const std::uint64_t seed) {
     TDLS_CHECK(floors.solved_refused > 0);
     TDLS_CHECK(floors.deferred > 0);
     TDLS_CHECK(floors.singular > 0);
+    TDLS_CHECK(floors.tangent_refused > 0);
 }
 
 /// \brief Both residencies of a path.

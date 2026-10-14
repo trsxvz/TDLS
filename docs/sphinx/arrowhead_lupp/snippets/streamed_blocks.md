@@ -99,6 +99,16 @@ within rounding errors.
 :dedent: 4
 ```
 
+The pass of a Newton iteration: converged, the tangent replaces the
+correction, the blocks are asked for once and y is untouched.
+
+```{literalinclude} ../../../snippets/arrowhead_lupp/static_recomputed_tangent.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## The runtime solver
 
 `ArrowheadLUppSolverDynamic` has the same entry points, the shape first.
@@ -136,6 +146,28 @@ and the border rows of y before each pass, and `block` is the provider
 of the previous snippets.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/dynamic_streamed_tangent.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+The recomputed solve with the runtime solver: the border block alone and
+a workspace that holds one block and the store of refused blocks,
+`recomputed_workspace_size(shape, capacity)` entries, whatever the
+number of blocks.
+
+```{literalinclude} ../../../snippets/arrowhead_lupp/dynamic_recomputed.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
+Recomputed passes of a Newton iteration with the runtime solver: the
+correction, then the tangent. The converged pass leaves y untouched.
+
+```{literalinclude} ../../../snippets/arrowhead_lupp/dynamic_recomputed_tangent.cpp
 :language: cpp
 :start-after: // snippet begin
 :end-before: // snippet end

@@ -23,7 +23,12 @@ the API may change between minor versions.
   storage, the border block given alone, a workspace that holds only
   the refused blocks, at most a capacity of them (`deferred` beyond,
   y untouched). `StreamedBlock::recovery` tells the provider which call
-  it serves.
+  it serves. `solve_inplace_recomputed_or_tangent`, the pass of a Newton
+  iteration: the tangent when converged, the blocks then asked for once
+  and y untouched. The runtime solver has both, bit for bit those of the
+  compile-time one, with `recomputed_workspace_size(shape, capacity,
+  nrhs)`, which does not grow with the number of blocks, and
+  `valid_recomputed`.
 
 ## [0.3.0] - 2026-10-14
 

@@ -306,6 +306,29 @@ workspace, which holds `capacity` of them, a template argument:
 `deferred`, y untouched, so that the caller solves that system with
 `solve_inplace_streamed`; a singular matrix also leaves y untouched.
 
+`solve_inplace_recomputed_or_tangent` is the pass of a Newton iteration,
+as `solve_inplace_streamed_or_tangent`: converged, it gives the tangent
+columns of that entry point bit for bit, refused blocks included, leaves
+y untouched and asks for every block once; not converged, it ends as
+`solve_inplace_recomputed`. Its workspace,
+`recomputed_workspace_size<capacity, ntan>`, holds the front of the
+tangent columns. The runtime solver has both entry points, the shape and
+the capacity as arguments, bit for bit those of the compile-time one;
+`recomputed_workspace_size(shape, capacity, nrhs)` entries, which do not
+grow with the number of blocks, and `valid_recomputed` for the shapes
+and capacities it accepts. A polycrystal (border of 12, blocks of 6)
+needs, per point: with 240 grains and the runtime solver, 30204 values
+on the stored path (the Packed matrix 27504, the workspace, y and the
+pivots) and 3118 recomputed with a store of 2 refused blocks (a
+workspace of 1510, y, the pivots and the border block), 9.7 times
+fewer; with 30 grains and the compile-time solver, 4206 values stored
+and 336 recomputed without store (y and the border block), 12.5 times
+fewer. A batch that fits in the memory of a device holds that many more
+points. The runtime solver keeps the block in its workspace, not in
+registers, and gains less time: on the RTX 5080, 240 grains, 16384
+points, 31.4 ms streamed and 17.7 ms recomputed with `register_blocks` in
+float, 58.0 and 36.9 ms in double.
+
 The contract of the provider is that of the streamed solve, but for
 the second call: it must give the same entries every time it fills the
 same block, y_k included, and may skip in the recovery what it

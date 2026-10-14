@@ -21,9 +21,12 @@ foreach(snippet
         static_streamed_border_canonical
         static_streamed_tangent
         static_recomputed
+        static_recomputed_tangent
         dynamic_streamed
         dynamic_streamed_border_canonical
         dynamic_streamed_tangent
+        dynamic_recomputed
+        dynamic_recomputed_tangent
         storage_full
         storage_packed
         storage_csr

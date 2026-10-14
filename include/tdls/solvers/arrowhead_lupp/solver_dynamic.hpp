@@ -55,6 +55,8 @@
 
 
 
+#include <limits>
+
 #include <tdls/core/macros.hpp>
 #include <tdls/core/math.hpp>
 #include <tdls/solvers/arrowhead_lupp/config.hpp>
@@ -632,6 +634,10 @@ struct ArrowheadLUppSolverDynamic {
         int S;      ///< block size
         int B;      ///< border size
         int stride; ///< element stride of the workspace
+        /// Set by solve_inplace_recomputed when it asks for the block again,
+        /// in its recovery: the provider may then skip what it accumulates
+        /// once per pass, a residual for instance. False otherwise.
+        bool recovery = false;
         /// \param[in] i row of the block
         /// \param[in] j column of the block
         /// \return entry (i, j) of D_k
@@ -886,6 +892,493 @@ struct ArrowheadLUppSolverDynamic {
         return StreamedOutcome::solved;
     }
 
+    /// \brief Outcome of solve_inplace_recomputed and
+    /// solve_inplace_recomputed_or_tangent.
+    enum class RecomputedOutcome {
+        solved,   ///< y holds the solution
+        tangent,  ///< converged (solve_inplace_recomputed_or_tangent): x holds
+                  ///< the tangent columns, y is untouched
+        singular, ///< the matrix is singular, or the shape or the capacity
+                  ///< rejected; y is untouched
+        deferred  ///< more blocks refused than the capacity of the store; y is
+                  ///< untouched, for a solve that stores them
+                  ///< (solve_inplace_streamed)
+    };
+
+    /// \brief Whether the recomputed entry points accept a shape, a
+    /// capacity and nrhs tangent columns: valid(shape, nrhs), capacity in
+    /// [0, blocks], their workspace below 2^31 entries, and every block
+    /// index exact in T (2^24 blocks at most in float), the store keeping
+    /// the index of the block of each of its places in the workspace.
+    /// \param[in] shape    shape of the matrix
+    /// \param[in] capacity number of refused blocks the workspace holds
+    /// \param[in] nrhs     number of tangent columns, 1 without tangent
+    /// \return true when the recomputed entry points accept them
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    valid_recomputed(const ArrowheadShape& shape, const int capacity, const int nrhs = 1) noexcept {
+        constexpr int digits =
+            std::numeric_limits<T>::digits < 62 ? std::numeric_limits<T>::digits : 62;
+        return valid(shape, nrhs) && capacity >= 0 && capacity <= shape.blocks &&
+               static_cast<long long>(shape.blocks) <= (1LL << digits) &&
+               recomputed_offsets<long long>(shape, capacity, nrhs).total < (1LL << 31);
+    }
+
+    /// \brief Entries of the workspace of solve_inplace_recomputed with a
+    /// store of capacity refused blocks, and of
+    /// solve_inplace_recomputed_or_tangent with nrhs tangent columns: the
+    /// areas of a streamed block and of its condensation, the front of the
+    /// second pass, and the refused blocks in the storage of a matrix of
+    /// capacity blocks with their right-hand sides. It does not grow with
+    /// the number of blocks of the matrix.
+    /// \param[in] shape    shape of the matrix
+    /// \param[in] capacity number of refused blocks the workspace holds
+    /// \param[in] nrhs     number of tangent columns, 1 without tangent
+    /// \return the number of workspace entries a call needs, 0 for a shape
+    ///         or a capacity the solver rejects
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr int
+    recomputed_workspace_size(const ArrowheadShape& shape, const int capacity,
+                              const int nrhs = 1) noexcept {
+        return valid_recomputed(shape, capacity, nrhs)
+                   ? recomputed_offsets(shape, capacity, nrhs).total
+                   : 0;
+    }
+
+    /// \brief Solves A x = y in place, the blocks recomputed: the runtime
+    /// counterpart of ArrowheadLUppSolverStatic::solve_inplace_recomputed,
+    /// bit for bit (the same contraction of multiply-adds assumed).
+    /// provider(k, blk) fills block k once while the solver condenses it, k
+    /// = 0, 1, ... in order, and once more, blk.recovery set, while it
+    /// recovers the unknowns of the block, in decreasing k. Nothing of an
+    /// accepted block is stored, and the matrix is never stored: the caller
+    /// gives the border block A_bb, entry (r, c) at (r * border + c) *
+    /// Abb_stride, or (c * border + r) * Abb_stride under the column-major
+    /// layout, and the border rows of y. The workspace holds the refused
+    /// blocks, at most capacity of them; beyond, the solve stops, deferred.
+    /// Nothing is written to y until the solution: y is untouched when the
+    /// solve is deferred or the matrix singular.
+    /// \tparam Provider callable (int k, StreamedBlock& blk)
+    /// \param[in]     shape         shape of the matrix
+    /// \param[in]     capacity      number of refused blocks the workspace
+    ///                              holds, in [0, blocks]
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in]     Abb           the border block A_bb, B x B in the layout
+    ///                              of the configuration
+    /// \param[in]     Abb_stride    element stride of Abb
+    /// \param[out]    piv           pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace of
+    ///                              recomputed_workspace_size(shape, capacity)
+    ///                              entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the solution on exit when solved
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[out]    refused_count number of refused blocks
+    /// \return solved, singular (or a shape or a capacity rejected, see
+    ///         valid_recomputed), or deferred when more than capacity blocks
+    ///         are refused
+    template<typename Provider>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOutcome
+    solve_inplace_recomputed(const ArrowheadShape& shape, const int capacity, Provider&& provider,
+                             const T* TDLS_RESTRICT Abb, const int Abb_stride,
+                             int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
+                             const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                             int& refused_count) noexcept {
+        return recomputed_core(shape, capacity, 0, provider, Abb, Abb_stride, piv, piv_stride, work,
+                               work_stride, y, rhs_stride, 0, nullptr, 1, 0, refused_count);
+    }
+
+    /// \brief One recomputed pass of a Newton iteration: the runtime
+    /// counterpart of
+    /// ArrowheadLUppSolverStatic::solve_inplace_recomputed_or_tangent, bit
+    /// for bit (the same contraction of multiply-adds assumed). The blocks
+    /// are condensed as solve_inplace_recomputed condenses them, then
+    /// converged() is called: false, the pass ends as
+    /// solve_inplace_recomputed; true, x receives columns col0 .. col0 +
+    /// ntan - 1 of the border block of A^-1, refused blocks included, y is
+    /// untouched, and the provider is called once per block. When more than
+    /// capacity blocks are refused, the pass stops there, deferred, before
+    /// converged() is called.
+    /// \tparam Provider  callable (int k, StreamedBlock& blk)
+    /// \tparam Converged callable () returning bool
+    /// \param[in]     shape         shape of the matrix
+    /// \param[in]     ntan          number of tangent columns, in [1, border]
+    /// \param[in]     capacity      number of refused blocks the workspace
+    ///                              holds, in [0, blocks]
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in]     converged     called after the last block: whether the
+    ///                              tangent replaces the correction
+    /// \param[in]     Abb           the border block A_bb, B x B in the layout
+    ///                              of the configuration
+    /// \param[in]     Abb_stride    element stride of Abb
+    /// \param[out]    piv           pivot array of pivot_size(shape) ints
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace of
+    ///                              recomputed_workspace_size(shape,
+    ///                              capacity, ntan) entries
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the correction on exit when solved
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     col0          first tangent column, col0 + ntan <= border
+    /// \param[out]    x             the tangent columns (tangent), border
+    ///                              entries per column
+    /// \param[in]     x_stride      element stride of x
+    /// \param[in]     xcol_stride   element stride between columns of x
+    /// \param[out]    refused_count number of refused blocks
+    /// \return solved, tangent, singular (or a shape or a capacity
+    ///         rejected), or deferred when more than capacity blocks are
+    ///         refused
+    template<typename Provider, typename Converged>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOutcome
+    solve_inplace_recomputed_or_tangent(
+        const ArrowheadShape& shape, const int ntan, const int capacity, Provider&& provider,
+        Converged&& converged, const T* TDLS_RESTRICT Abb, const int Abb_stride,
+        int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
+        T* TDLS_RESTRICT y, const int rhs_stride, const int col0, T* TDLS_RESTRICT x,
+        const int x_stride, const std::size_t xcol_stride, int& refused_count) noexcept {
+        if (ntan < 1) {
+            refused_count = 0;
+            return RecomputedOutcome::singular;
+        }
+        return recomputed_core(shape, capacity, ntan, provider, Abb, Abb_stride, piv, piv_stride,
+                               work, work_stride, y, rhs_stride, col0, x, x_stride, xcol_stride,
+                               refused_count, &converged);
+    }
+
+  private:
+    /// \brief Offsets of the areas of a recomputed solve after those of a
+    /// streamed solve on the store (a matrix of capacity blocks), of type I:
+    /// the store of the refused blocks, their right-hand sides, and the
+    /// block each place of the store holds.
+    template<typename I>
+    struct RecomputedOffsetsOf {
+        I store, ystore, slots, total;
+    };
+    /// \brief Offsets of the areas of a recomputed solve.
+    using RecomputedOffsets = RecomputedOffsetsOf<int>;
+
+    /// \brief The shape of the store of capacity refused blocks.
+    /// \param[in] shape    shape of the matrix
+    /// \param[in] capacity number of refused blocks
+    /// \return {border, block, capacity, coupling_row}
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr ArrowheadShape
+    store_shape(const ArrowheadShape& shape, const int capacity) noexcept {
+        return {shape.border, shape.block, capacity, shape.coupling_row};
+    }
+
+    /// \brief The offsets of a recomputed solve: the temporaries and the
+    /// streamed areas of the store (whose front holds nc columns), then the
+    /// store, its right-hand sides and the blocks of its places.
+    /// \tparam I integer type of the offsets (see offsets)
+    /// \param[in] shape    shape of the matrix
+    /// \param[in] capacity number of refused blocks
+    /// \param[in] nc       columns of the front, one at least
+    /// \return the offsets, and the total of the workspace
+    template<typename I = int>
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOffsetsOf<I>
+    recomputed_offsets(const ArrowheadShape& shape, const int capacity, const int nc) noexcept {
+        const ArrowheadShape st = store_shape(shape, capacity);
+        RecomputedOffsetsOf<I> ro{};
+        I e      = streamed_offsets<I>(st, nc).total;
+        ro.store = e;
+        e += capacity > 0 ? I(storage_map::size(st)) : I(0);
+        ro.ystore = e;
+        e += I(shape.border) + I(capacity) * shape.block;
+        ro.slots = e;
+        e += capacity;
+        ro.total = e;
+        return ro;
+    }
+
+    /// \brief Entry (r, c) of the border block given to the recomputed
+    /// entry points, in the layout of the configuration.
+    /// \param[in] Abb        the border block
+    /// \param[in] Abb_stride element stride of Abb
+    /// \param[in] B          border size
+    /// \param[in] r          row
+    /// \param[in] c          column
+    /// \return A_bb(r, c)
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr T border_entry(const T* TDLS_RESTRICT Abb,
+                                                                   const int Abb_stride,
+                                                                   const int B, const int r,
+                                                                   const int c) noexcept {
+        return Abb[TDLS_STRIDED(col ? c * B + r : r * B + c, Abb_stride)];
+    }
+
+    /// \brief The recomputed solve shared by solve_inplace_recomputed (no
+    /// converged(), ntan = 0) and solve_inplace_recomputed_or_tangent; the
+    /// arithmetic of ArrowheadLUppSolverStatic::recomputed_core.
+    /// \tparam Provider  callable (int k, StreamedBlock& blk)
+    /// \tparam Converged none, or callable () returning bool
+    /// \param[in]     shape         shape of the matrix
+    /// \param[in]     capacity      number of refused blocks the workspace
+    ///                              holds
+    /// \param[in]     ntan          number of tangent columns, 0 without
+    ///                              converged()
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in]     Abb           the border block
+    /// \param[in]     Abb_stride    element stride of Abb
+    /// \param[out]    piv           pivot array
+    /// \param[in]     piv_stride    element stride of piv
+    /// \param[out]    work          workspace
+    /// \param[in]     work_stride   element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the solution on exit when solved
+    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     col0          first tangent column
+    /// \param[out]    x             the tangent columns
+    /// \param[in]     x_stride      element stride of x
+    /// \param[in]     xcol_stride   element stride between columns of x
+    /// \param[out]    refused_count number of refused blocks
+    /// \param[in]     converged     none, or whether the tangent replaces the
+    ///                              correction
+    /// \return the outcome
+    template<typename Provider, typename... Converged>
+    TDLS_HOST_DEVICE static constexpr RecomputedOutcome recomputed_core(
+        const ArrowheadShape& shape, const int capacity, const int ntan, Provider& provider,
+        const T* TDLS_RESTRICT Abb, const int Abb_stride, int* TDLS_RESTRICT piv,
+        const int piv_stride, T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
+        const int rhs_stride, [[maybe_unused]] const int col0, [[maybe_unused]] T* TDLS_RESTRICT x,
+        [[maybe_unused]] const int x_stride, [[maybe_unused]] const std::size_t xcol_stride,
+        int& refused_count, Converged*... converged) noexcept {
+        static_assert(!in_place, "ArrowheadLUppSolverDynamic: the recomputed solve accumulates "
+                                 "the Schur complement apart (schur_in_place off)");
+        // Columns of the front: the tangent columns, one at least.
+        const int fnc = ntan > 1 ? ntan : 1;
+        refused_count = 0;
+        if (!valid_recomputed(shape, capacity, fnc) || ntan > shape.border)
+            return RecomputedOutcome::singular;
+        [[maybe_unused]] constexpr int ycols = 1;
+        const ArrowheadShape st              = store_shape(shape, capacity);
+        const Sizes z                        = sizes(shape, 1, 1);
+        const Offsets o                      = offsets(st, fnc);
+        const StreamedOffsets so             = streamed_offsets(st, fnc);
+        const RecomputedOffsets ro           = recomputed_offsets(shape, capacity, fnc);
+        const int B = z.B, S = z.S, R = z.R, R0 = z.R0, NB = z.NB;
+        for (int r = 0; r < R; ++r) {
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(o.Sacc + r * B + c) =
+                    border_entry(Abb, Abb_stride, B, R0 + r, c);
+            TDLS_ARROW_LUPP_DYN_W(o.racc + r) = TDLS_ARROW_LUPP_DYN_Y(R0 + r);
+        }
+        int count = 0;
+        for (int k = 0; k < NB; ++k) {
+            StreamedBlock blk = streamed_block(z, o, so, work, work_stride);
+            blk.recovery      = false;
+            provider(k, blk);
+            const int verdict = condense_or_keep_recomputed(
+                shape, z, o, so, ro, capacity, piv, piv_stride, work, work_stride, k, count);
+            refused_count = count;
+            if (verdict == 2) return RecomputedOutcome::deferred;
+        }
+        // The flags of the places of the store, for its second pass.
+        for (int j = 0; j < capacity; ++j)
+            TDLS_ARROW_LUPP_DYN_W(o.refused + j) = j < count ? T(1) : T(0);
+        T* const store  = work + TDLS_STRIDED(ro.store, work_stride);
+        T* const ystore = work + TDLS_STRIDED(ro.ystore, work_stride);
+        for (int r = 0; r < B; ++r) {
+            const bool acc = r >= R0 && r < R0 + R;
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(o.Sbb + r * B + c) =
+                    acc ? TDLS_ARROW_LUPP_DYN_W(o.Sacc + (r - R0) * B + c)
+                        : border_entry(Abb, Abb_stride, B, r, c);
+        }
+        T* const Sbb = work + TDLS_STRIDED(o.Sbb, work_stride);
+        T* const rb  = work + TDLS_STRIDED(o.rb, work_stride);
+        if constexpr (sizeof...(Converged) > 0) {
+            if ((*streamed_arg(converged...))()) {
+                // The tangent: unit columns, the refused blocks of the store
+                // by the second pass of the canonical solve.
+                const Sizes zt = sizes(st, fnc, 0);
+                for (int m = 0; m < fnc; ++m)
+                    for (int r = 0; r < B; ++r)
+                        TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r) = r == col0 + m ? T(1) : T(0);
+                if (count > 0 && !second_pass<0, true>(st, zt, o, store, work_stride, work,
+                                                       work_stride, ystore, work_stride, 0, fnc))
+                    return RecomputedOutcome::singular;
+                const bool ok = fnc == 1 ? BorderSolver::solve_inplace(B, Sbb, work_stride, piv,
+                                                                       piv_stride, rb, work_stride)
+                                         : BorderSolver::solve_inplace_multirhs(
+                                               B, fnc, Sbb, work_stride, piv, piv_stride, rb,
+                                               work_stride, TDLS_STRIDED(B, work_stride));
+                if (!ok) return RecomputedOutcome::singular;
+                for (int m = 0; m < fnc; ++m)
+                    for (int r = 0; r < B; ++r)
+                        x[TDLS_STRIDED(r, x_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                            TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
+                return RecomputedOutcome::tangent;
+            }
+        }
+        for (int r = 0; r < B; ++r) {
+            const bool acc = r >= R0 && r < R0 + R;
+            TDLS_ARROW_LUPP_DYN_W(o.rb + r) =
+                acc ? TDLS_ARROW_LUPP_DYN_W(o.racc + r - R0) : TDLS_ARROW_LUPP_DYN_Y(r);
+        }
+        if (count > 0 && !second_pass<1, false>(st, sizes(st, 1, 1), o, store, work_stride, work,
+                                                work_stride, ystore, work_stride, 0, 1))
+            return RecomputedOutcome::singular;
+        if (!BorderSolver::solve_inplace(B, Sbb, work_stride, piv, piv_stride, rb, work_stride))
+            return RecomputedOutcome::singular;
+        // The accepted blocks, recomputed, the last one first: the places
+        // of the store hold the refused ones in increasing order.
+        int j = count - 1;
+        for (int k = NB - 1; k >= 0; --k) {
+            if (j >= 0 && TDLS_ARROW_LUPP_DYN_W(ro.slots + j) == T(k)) {
+                --j;
+                continue;
+            }
+            StreamedBlock blk = streamed_block(z, o, so, work, work_stride);
+            blk.recovery      = true;
+            provider(k, blk);
+            // y_k - A_kb x_b, then the column solved in place of A_kb(:, 0)
+            for (int i = 0; i < S; ++i) {
+                T v = TDLS_ARROW_LUPP_DYN_W(o.W + B * S + i);
+                for (int c = 0; c < B; ++c)
+                    v -= TDLS_ARROW_LUPP_DYN_W(o.W + c * S + i) * TDLS_ARROW_LUPP_DYN_W(o.rb + c);
+                TDLS_ARROW_LUPP_DYN_W(o.s + i) = v;
+            }
+            for (int i = 0; i < S; ++i)
+                TDLS_ARROW_LUPP_DYN_W(o.W + i) = TDLS_ARROW_LUPP_DYN_W(o.s + i);
+            if constexpr (Config.register_blocks) {
+                (void)physical_factor(z, o, work, work_stride, piv, piv_stride);
+                physical_solve(z, o, work, work_stride, piv, piv_stride, 1, true);
+            } else {
+                T* const Dl = work + TDLS_STRIDED(o.Dl, work_stride);
+                (void)BlockSolver::factorize(S, Dl, work_stride, piv, piv_stride);
+                BlockSolver::substitute_inplace(S, Dl, work_stride, piv, piv_stride,
+                                                work + TDLS_STRIDED(o.W, work_stride), work_stride);
+            }
+            for (int i = 0; i < S; ++i)
+                TDLS_ARROW_LUPP_DYN_Y(B + k * S + i) = TDLS_ARROW_LUPP_DYN_W(o.W + i);
+        }
+        if (count > 0)
+            recover_refused(shape, st, z, o, ro, work, work_stride, y, rhs_stride, count);
+        for (int r = 0; r < B; ++r)
+            TDLS_ARROW_LUPP_DYN_Y(r) = TDLS_ARROW_LUPP_DYN_W(o.rb + r);
+        return RecomputedOutcome::solved;
+    }
+
+    /// \brief Condenses the streamed block k of a recomputed solve, nothing
+    /// stored; a refused block is kept, as the provider gave it, in the next
+    /// place of the store, or the solve is deferred when the store is full.
+    /// \param[in]     shape       shape of the matrix
+    /// \param[in]     z           its sizes
+    /// \param[in]     o           the offsets of the workspace
+    /// \param[in]     so          the offsets of the streamed areas
+    /// \param[in]     ro          the offsets of the store
+    /// \param[in]     capacity    number of places of the store
+    /// \param[out]    piv         pivot array
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] work        workspace, the block in its areas
+    /// \param[in]     work_stride element stride of work
+    /// \param[in]     k           block
+    /// \param[in,out] count       number of refused blocks
+    /// \return 0 when the block is condensed, 1 when it is refused and kept,
+    ///         2 when it is refused beyond the capacity
+    TDLS_HOST_DEVICE static constexpr int
+    condense_or_keep_recomputed(const ArrowheadShape& shape, const Sizes& z, const Offsets& o,
+                                const StreamedOffsets& so, const RecomputedOffsets& ro,
+                                const int capacity, int* TDLS_RESTRICT piv, const int piv_stride,
+                                T* TDLS_RESTRICT work, const int work_stride, const int k,
+                                int& count) noexcept {
+        const int B = z.B, S = z.S;
+        const bool forward_check = !Config.register_blocks && col && z.pass_width == B + 1;
+        for (int e = 0; e < S * S; ++e)
+            TDLS_ARROW_LUPP_DYN_W(so.Dsave + e) = TDLS_ARROW_LUPP_DYN_W(o.Dl + e);
+        if (forward_check)
+            for (int e = 0; e < (B + 1) * S; ++e)
+                TDLS_ARROW_LUPP_DYN_W(so.Wsave + e) = TDLS_ARROW_LUPP_DYN_W(o.W + e);
+        if (condense<1, false, true>(shape, z, o, nullptr, 1, piv, piv_stride, work, work_stride,
+                                     nullptr, 1, 0, k, 1, &so))
+            return 0;
+        ++count;
+        if (count > capacity) return 2;
+        // The block as given, in place j of the store (W is intact unless the
+        // forward stage ran).
+        const int j             = count - 1;
+        const ArrowheadShape st = store_shape(shape, capacity);
+        const int ow            = forward_check ? so.Wsave : o.W;
+        for (int i = 0; i < S; ++i) {
+            for (int jj = 0; jj < S; ++jj)
+                TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::d(st, j, i, jj)) =
+                    TDLS_ARROW_LUPP_DYN_W(so.Dsave + (col ? jj * S + i : i * S + jj));
+            for (int c = 0; c < B; ++c)
+                TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::akb(st, j, i, c)) =
+                    TDLS_ARROW_LUPP_DYN_W(ow + c * S + i);
+            TDLS_ARROW_LUPP_DYN_W(ro.ystore + B + j * S + i) =
+                TDLS_ARROW_LUPP_DYN_W(ow + B * S + i);
+        }
+        if constexpr (diag) {
+            for (int i = 0; i < S; ++i)
+                TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::abk_diag(st, j, i)) =
+                    TDLS_ARROW_LUPP_DYN_W(o.acoef + i);
+        } else {
+            for (int r = 0; r < B; ++r)
+                for (int i = 0; i < S; ++i)
+                    TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::abk(st, j, r, i)) =
+                        TDLS_ARROW_LUPP_DYN_W(so.Abk + r * S + i);
+        }
+        TDLS_ARROW_LUPP_DYN_W(ro.slots + j) = T(k);
+        return 1;
+    }
+
+    /// \brief Recovers the refused blocks of a recomputed solve from the
+    /// store, the last one first: x_k = c_k - G_k x_b - H_k w, w gathering
+    /// the couplings A_bj x_j (the R coupled rows) of the refused blocks
+    /// recovered so far; the arithmetic of
+    /// ArrowheadLUppSolverStatic::recover_refused.
+    /// \param[in]     shape       shape of the matrix
+    /// \param[in]     st          shape of the store
+    /// \param[in]     z           sizes of the shape
+    /// \param[in]     o           the offsets of the workspace
+    /// \param[in]     ro          the offsets of the store
+    /// \param[in,out] work        workspace: the store after the second pass
+    /// \param[in]     work_stride element stride of work
+    /// \param[out]    y           the unknowns of the refused blocks
+    /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     count       number of refused blocks
+    TDLS_HOST_DEVICE static constexpr void
+    recover_refused(const ArrowheadShape& shape, const ArrowheadShape& st, const Sizes& z,
+                    const Offsets& o, const RecomputedOffsets& ro, T* TDLS_RESTRICT work,
+                    const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+                    const int count) noexcept {
+        (void)shape;
+        const int B = z.B, S = z.S, R = z.R;
+        for (int a = 0; a < R; ++a)
+            TDLS_ARROW_LUPP_DYN_W(o.w + a) = T(0);
+        for (int j = count - 1; j >= 0; --j) {
+            const int k = static_cast<int>(TDLS_ARROW_LUPP_DYN_W(ro.slots + j));
+            for (int i = 0; i < S; ++i) {
+                T v = TDLS_ARROW_LUPP_DYN_W(ro.ystore + B + j * S + i);
+                for (int c = 0; c < B; ++c)
+                    v -= TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::akb(st, j, i, c)) *
+                         TDLS_ARROW_LUPP_DYN_W(o.rb + c);
+                for (int a = 0; a < R; ++a) {
+                    const T h =
+                        a < S ? TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::d(st, j, i, a))
+                              : TDLS_ARROW_LUPP_DYN_W(o.extra + (j * S + i) * z.extra_cols + a - S);
+                    v -= h * TDLS_ARROW_LUPP_DYN_W(o.w + a);
+                }
+                TDLS_ARROW_LUPP_DYN_W(o.s + i) = v;
+            }
+            if constexpr (diag) {
+                for (int i = 0; i < S; ++i)
+                    TDLS_ARROW_LUPP_DYN_W(o.w + i) +=
+                        TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::abk_diag(st, j, i)) *
+                        TDLS_ARROW_LUPP_DYN_W(o.s + i);
+            } else {
+                for (int r = 0; r < B; ++r)
+                    for (int i = 0; i < S; ++i)
+                        TDLS_ARROW_LUPP_DYN_W(o.w + r) +=
+                            TDLS_ARROW_LUPP_DYN_W(ro.store + storage_map::abk(st, j, r, i)) *
+                            TDLS_ARROW_LUPP_DYN_W(o.s + i);
+            }
+            for (int i = 0; i < S; ++i)
+                TDLS_ARROW_LUPP_DYN_Y(B + k * S + i) = TDLS_ARROW_LUPP_DYN_W(o.s + i);
+        }
+    }
+
   private:
     /// \brief The single element of the trailing pack of the helpers shared
     /// by the stored and streamed paths: the provider or the offsets of the
@@ -1088,11 +1581,13 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     k           block
     /// \param[in]     nrhs        number of right-hand sides when NC is 0
     /// \param[in]     so          streamed: the offsets of the streamed areas
+    /// \tparam recompute no recovery data stored, A and y untouched
+    ///                   (solve_inplace_recomputed)
     /// \tparam Streamed  none on the stored path; streamed, StreamedOffsets:
     ///                   the block is in the workspace already (D_k, the
     ///                   columns [A_kb | y_k], A_bk), nothing is read from A
     /// \return true when the block is condensed
-    template<int NC, bool canonical, typename... Streamed>
+    template<int NC, bool canonical, bool recompute = false, typename... Streamed>
     TDLS_HOST_DEVICE static constexpr bool
     condense(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
              const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
@@ -1171,14 +1666,14 @@ struct ArrowheadLUppSolverDynamic {
             if (!ok) return false;
             BlockSolver::backward_inplace_multirhs(S, B + ny, Dl, work_stride, piv, piv_stride, W,
                                                    work_stride, TDLS_STRIDED(S, work_stride));
-            condense_pass<NC, canonical>(shape, z, o, A, A_stride, piv, piv_stride, work,
-                                         work_stride, y, rhs_stride, xcol_stride, k, 0, B + ny,
-                                         true, so...);
+            condense_pass<NC, canonical, recompute>(shape, z, o, A, A_stride, piv, piv_stride, work,
+                                                    work_stride, y, rhs_stride, xcol_stride, k, 0,
+                                                    B + ny, true, so...);
         } else {
             ok = border_multipliers(shape, z, o, A, A_stride, work, work_stride, k, so...) && ok;
             if (!ok) return false;
             // U, recovery data: not for the canonical solve.
-            if constexpr (multiplier_update && !canonical) {
+            if constexpr (multiplier_update && !canonical && !recompute) {
                 for (int l = 0; l < S; ++l)
                     for (int j = l; j < S; ++j)
                         TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, l, j)) =
@@ -1186,9 +1681,9 @@ struct ArrowheadLUppSolverDynamic {
             }
             for (int c0 = 0; c0 < B + ny; c0 += z.pass_width) {
                 const int w = B + ny - c0 < z.pass_width ? B + ny - c0 : z.pass_width;
-                condense_pass<NC, canonical>(shape, z, o, A, A_stride, piv, piv_stride, work,
-                                             work_stride, y, rhs_stride, xcol_stride, k, c0, w,
-                                             false, so...);
+                condense_pass<NC, canonical, recompute>(shape, z, o, A, A_stride, piv, piv_stride,
+                                                        work, work_stride, y, rhs_stride,
+                                                        xcol_stride, k, c0, w, false, so...);
             }
         }
         return true;
@@ -1402,9 +1897,14 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     piv         the interchanges
     /// \param[in]     piv_stride  element stride of piv
     /// \param[in]     w           number of columns
+    /// \param[in]     backward    whether the row-major solve runs its
+    ///                            backward stage (always, but for the forward
+    ///                            stage alone of the condensation with the
+    ///                            dense coupling)
     TDLS_HOST_DEVICE static constexpr void
     physical_solve(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
-                   const int* TDLS_RESTRICT piv, const int piv_stride, const int w) noexcept {
+                   const int* TDLS_RESTRICT piv, const int piv_stride, const int w,
+                   const bool backward = !multiplier_update) noexcept {
         const int S = z.S;
         if constexpr (!col) {
             for (int j = 0; j < S; ++j) {
@@ -1422,7 +1922,7 @@ struct ArrowheadLUppSolverDynamic {
                     for (int c = 0; c < w; ++c)
                         TDLS_ARROW_LUPP_DYN_RC(c, i) -= l * TDLS_ARROW_LUPP_DYN_RC(c, j);
                 }
-            if constexpr (!multiplier_update) {
+            if (backward) {
                 for (int j = S - 1; j >= 0; --j)
                     for (int c = 0; c < w; ++c) {
                         T v = TDLS_ARROW_LUPP_DYN_RC(c, j);
@@ -1547,9 +2047,10 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     solved      whether the workspace holds the solved
     ///                            columns already
     /// \param[in]     so          streamed: the offsets of the streamed areas
+    /// \tparam recompute no recovery data stored (solve_inplace_recomputed)
     /// \tparam Streamed none on the stored path; streamed, StreamedOffsets:
     ///                  the columns are in W already, and A_bk in its area
-    template<int NC, bool canonical, typename... Streamed>
+    template<int NC, bool canonical, bool recompute = false, typename... Streamed>
     TDLS_HOST_DEVICE static constexpr void
     condense_pass(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
                   const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
@@ -1596,7 +2097,7 @@ struct ArrowheadLUppSolverDynamic {
                                                          work_stride, TDLS_STRIDED(S, work_stride));
             }
         }
-        if constexpr (!canonical) {
+        if constexpr (!canonical && !recompute) {
             for (int i = 0; i < S; ++i)
                 for (int j = 0; j < w; ++j) {
                     if (c0 + j < B)
