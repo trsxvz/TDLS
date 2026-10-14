@@ -20,6 +20,15 @@ keeps only the cases whose name contains it. The suites use a small
 self-contained harness (`tests/common/harness.hpp`), no external test
 framework.
 
+In the Release configuration the suites compile at `-O3` (MSVC keeps
+its own Release flags); `-DTDLS_TESTS_OPTIMIZATION=-O1` builds them
+faster with GCC and Clang, for quick local iterations. The solver
+suites and the documentation snippets also compile with
+`-ffp-contract=off` where the compiler accepts it. They compare code
+paths bit for bit, and a compiler that contracts multiplications and
+additions differently in two paths (GCC with `-march=native` does)
+changes the last bits.
+
 ## Method
 
 Each solver family rests on two pillars.
@@ -327,7 +336,7 @@ every batch.
 | `wide_offsets` | element offsets beyond 2^32, as in the other families, a refused block making the second pass use the workspace; the column strides of the TiledLUpp calls of the runtime solver past 2^32; the column stride of a block of right-hand sides past 2^32, on both solvers |
 | `constexpr` | compile-time certificates on both solvers, through every path and the second pass, and their bitwise agreement |
 | `multirhs` | every column of `solve_inplace_multirhs` and `solve_multirhs` against `solve_inplace` on it alone, bitwise, the matrix they leave included: both solvers, internal and strided right-hand sides (the gaps untouched), refused blocks, passes, the gather, the Schur complement in place; `solve_border_canonical_multirhs` against the border rows of `solve_inplace` on the unit columns, in value (a zero may differ in sign), the matrix left unchanged bit for bit (the Schur complement in place aside) |
-| `streamed` | the streamed entry points against the stored ones, bitwise, on both solvers: `solve_inplace_streamed` against `solve_inplace`, `solve_border_canonical_multirhs_streamed` against `solve_border_canonical_multirhs`, `solve_inplace_streamed_or_tangent` against both, refused blocks included; the runtime solver against the compile-time one; the provider called exactly once per block, in order, and `converged()` once, after the last block; built with `-ffp-contract=off`, the two paths being distinct code |
+| `streamed` | the streamed entry points against the stored ones, bitwise, on both solvers: `solve_inplace_streamed` against `solve_inplace`, `solve_border_canonical_multirhs_streamed` against `solve_border_canonical_multirhs`, `solve_inplace_streamed_or_tangent` against both, refused blocks included; the runtime solver against the compile-time one; the provider called exactly once per block, in order, and `converged()` once, after the last block |
 | `reject_*` | the compile-time contracts: a shape with an empty part, a `coupling_row` under the dense coupling, diagonal coupling rows past the border, a Bsr border that is not a multiple of the block, a `condensation_pivot_threshold` out of [0, 1] on both solvers, an `rhs_pass_width` above border + 1, no right-hand side, more unit columns than the border, stored or streamed, and more tangent columns than the border |
 
 For the detail of any suite, the authoritative description is the

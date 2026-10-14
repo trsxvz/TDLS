@@ -21,9 +21,9 @@ set(TDLS_TESTS_OPTIMIZATION "-O3" CACHE STRING
 include(CheckCXXCompilerFlag)
 set(CMAKE_REQUIRED_FLAGS -Werror)
 check_cxx_compiler_flag(-Wno-c2y-extensions TDLS_HAVE_WNO_C2Y_EXTENSIONS)
-# The streamed ArrowheadLUpp suite compares two code paths bit for bit:
-# it turns off the contraction of multiplications and additions where the
-# compiler knows the flag (solvers/CMakeLists.txt).
+# The suites compare code paths bit for bit: they turn off the
+# contraction of multiplications and additions where the compiler knows
+# the flag (solvers/CMakeLists.txt).
 check_cxx_compiler_flag(-ffp-contract=off TDLS_HAVE_FFP_CONTRACT_OFF)
 unset(CMAKE_REQUIRED_FLAGS)
 

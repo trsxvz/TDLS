@@ -36,7 +36,12 @@ function(tdls_add_solver_suites)
                 # fatal; suppress just that diagnostic where the compiler knows
                 # the flag (probed in ../CMakeLists.txt). It trails -Wpedantic
                 # so it wins.
-                $<$<BOOL:${TDLS_HAVE_WNO_C2Y_EXTENSIONS}>:-Wno-c2y-extensions>)
+                $<$<BOOL:${TDLS_HAVE_WNO_C2Y_EXTENSIONS}>:-Wno-c2y-extensions>
+                # The suites compare code paths bit for bit (static against
+                # dynamic, fused against split, unrolled against rolled...),
+                # which a compiler may contract into fused multiply-adds
+                # differently (GCC does at -O3 -march=native): no contraction.
+                $<$<BOOL:${TDLS_HAVE_FFP_CONTRACT_OFF}>:-ffp-contract=off>)
         endif()
         if(MSVC)
             # Template-heavy suites overflow the default COFF section limit.
@@ -172,12 +177,6 @@ tdls_add_solver_suites(
         constexpr
         multirhs
         streamed)
-# The streamed and stored paths are distinct code, which a compiler could
-# contract into fused multiply-adds differently (GCC does at -O3
-# -march=native): the bridge needs the contraction off.
-if(TDLS_HAVE_FFP_CONTRACT_OFF)
-    target_compile_options(tdls_test_arrowheadlupp_streamed PRIVATE -ffp-contract=off)
-endif()
 
 tdls_add_reject_cases(
     FAMILY arrowheadlupp
