@@ -64,7 +64,8 @@ For other types the detection can be overridden by specializing
 The adaptors on real `tfel::math` objects, one snippet per object kind
 and per entry point. Each one is a complete program, shown between the
 two markers of its source under `docs/snippets/tfel/`, and checked at
-the end. They are built with `TDLS_BUILD_TFEL_SNIPPETS`, TFEL found by
+the end. They are built with `TDLS_BUILD_TFEL_SNIPPETS`, against TFEL
+5.2 (the development version) or newer, found by
 `find_package(TFELMath)`, and run under the `snippets` label.
 
 The objects are declared in the shown code, since their types are the
@@ -115,8 +116,8 @@ comes from the behaviour (the phases of a polycrystal, the surfaces of
 an Iwan model), never from the object, so it is passed as with the raw
 interface.
 
-The Packed storage reads the pattern entries only, and the least
-memory. It needs the derivatives written at the indices of
+The Packed storage holds the pattern entries only, the least memory
+with Csr. It needs the derivatives written at the indices of
 `ArrowheadStorageMap`, into a `tvector` for instance: a change of the
 code that builds the jacobian, which an adaptor cannot hide.
 

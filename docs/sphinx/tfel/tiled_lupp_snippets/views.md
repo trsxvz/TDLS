@@ -2,7 +2,8 @@
 
 Views map memory the caller owns as `tfel::math` objects. A contiguous
 view resolves the internal residency, a strided view the external one,
-and the stride is read from the view.
+and the stride is read from the view. `map_strided` requires TFEL 5.2
+(development version) or newer.
 
 ## A view on a pointer
 

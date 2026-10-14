@@ -1,7 +1,10 @@
 # Blocks of right-hand sides
 
-A matrix-like right-hand side holds one system per column. Every
-column is solved against the one factorization.
+A matrix-like right-hand side holds one right-hand side per column.
+Every column is solved against the one factorization. A block is
+always addressed with strides, through the external residency of the
+raw API, even a `tmatrix`: the internal residency stores the columns
+one after the other, a row-major block does not.
 
 ## Factorize, then substitute a block
 

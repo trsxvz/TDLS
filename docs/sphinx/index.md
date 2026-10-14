@@ -1,4 +1,4 @@
-# TDLS - Tiny Device-callable Linear Solvers
+# TDLS: Tiny Device-callable Linear Solvers
 
 TDLS is a header-only C++20 library of direct solvers for small
 general linear systems, and for the arrowhead systems built from them.
@@ -15,8 +15,8 @@ accept the `tfel::math` objects directly, without including TFEL.
 ## Solvers
 
 TDLS implements three solver families, all LU factorizations with
-partial pivoting, each in a compile-time dimension and a runtime
-dimension variant:
+partial pivoting, each in a compile-time and a runtime variant of the
+dimension (of the shape, for ArrowheadLUpp):
 
 - {doc}`TiledLUpp <tiled_lupp/index>`: one thread per system, logical
   pivoting on a tile grid.

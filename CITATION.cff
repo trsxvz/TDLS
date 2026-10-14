@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata from this file."
-title: "TDLS - Tiny Device-callable Linear Solvers"
+title: "TDLS: Tiny Device-callable Linear Solvers"
 authors:
   - family-names: Chenaille
     given-names: Tristan

@@ -7,6 +7,8 @@ dependency. The oldest releases known to compile the headers are GCC
 10, Clang 12, Visual Studio 2019 16.11, CUDA 12.0 and ROCm 5.3. On
 NVIDIA GPUs, the barrier that CooperativeLUpp deduces for a group of
 threads needs sm_70 or newer.
+Adding the source tree to a CMake project, installing it, and building
+the tests and examples need CMake 3.21 or newer.
 Running every example additionally needs an OpenMP runtime, oneTBB or
 nvc++ for the parallel STL on the CPU cores, a CUDA or HIP toolchain, a
 SYCL compiler and a parallel STL offload compiler.
@@ -38,8 +40,8 @@ target_link_libraries(my_target PRIVATE tdls::tdls)
 ```
 
 The install tree is found through `CMAKE_PREFIX_PATH` or `tdls_DIR`
-(`<prefix>/lib/cmake/tdls`). TDLS is also available from the Spack
-package repository: `spack install tdls`.
+(`<prefix>/lib/cmake/tdls`). TDLS is also available from the develop
+branch of the Spack package repository: `spack install tdls`.
 
 In every case, include the umbrella header:
 
@@ -81,8 +83,9 @@ Tests and examples stay out of the default `all` target, as in Eigen
 or TFEL: `check` builds and runs them, `buildtests` only builds them.
 In the Release configuration the test suites compile at `-O3`, the
 level of the Release builds that use the library.
-`TDLS_TESTS_OPTIMIZATION` changes that flag: `-O1` builds the fully
-unrolled solver templates about 3.5 times faster.
+`TDLS_TESTS_OPTIMIZATION` changes that flag with GCC and Clang (MSVC
+keeps its Release flags): `-O1` builds the fully unrolled solver
+templates faster.
 
 The OpenMP examples build when an OpenMP runtime is found, the
 parallel STL examples when the compiler offers a backend (nvc++, or
@@ -90,9 +93,10 @@ libstdc++ with oneTBB). The GPU examples are opt-in: set
 `TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES` to ON, and the
 requested toolchain becomes mandatory (point `CMAKE_CUDA_COMPILER` /
 `CMAKE_HIP_COMPILER` at a compiler outside the `PATH`).
-`CMAKE_CUDA_ARCHITECTURES` defaults to `native`, so set it explicitly
-when the build machine has no device. At run time the GPU examples
-report themselves as skipped when no device is present. The SYCL
+`CMAKE_CUDA_ARCHITECTURES` defaults to `native` with CMake 3.24 or
+newer, so set it explicitly when the build machine has no device. At
+run time the GPU examples report themselves as skipped when no device
+is present. The SYCL
 examples are opt-in through `TDLS_BUILD_SYCL_EXAMPLES`: the C++
 compiler must then accept the SYCL flags, `-fsycl` by default with
 icpx, overridable through `TDLS_SYCL_FLAGS`. No device is needed to
@@ -101,10 +105,10 @@ device is present. The parallel STL examples run on a GPU with
 `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES`: the offload is a matter of
 compiler flags, stated in `TDLS_STDPAR_DEVICE_FLAGS` (`--acpp-stdpar`
 with AdaptiveCpp, `-stdpar=gpu` with nvc++, `--hipstdpar` with the
-ROCm clang).
+ROCm clang, `-fsycl -fsycl-pstl-offload=gpu` with icpx).
 The TFEL snippets of the documentation are opt-in through
-`TDLS_BUILD_TFEL_SNIPPETS`; TFEL is then found by
-`find_package(TFELMath)`.
+`TDLS_BUILD_TFEL_SNIPPETS`. They require TFEL 5.2 (the development
+version) or newer, found by `find_package(TFELMath)`.
 
 ## A first solve
 
@@ -157,13 +161,18 @@ both give memory coalescence on GPU.
 
 The scalar type `T` is `float`, `double` or `long double`.
 
-The factorizing entry points return `false` on a singular matrix. The
-return value is `[[nodiscard]]`. The substitutions return nothing: they
-cannot fail on a factorization that succeeded.
+The factorizing entry points return `false` on a singular matrix, and
+those of the runtime ArrowheadLUpp solver also on a shape they reject,
+`valid(shape, nrhs)` being false. `solve_inplace_streamed_or_tangent`
+returns a `StreamedOutcome` instead: `solved`, `tangent`, or `singular`
+where the others return `false`. The return value is `[[nodiscard]]`.
+The substitutions return nothing: they cannot fail on a factorization
+that succeeded.
 
 The flat element index of an object (N*N for a matrix) must stay below
 2^31. Element offsets, index times stride, are computed in 64-bit
 arithmetic: a batch may exceed 2^32 elements, as a SoA batch over 32 GiB
 of doubles does on a large GPU. The stride between the columns of a
 multi right-hand-side block, the dimension times the number of systems
-in SoA, is a 64-bit integer (`std::size_t`).
+in SoA, is a 64-bit integer (`std::size_t`) in TiledLUpp and in
+ArrowheadLUpp.

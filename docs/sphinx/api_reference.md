@@ -5,5 +5,6 @@ and published alongside this site:
 
 <a href="api/index.html">Open the API reference</a>
 
-When building locally, run `doxygen Doxyfile` from `docs/` and open
+When building locally (Doxygen, and graphviz for the graphs), run
+`mkdir -p _build && doxygen Doxyfile` from `docs/` and open
 `docs/_build/doxygen/html/index.html`.

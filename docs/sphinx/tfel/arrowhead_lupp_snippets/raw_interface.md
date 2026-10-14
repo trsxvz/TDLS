@@ -2,8 +2,8 @@
 
 The `tfel::math` objects store their elements contiguously and
 row-major. A `tmatrix` jacobian is therefore the Full storage of an
-arrowhead matrix, and its `data()` pointer with a stride of 1 a valid
-operand of the ArrowheadLUpp solvers. The system has a border of 2
+arrowhead matrix, and its `data()` pointer with a stride of 1 is a
+valid operand of the ArrowheadLUpp solvers. The system has a border of 2
 unknowns and two blocks of 2, with diagonal couplings.
 
 $$

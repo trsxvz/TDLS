@@ -28,7 +28,7 @@ int main() {
     tfel::math::vector<int> piv(5);
     const int n = static_cast<int>(y.size());
 
-    // threads of 2 rows: 3 threads for n = 5, sharing the objects as external operands
+    // threads of 2 columns: 3 threads for n = 5, sharing the objects as external operands
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverDynamic<double, config>;
     std::vector<double> work(Solver::workspace_size(n));

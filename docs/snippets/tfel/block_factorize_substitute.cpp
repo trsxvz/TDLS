@@ -24,7 +24,7 @@ int main() {
 
     if (!tdls::factorize(A, piv)) return 1;
 
-    // a matrix-like right-hand side: one system per column, solved together
+    // a matrix-like right-hand side: one right-hand side per column, solved together
     tdls::substitute(A, piv, B, X);
     // snippet end
 

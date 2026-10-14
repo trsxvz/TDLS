@@ -77,14 +77,18 @@ on the solver.
   operator from a factorization of the converged one.
 
 For ArrowheadLUpp, the shape of the matrix stands for the dimension.
-Its solvers have no separate factorization, so its MFront pattern is
-the Newton iteration alone.
+Its solvers have no separate factorization: the tangent operator comes
+from `solve_border_canonical_multirhs` or
+`solve_inplace_streamed_or_tangent`, which the snippets of
+{doc}`the family <arrowhead_lupp/index>` show, and the examples of its
+MFront pattern run the Newton iteration alone.
 
-Each problem is declined on every execution scale: sequential, OpenMP,
-parallel STL, SYCL, and CUDA or HIP with the systems on chip or in
-device memory. Moving from one scale to the next changes the
-parallel harness and the placement of the operands, never the
-physics. The build options are in {doc}`getting_started`.
+Each problem runs at every execution scale: sequential, OpenMP,
+parallel STL, SYCL, and CUDA or HIP in two variants, which differ by
+the placement of the operands or by their layout in device memory.
+Moving from one scale to the next changes the parallel harness and the
+placement of the operands, never the physics. The build options are in
+{doc}`getting_started`.
 
 ## Generic suites
 
@@ -117,7 +121,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `constexpr` | compile-time certificates on both solvers |
 | `cross_full` | full parameter cross-product on two rich shapes |
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
-| `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, the stride between the columns past 2^32 by itself, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
+| `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX with memory overcommit, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, the stride between the columns past 2^32 by itself, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
 | `device_constant_dimension` | the runtime solver called from a kernel with dimensions known at compile time, through every substitution entry point, in both layouts and both layouts of a block of right-hand sides, against the same solves on the host within 1e-12; built with the GPU examples (`TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES`), skipped without a device |
 | `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1] |
 
@@ -332,7 +336,7 @@ every batch.
 | `residencies` | every residency combination against the external one, bitwise, the strided gaps of the arenas untouched; the runtime solver at the same strides |
 | `layouts` | the AoS, SoA and AoSoA batch addressing against the systems solved one by one, bitwise, on both solvers |
 | `entry_points` | `solve` against `solve_inplace` and the counting overloads against the others, bitwise, on both solvers |
-| `config_knobs` | the performance knobs keep the arithmetic, bitwise, on systems whose pivot checks stay clear of the threshold: every pass width, the gather, the Schur complement in place, the unroll policy; the refusals grow with `condensation_pivot_threshold`, 0 refusing only the singular blocks, and every threshold of the check and of the blocks keeps the backward error |
+| `config_knobs` | the performance knobs keep the arithmetic, bitwise, on systems whose pivot checks stay clear of the threshold: every pass width, the gather, the Schur complement in place, the unroll policy; the refusals grow with `condensation_pivot_threshold`, 0 refusing only the singular blocks; every threshold of the check and of the blocks keeps the backward error below 1e-12, except a check threshold of 0, which keeps the pivot-poor blocks and their growth, bounded at 1e-8 |
 | `wide_offsets` | element offsets beyond 2^32, as in the other families, a refused block making the second pass use the workspace; the column strides of the TiledLUpp calls of the runtime solver past 2^32; the column stride of a block of right-hand sides past 2^32, on both solvers |
 | `constexpr` | compile-time certificates on both solvers, through every path and the second pass, and their bitwise agreement |
 | `multirhs` | every column of `solve_inplace_multirhs` and `solve_multirhs` against `solve_inplace` on it alone, bitwise, the matrix they leave included: both solvers, internal and strided right-hand sides (the gaps untouched), refused blocks, passes, the gather, the Schur complement in place; `solve_border_canonical_multirhs` against the border rows of `solve_inplace` on the unit columns, in value (a zero may differ in sign), the matrix left unchanged bit for bit (the Schur complement in place aside) |
@@ -359,7 +363,9 @@ arrowhead matrices: a few global unknowns, the border, and many local
 ones, the blocks. Every Newton iteration assembles the jacobian
 straight into the Packed storage, through `ArrowheadStorageMap`, then
 solves it in place. Every program reports its Newton iterations and
-the blocks the pivot check refused.
+the blocks the pivot check refused. The examples solve one right-hand
+side per Newton iteration; the snippets of the family show the other
+entry points.
 
 #### Compile-time shape
 
@@ -402,9 +408,9 @@ the computation, so `ArrowheadLUppSolverDynamic` applies, its workspace
 and pivots sized by `workspace_size(shape)` and `pivot_size(shape)`.
 The sequential program times the loading history, then the first step
 again by a dense LU of the whole jacobian (`TiledLUppSolverDynamic` on
-the full matrix): on one CPU core, the 20 steps of the history take
-0.02 s, the first step alone 1.4 s by the dense LU. Both first steps
-must agree.
+the full matrix): on one CPU core, the 20 steps of the history take a
+small fraction of the time of the first step alone by the dense LU.
+Both first steps must agree.
 
 The OpenMP program allocates the operands once per thread, sized from
 the shape. The parallel STL and SYCL programs give every operand of a
@@ -419,7 +425,7 @@ device memory, and differ by their layout:
 
 Both print the time of their kernel. A point holds about 280 KB of
 operands: the batches that fit in device memory hold far fewer points
-than the device holds threads, and the SoA layout gains only 6 to 8 %.
+than the device holds threads, and the SoA layout gains little.
 The self-checks are those of the polycrystal, the sampled points being
 integrated again on the host by the same runtime solver.
 

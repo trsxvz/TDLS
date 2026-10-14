@@ -1,4 +1,4 @@
-# TDLS - Tiny Device-callable Linear Solvers
+# TDLS: Tiny Device-callable Linear Solvers
 
 [![ci](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml/badge.svg)](https://github.com/trsxvz/TDLS/actions/workflows/ci.yml)
 [![doxygen](https://github.com/trsxvz/TDLS/actions/workflows/doxygen.yml/badge.svg)](https://trsxvz.github.io/TDLS/main/api/index.html)
@@ -26,11 +26,12 @@ partial pivoting:
   Derived from
   [MAGMA](https://github.com/icl-utk-edu/magma/blob/v2.10.0/magmablas/zgesv_batched_small.cu).
 - ArrowheadLUpp: one thread per arrowhead system, a border coupled to
-  diagonal blocks that never couple to each other, such as the
-  implicit integration of a polycrystal; static condensation, in a time
-  linear in the number of blocks, built on TiledLUpp, which solves the
-  blocks and the border system; blocks failing a pivot check are
-  eliminated with the border rows in a second pass.
+  diagonal blocks that never couple to each other, such as the Newton
+  systems of the implicit integration of a polycrystal; static
+  condensation, in a time linear in the number of blocks, built on
+  TiledLUpp, which solves the blocks and the border system; blocks
+  failing a pivot check are eliminated with the border rows in a second
+  pass.
 
 Here are three snippets, one per family, with every knob spelled out.
 
@@ -54,7 +55,8 @@ constexpr tdls::TiledLUppConfig<double> config{
     .oot_first_acceptable = true,
     // double (the scalar type T): in the diagonal tile only, the row in
     // place keeps the pivot when it reaches this fraction of the best
-    // in-tile candidate; 1 takes the best in-tile candidate
+    // in-tile candidate and oot_pivot_threshold; 1 takes the best in-tile
+    // candidate
     .relative_pivot_threshold = 0.1,
     // double (the scalar type T): the factorization is declared singular
     // when the best pivot falls below this floor
@@ -184,7 +186,8 @@ a subdirectory, or install it and use `find_package`:
 add_subdirectory(tdls)
 target_link_libraries(my_target PRIVATE tdls::tdls)
 
-# installed tree (cmake --install, or spack install tdls)
+# installed tree (cmake --install, or spack install tdls with the
+# develop branch of spack-packages)
 find_package(tdls REQUIRED)
 target_link_libraries(my_target PRIVATE tdls::tdls)
 ```
@@ -211,25 +214,25 @@ nothing probes for a GPU toolchain otherwise.
 
 All the build options (the first three default to ON when TDLS is the
 top-level project, OFF when it is consumed through `add_subdirectory`;
-the GPU switches always default to OFF):
+the GPU switches and `TDLS_BUILD_TFEL_SNIPPETS` always default to OFF):
 
 | Option | Effect |
 |--------|--------|
 | `TDLS_BUILD_TESTS` | build the test suites |
 | `TDLS_BUILD_EXAMPLES` | build the examples and the documentation snippets |
 | `TDLS_INSTALL` | generate the install and `find_package(tdls)` rules |
-| `TDLS_TESTS_OPTIMIZATION` | optimization flag of the test suites in the Release configuration (`-O3` by default; `-O1` builds them faster) |
+| `TDLS_TESTS_OPTIMIZATION` | optimization flag of the test suites in the Release configuration (`-O3` by default; `-O1` builds them faster; ignored with MSVC) |
 | `TDLS_BUILD_CUDA_EXAMPLES` | build the GPU examples with CUDA (the toolchain becomes required) |
 | `CMAKE_CUDA_COMPILER` | CUDA compiler to use when `nvcc` is not in the `PATH` |
-| `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset) |
+| `CMAKE_CUDA_ARCHITECTURES` | target GPU architectures (`native` if unset, with CMake 3.24 or newer) |
 | `TDLS_BUILD_HIP_EXAMPLES` | build the GPU examples with HIP (the toolchain becomes required) |
 | `CMAKE_HIP_COMPILER` | HIP compiler of the AMD toolchain |
-| `CMAKE_HIP_ARCHITECTURES` | target GPU architectures (the compiler default if unset) |
+| `CMAKE_HIP_ARCHITECTURES` | target GPU architectures (CMake's default if unset: the GPUs that `rocm_agent_enumerator` reports, else the compiler default) |
 | `TDLS_BUILD_SYCL_EXAMPLES` | build the SYCL examples (a SYCL compiler such as `icpx` becomes required) |
 | `TDLS_SYCL_FLAGS` | SYCL flags of that compiler (`-fsycl` by default; add `-fsycl-targets=...` for AOT) |
 | `TDLS_BUILD_STDPAR_DEVICE_EXAMPLES` | build the parallel STL examples for a GPU (an offloading compiler becomes required) |
-| `TDLS_STDPAR_DEVICE_FLAGS` | offload flags of that compiler (`--acpp-stdpar`, `-stdpar=gpu`, `--hipstdpar` ...) |
-| `TDLS_BUILD_TFEL_SNIPPETS` | build the TFEL snippets of the documentation (TFEL becomes required, found by `find_package(TFELMath)`) |
+| `TDLS_STDPAR_DEVICE_FLAGS` | offload flags of that compiler (`--acpp-stdpar`, `-stdpar=gpu`, `--hipstdpar`, `-fsycl -fsycl-pstl-offload=gpu` ...) |
+| `TDLS_BUILD_TFEL_SNIPPETS` | build the TFEL snippets of the documentation (TFEL 5.2, the development version, or newer becomes required, found by `find_package(TFELMath)`) |
 
 ## Documentation
 
