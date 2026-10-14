@@ -17,10 +17,13 @@ the API may change between minor versions.
   multipliers of every block, border rows included
   (`condensation_pivot_threshold`); a refused block is eliminated with
   the border rows in a second pass, so that the solver succeeds
-  whenever the matrix is invertible. A compile-time shape solver and a
-  runtime shape one, bitwise identical; four storages (Full, Packed,
-  Csr, Bsr) addressed through `ArrowheadStorageMap`, without index
-  arrays at run time; dense or diagonal couplings; both layouts, each
+  whenever the matrix is invertible, rounding aside: a pivot below the
+  singular floor of TiledLUpp, zero or subnormal, counts as singular. A
+  compile-time shape solver and a runtime shape one, bitwise identical
+  when the compiler contracts multiply-adds alike in both
+  (`-ffp-contract=off`, or `--fmad=false` for nvcc, guarantees it); four
+  storages (Full, Packed, Csr, Bsr) addressed through
+  `ArrowheadStorageMap`, without index arrays at run time; dense or diagonal couplings; both layouts, each
   with its condensation path. Several right-hand sides through one
   condensation (`solve_inplace_multirhs`, `solve_multirhs`), each
   column bitwise identical to `solve_inplace` on it alone under the
@@ -28,8 +31,14 @@ the API may change between minor versions.
   the border block of the inverse by unit columns of the border
   (`solve_border_canonical_multirhs`), the tangent operator of a
   behaviour loaded through the border; it stores no recovery data, so
-  that without `schur_in_place` the matrix comes out unchanged. Tests,
-  documentation pages, snippets and examples.
+  that without `schur_in_place` the matrix comes out unchanged. The
+  stride between the columns of a block of right-hand sides,
+  `xcol_stride`, is a `std::size_t`, as in TiledLUpp. The runtime
+  solver checks the shape first, `valid(shape, nrhs)`, and returns
+  false on a shape it rejects. Headers
+  `tdls/solvers/arrowhead_lupp/{config,storage_map,solver_static,solver_dynamic}.hpp`,
+  included by `tdls/tdls.hpp`. Tests, documentation pages, snippets and
+  examples.
 - Streamed blocks in both ArrowheadLUpp solvers: the blocks come from a
   provider, called exactly once per block and in order when the solver
   condenses it, instead of a stored matrix (`solve_inplace_streamed`,
@@ -37,13 +46,14 @@ the API may change between minor versions.
   for the second pass without being asked for again. In a Newton
   iteration, `solve_inplace_streamed_or_tangent` asks `converged()`
   after the last block and then gives the tangent from the border
-  system the pass has just condensed, instead of the correction. The
-  results are bitwise identical to the stored entry points, and the
-  runtime solver to the compile-time one. The stored path is unchanged,
-  instruction for instruction: the streamed one is selected at compile
-  time. `streamed_out_of_line`, off by default, keeps the streamed
-  entry points out of line on GPU. Bridge suite (`-ffp-contract=off`),
-  documentation page and snippets.
+  system the pass has just condensed, instead of the correction; it
+  returns a `StreamedOutcome`. The results are those of the stored
+  entry points, and the runtime solver gives those of the compile-time
+  one, bit for bit when the compiler contracts multiply-adds alike in
+  the two paths. The streamed path is selected at compile time: the
+  stored entry points do not carry it. `streamed_out_of_line`, off by
+  default, keeps the streamed entry points of the compile-time solver
+  out of line on GPU. Bridge suite, documentation page and snippets.
 - `relative_pivot_threshold` in TiledLUppConfig, the knob of
   CooperativeLUpp applied to the diagonal tile: the row in place keeps
   the pivot when it reaches this fraction of the best in-tile candidate
@@ -56,17 +66,24 @@ the API may change between minor versions.
   (L^-1 P B, then U^-1; under the column-major layout U^-T B, then
   P^T L^-T), so that the caller can read or update the intermediate
   columns. In a row they match `substitute_inplace_multirhs` bit for bit.
-  It is built from the same sweeps; existing calls keep their results
-  and their speed.
+  `substitute_inplace_multirhs` is now built from the same sweeps;
+  existing calls keep their results and their speed.
 - `TDLS_FORCE_INLINE_ALL`, inlining forced on every backend, CPU
   included, for helpers factored out of a solver routine.
-- `TDLS_NO_INLINE`, keeping a rare path out of line on every backend.
+- `TDLS_NO_INLINE`, keeping a rare path out of line on every backend,
+  and `TDLS_NO_INLINE_GPU`, the same on GPU only, the pair of
+  `TDLS_FORCE_INLINE_GPU`.
+- A device suite of TiledLUppSolverDynamic with dimensions known at
+  compile time, built with the GPU example toolchain (see Fixed).
 
 ### Changed
 
-- `TDLS_FORCEINLINE` is renamed `TDLS_FORCE_INLINE_GPU`, the pair of
-  `TDLS_FORCE_INLINE_ALL`: the suffix says where the inlining is forced.
-  A command-line override of the macro must use the new name.
+- Breaking: `TDLS_FORCEINLINE` is renamed `TDLS_FORCE_INLINE_GPU`, the
+  pair of `TDLS_FORCE_INLINE_ALL`: the suffix says where the inlining
+  is forced. There is no alias: a command-line override of the macro,
+  or code that uses it, must use the new name. It now also forces the
+  inlining in the device pass of SYCL (`__SYCL_DEVICE_ONLY__`), as
+  under CUDA and HIP.
 - Element offsets in remote memory, index times stride, are computed in
   64-bit arithmetic (`TDLS_STRIDED`) by every solver. They were 32-bit:
   a batch over 2^32 elements, a SoA batch over 32 GiB of doubles on a
@@ -78,18 +95,42 @@ the API may change between minor versions.
   systems may exceed 2^31. Calls with an int compile unchanged. The
   runtime ArrowheadLUpp solver passes its column strides, block or
   border times the workspace stride, the same way.
-- TiledLUpp now keeps the row in place by default
+- Breaking: TiledLUpp now keeps the row in place by default
   (`relative_pivot_threshold` = 0.1). Fewer rows move, and the pivot
   arrays stay alike across the threads of a warp, whose pivot-driven
-  reads then hit the same offsets. The pivots, and the results in their
-  last bits, may differ from 0.2.0; a threshold of 1 restores the
-  previous choice, the largest in-tile candidate, bit for bit.
+  reads then hit the same offsets. The pivots, the factored matrix and
+  the last bits of the results may differ from 0.2.0; a threshold of 1
+  restores the previous choice, the largest in-tile candidate, bit for
+  bit. The new member sits between `oot_first_acceptable` and
+  `singular_floor`: a configuration built without designated
+  initializers must place it.
 - The test suites compile at `-O3` by default in the Release
   configuration, the level of the Release builds that use the library;
   it was `-O1`. `make check` and `spack install --test=root` thus check
-  the code that the optimizer transforms the most, for about 3.5 times
-  the compile time. `TDLS_TESTS_OPTIMIZATION=-O1` restores the previous
-  flag.
+  the code that the optimizer transforms the most, for a longer compile
+  time. `TDLS_TESTS_OPTIMIZATION=-O1` restores the previous
+  flag; a build tree configured before keeps its cached `-O1`, and MSVC
+  builds keep their own Release flags.
+- The solver suites and the documentation snippets compile with
+  `-ffp-contract=off` where the compiler knows the flag. They compare
+  code paths bit for bit, which a compiler contracting multiply-adds
+  differently in each path (GCC with `-march=native`) would separate in
+  the last bits.
+
+### Fixed
+
+- TiledLUppSolverDynamic gave wrong solutions on Blackwell GPUs
+  (sm_100 and later) compiled by nvcc when the caller passed a
+  dimension known at compile time, single and multiple right-hand
+  sides alike (issue #16). The defect is in the optimizer of nvcc for
+  these targets: every entry point now hides its dimensions from it
+  (`detail::runtime_dimension`, an empty assembly statement in the
+  device code of nvcc for `__CUDA_ARCH__` 1000 and later, nothing
+  elsewhere), so that the solver is compiled for a runtime dimension,
+  as it is meant to be. Other targets and compilers are unchanged.
+- The test suites failed when built with GCC and `-march=native`: their
+  bitwise comparisons now run without contraction of multiply-adds
+  (see Changed).
 
 ## [0.2.0] - 2026-10-11
 
