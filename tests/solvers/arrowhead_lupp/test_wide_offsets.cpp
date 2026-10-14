@@ -17,7 +17,9 @@
 /// Both solvers, both layouts. The runtime solver passes TiledLUpp the
 /// strides between the columns of its blocks, block or border times the
 /// workspace stride: with blocks of 3 and a workspace stride of 2^31 - 1,
-/// both pass 2^32, through the multi right-hand-side path.
+/// both pass 2^32, through the multi right-hand-side path. Both solvers
+/// take the column stride of a block of right-hand sides past 2^32, a
+/// std::size_t.
 
 #include <cstdint>
 #include <cstdio>
@@ -154,6 +156,74 @@ void wide_columns_case(const std::uint64_t seed) {
     TDLS_CHECK(tdls_tests::same_bits(Yr, Yw));
 }
 
+/// \brief Both solvers on a block of right-hand sides whose columns lie
+/// 5 * 2^30 entries apart, past 2^32: the column stride of the caller, a
+/// std::size_t, as in an SoA batch of many systems.
+/// \tparam col column-major layout
+/// \param[in] seed generator seed
+template<bool col>
+void wide_rhs_columns_case(const std::uint64_t seed) {
+    constexpr tdls::ArrowheadShape shape3{4, 3, 2, 1};
+    constexpr auto config = [] {
+        tdls::ArrowheadLUppConfig<double> c;
+        c.coupling = tdls::ArrowheadCoupling::Diagonal;
+        c.storage  = tdls::ArrowheadStorage::Packed;
+        c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+        return c;
+    }();
+    using Static       = tdls::ArrowheadLUppSolverStatic<double, shape3, config>;
+    using Dynamic      = tdls::ArrowheadLUppSolverDynamic<double, config>;
+    constexpr int nrhs = 2;
+    constexpr int n    = shape3.n();
+    const std::size_t column_stride =
+        static_cast<std::size_t>(tdls_tests::opaque(5)) * (std::size_t(1) << 30);
+
+    auto p = tdls_tests::make_arrow_problem<double>(shape3, true, tdls_tests::ArrowBlocks::Dominant,
+                                                    seed);
+    const auto M0 = tdls_tests::store_arrow<typename Dynamic::storage_map>(p);
+    std::vector<double> Y0(static_cast<std::size_t>(nrhs * n));
+    for (int m = 0; m < nrhs; ++m)
+        for (int i = 0; i < n; ++i)
+            Y0[static_cast<std::size_t>(m * n + i)] = p.b[static_cast<std::size_t>(i)] * (m + 1);
+
+    tdls_tests::HugeArena<double> Y(column_stride * (nrhs - 1) + n);
+    if (Y.data() == nullptr) {
+        std::printf("       not run: no lazily backed arena on this system\n");
+        return;
+    }
+    for (int round = 0; round < 2; ++round) {
+        const bool dynamic = round == 1;
+        auto Mr = M0, Mw = M0;
+        auto Yr = Y0;
+        for (int m = 0; m < nrhs; ++m)
+            for (int i = 0; i < n; ++i)
+                Y.data()[column_stride * m + i] = Y0[static_cast<std::size_t>(m * n + i)];
+        std::vector<double> w(
+            static_cast<std::size_t>(dynamic ? Dynamic::workspace_size(shape3, nrhs)
+                                             : Static::template multirhs_workspace_size<nrhs>));
+        std::vector<int> piv(static_cast<std::size_t>(Dynamic::pivot_size(shape3)));
+        int rr = 0, rw = 0;
+        bool okr = false, okw = false;
+        if (dynamic) {
+            okr = Dynamic::solve_inplace_multirhs(shape3, nrhs, Mr.data(), 1, piv.data(), 1,
+                                                  w.data(), 1, Yr.data(), 1, n, rr);
+            okw = Dynamic::solve_inplace_multirhs(shape3, nrhs, Mw.data(), 1, piv.data(), 1,
+                                                  w.data(), 1, Y.data(), 1, column_stride, rw);
+        } else {
+            okr = Static::template solve_inplace_multirhs<nrhs, false, false, false>(
+                Mr.data(), 1, w.data(), 1, Yr.data(), 1, n, rr);
+            okw = Static::template solve_inplace_multirhs<nrhs, false, false, false>(
+                Mw.data(), 1, w.data(), 1, Y.data(), 1, column_stride, rw);
+        }
+        TDLS_CHECK(okr && okw);
+        TDLS_CHECK(rr == rw);
+        TDLS_CHECK(tdls_tests::same_bits(Mr, Mw));
+        for (int m = 0; m < nrhs; ++m)
+            TDLS_CHECK_BITWISE(&Yr[static_cast<std::size_t>(m * n)], &Y.data()[column_stride * m],
+                               n);
+    }
+}
+
 } // namespace
 
 TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/rowmajor") {
@@ -167,6 +237,12 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/columns_rowmajor") {
 }
 TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/columns_colmajor") {
     wide_columns_case<true>(1200400);
+}
+TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/rhs_columns_rowmajor") {
+    wide_rhs_columns_case<false>(1200500);
+}
+TDLS_TEST_CASE("arrowheadlupp/bridge/wide_offsets/rhs_columns_colmajor") {
+    wide_rhs_columns_case<true>(1200600);
 }
 
 TDLS_TEST_MAIN

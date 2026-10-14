@@ -81,7 +81,8 @@ namespace tdls {
 /// fixed at compile time (0 otherwise): with one, m is ignored and the
 /// macro is TDLS_ARROW_LUPP_DYN_Y exactly.
 #define TDLS_ARROW_LUPP_DYN_YW(m, i)                                                               \
-    y[TDLS_STRIDED(i, rhs_stride) + (ycols == 1 ? std::size_t(0) : TDLS_STRIDED(m, xcol_stride))]
+    y[TDLS_STRIDED(i, rhs_stride) +                                                                \
+      (ycols == 1 ? std::size_t(0) : TDLS_STRIDED_WIDE(m, xcol_stride))]
 /// \def TDLS_ARROW_LUPP_DYN_W
 /// \brief Strided entry e of the workspace.
 #define TDLS_ARROW_LUPP_DYN_W(e) work[TDLS_STRIDED(e, work_stride)]
@@ -445,7 +446,7 @@ struct ArrowheadLUppSolverDynamic {
     solve_inplace_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                            const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
                            T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
-                           const int rhs_stride, const int xcol_stride,
+                           const int rhs_stride, const std::size_t xcol_stride,
                            int& refused_count) noexcept {
         return solve_core<0, false>(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, y,
                                     rhs_stride, xcol_stride, 0, refused_count);
@@ -471,7 +472,7 @@ struct ArrowheadLUppSolverDynamic {
     solve_inplace_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                            const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
                            T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
-                           const int rhs_stride, const int xcol_stride) noexcept {
+                           const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
         return solve_inplace_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride,
                                       y, rhs_stride, xcol_stride, refused_count);
@@ -502,7 +503,7 @@ struct ArrowheadLUppSolverDynamic {
     solve_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                    const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
                    T* TDLS_RESTRICT work, const int work_stride, const T* TDLS_RESTRICT b,
-                   T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
+                   T* TDLS_RESTRICT x, const int rhs_stride, const std::size_t xcol_stride,
                    int& refused_count) noexcept {
         if (!valid(shape, nrhs)) {
             refused_count = 0;
@@ -511,8 +512,8 @@ struct ArrowheadLUppSolverDynamic {
         const int n = shape.n();
         for (int m = 0; m < nrhs; ++m)
             for (int i = 0; i < n; ++i)
-                x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(m, xcol_stride)] =
-                    b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(m, xcol_stride)];
+                x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                    b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)];
         return solve_inplace_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride,
                                       x, rhs_stride, xcol_stride, refused_count);
     }
@@ -537,7 +538,8 @@ struct ArrowheadLUppSolverDynamic {
     solve_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
                    const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
                    T* TDLS_RESTRICT work, const int work_stride, const T* TDLS_RESTRICT b,
-                   T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride) noexcept {
+                   T* TDLS_RESTRICT x, const int rhs_stride,
+                   const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
         return solve_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, b, x,
                               rhs_stride, xcol_stride, refused_count);
@@ -568,7 +570,7 @@ struct ArrowheadLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs(
         const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
         int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
-        const int col0, T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride,
+        const int col0, T* TDLS_RESTRICT x, const int rhs_stride, const std::size_t xcol_stride,
         int& refused_count) noexcept {
         return solve_core<0, true>(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, x,
                                    rhs_stride, xcol_stride, col0, refused_count);
@@ -592,10 +594,12 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     xcol_stride element stride between columns of x
     /// \return false when the matrix is singular, or the shape rejected
     ///         (see valid)
-    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs(
-        const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
-        int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work, const int work_stride,
-        const int col0, T* TDLS_RESTRICT x, const int rhs_stride, const int xcol_stride) noexcept {
+    [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
+    solve_border_canonical_multirhs(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A,
+                                    const int A_stride, int* TDLS_RESTRICT piv,
+                                    const int piv_stride, T* TDLS_RESTRICT work,
+                                    const int work_stride, const int col0, T* TDLS_RESTRICT x,
+                                    const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
         return solve_border_canonical_multirhs(shape, nrhs, A, A_stride, piv, piv_stride, work,
                                                work_stride, col0, x, rhs_stride, xcol_stride,
@@ -723,7 +727,7 @@ struct ArrowheadLUppSolverDynamic {
         const ArrowheadShape& shape, const int nrhs, Provider&& provider, T* TDLS_RESTRICT A,
         const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
         const int work_stride, const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
-        const int xcol_stride, int& refused_count) noexcept {
+        const std::size_t xcol_stride, int& refused_count) noexcept {
         return solve_core<0, true>(shape, nrhs, A, A_stride, piv, piv_stride, work, work_stride, x,
                                    rhs_stride, xcol_stride, col0, refused_count, &provider);
     }
@@ -778,8 +782,8 @@ struct ArrowheadLUppSolverDynamic {
                                       int* TDLS_RESTRICT piv, const int piv_stride,
                                       T* TDLS_RESTRICT work, const int work_stride,
                                       T* TDLS_RESTRICT y, const int rhs_stride, const int col0,
-                                      T* TDLS_RESTRICT x, const int x_stride, const int xcol_stride,
-                                      int& refused_count) noexcept {
+                                      T* TDLS_RESTRICT x, const int x_stride,
+                                      const std::size_t xcol_stride, int& refused_count) noexcept {
         if (!valid(shape, ntan)) {
             refused_count = 0;
             return StreamedOutcome::singular;
@@ -848,7 +852,7 @@ struct ArrowheadLUppSolverDynamic {
             if (!ok) return StreamedOutcome::singular;
             for (int m = 0; m < ntan; ++m)
                 for (int r = 0; r < B; ++r)
-                    x[TDLS_STRIDED(r, x_stride) + TDLS_STRIDED(m, xcol_stride)] =
+                    x[TDLS_STRIDED(r, x_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
                         TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
             return StreamedOutcome::tangent;
         }
@@ -934,7 +938,7 @@ struct ArrowheadLUppSolverDynamic {
     solve_core(const ArrowheadShape& shape, const int nrhs, T* TDLS_RESTRICT A, const int A_stride,
                int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT work,
                const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-               [[maybe_unused]] const int xcol_stride, [[maybe_unused]] const int col0,
+               [[maybe_unused]] const std::size_t xcol_stride, [[maybe_unused]] const int col0,
                int& refused_count, Provider*... provider) noexcept {
         const int nc = NC > 0 ? NC : nrhs;
         if (!valid(shape, nc)) {
@@ -1038,7 +1042,7 @@ struct ArrowheadLUppSolverDynamic {
         for (int m = 0; m < nc; ++m)
             for (int r = 0; r < B; ++r) {
                 if constexpr (canonical)
-                    y[TDLS_STRIDED(r, rhs_stride) + TDLS_STRIDED(m, xcol_stride)] =
+                    y[TDLS_STRIDED(r, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
                         TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
                 else
                     TDLS_ARROW_LUPP_DYN_YW(m, r) = TDLS_ARROW_LUPP_DYN_W(o.rb + m * B + r);
@@ -1080,8 +1084,8 @@ struct ArrowheadLUppSolverDynamic {
     condense(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
              const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
              T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-             [[maybe_unused]] const int xcol_stride, const int k, [[maybe_unused]] const int nrhs,
-             const Streamed*... so) noexcept {
+             [[maybe_unused]] const std::size_t xcol_stride, const int k,
+             [[maybe_unused]] const int nrhs, const Streamed*... so) noexcept {
         constexpr bool streamed = sizeof...(Streamed) > 0;
         const int B = z.B, S = z.S;
         // Right-hand sides carried through the blocks.
@@ -1193,7 +1197,7 @@ struct ArrowheadLUppSolverDynamic {
         const ArrowheadShape& shape, const Sizes& z, const Offsets& o, const StreamedOffsets& so,
         T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
         T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-        [[maybe_unused]] const int xcol_stride, const int k, const int nrhs) noexcept {
+        [[maybe_unused]] const std::size_t xcol_stride, const int k, const int nrhs) noexcept {
         const int B = z.B, S = z.S;
         const int ny                         = canonical ? 0 : NC > 0 ? NC : nrhs;
         [[maybe_unused]] constexpr int ycols = NC;
@@ -1337,7 +1341,7 @@ struct ArrowheadLUppSolverDynamic {
               [[maybe_unused]] const Offsets& o, [[maybe_unused]] T* TDLS_RESTRICT A,
               [[maybe_unused]] const int A_stride, [[maybe_unused]] T* TDLS_RESTRICT work,
               [[maybe_unused]] const int work_stride, [[maybe_unused]] T* TDLS_RESTRICT y,
-              [[maybe_unused]] const int rhs_stride, [[maybe_unused]] const int xcol_stride,
+              [[maybe_unused]] const int rhs_stride, [[maybe_unused]] const std::size_t xcol_stride,
               const int r, const int c, const T v) noexcept {
         [[maybe_unused]] constexpr int ycols = NC;
         if constexpr (in_place) {
@@ -1385,7 +1389,7 @@ struct ArrowheadLUppSolverDynamic {
     condense_pass(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
                   const int A_stride, const int* TDLS_RESTRICT piv, const int piv_stride,
                   T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
-                  const int rhs_stride, [[maybe_unused]] const int xcol_stride, const int k,
+                  const int rhs_stride, [[maybe_unused]] const std::size_t xcol_stride, const int k,
                   const int c0, const int w, const bool solved, const Streamed*... so) noexcept {
         constexpr bool streamed              = sizeof...(Streamed) > 0;
         [[maybe_unused]] constexpr int ycols = NC;
@@ -1494,7 +1498,7 @@ struct ArrowheadLUppSolverDynamic {
     TDLS_HOST_DEVICE static constexpr void
     recover(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, const T* TDLS_RESTRICT A,
             const int A_stride, T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
-            const int rhs_stride, [[maybe_unused]] const int xcol_stride,
+            const int rhs_stride, [[maybe_unused]] const std::size_t xcol_stride,
             [[maybe_unused]] const int nrhs) noexcept {
         const int B = z.B, S = z.S, NB = z.NB, R = z.R;
         const int nc                         = NC > 0 ? NC : nrhs;
@@ -1586,7 +1590,8 @@ struct ArrowheadLUppSolverDynamic {
     TDLS_HOST_DEVICE TDLS_NO_INLINE static constexpr bool
     second_pass(const ArrowheadShape& shape, const Sizes& z, const Offsets& o, T* TDLS_RESTRICT A,
                 const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
-                T* TDLS_RESTRICT y, const int rhs_stride, [[maybe_unused]] const int xcol_stride,
+                T* TDLS_RESTRICT y, const int rhs_stride,
+                [[maybe_unused]] const std::size_t xcol_stride,
                 [[maybe_unused]] const int nrhs) noexcept {
         const int B = z.B, S = z.S, NB = z.NB, R = z.R, R0 = z.R0;
         const int front_rows = z.front_rows, front_cols = z.front_cols;

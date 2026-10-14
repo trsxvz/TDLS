@@ -152,7 +152,7 @@ namespace tdls {
 #define TDLS_ARROW_LUPP_YW(m, i)                                                                   \
     y[internal_rhs ? unsigned((ycols == 1 ? 0 : (m)) * dimension + (i))                            \
                    : TDLS_STRIDED(i, rhs_stride) +                                                 \
-                         (ycols == 1 ? std::size_t(0) : TDLS_STRIDED(m, xcol_stride))]
+                         (ycols == 1 ? std::size_t(0) : TDLS_STRIDED_WIDE(m, xcol_stride))]
 /// \def TDLS_ARROW_LUPP_W
 /// \brief Entry e of the workspace: contiguous under internal residency,
 /// strided otherwise.
@@ -432,7 +432,7 @@ struct ArrowheadLUppSolverStatic {
                                       T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                                       const int work_stride, T* TDLS_RESTRICT y,
                                       const int rhs_stride, const int col0, T* TDLS_RESTRICT x,
-                                      const int x_stride, const int xcol_stride,
+                                      const int x_stride, const std::size_t xcol_stride,
                                       int& refused_count) noexcept {
         static_assert(ntan >= 1 && ntan <= Shape.border,
                       "ArrowheadLUppSolverStatic: ntan must be in [1, border]");
@@ -506,11 +506,11 @@ struct ArrowheadLUppSolverStatic {
             if (!ok) return StreamedOutcome::singular;
             TDLS_ARROW_LUPP_FOR(
                 m, 0, ntan,
-                TDLS_ARROW_LUPP_FOR(
-                    r, 0, B,
-                    x[internal_rhs ? unsigned(m * B + r)
-                                   : TDLS_STRIDED(r, x_stride) + TDLS_STRIDED(m, xcol_stride)] =
-                        rt[m * B + r];))
+                TDLS_ARROW_LUPP_FOR(r, 0, B,
+                                    x[internal_rhs ? unsigned(m * B + r)
+                                                   : TDLS_STRIDED(r, x_stride) +
+                                                         TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                                        rt[m * B + r];))
             return StreamedOutcome::tangent;
         }
         T rb[B];
@@ -559,7 +559,7 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs_streamed(
         Provider&& provider, T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
         const int work_stride, const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
-        const int xcol_stride, int& refused_count) noexcept {
+        const std::size_t xcol_stride, int& refused_count) noexcept {
         static_assert(nrhs >= 1 && nrhs <= Shape.border,
                       "ArrowheadLUppSolverStatic: nrhs must be in [1, border]");
         if constexpr (Config.streamed_out_of_line)
@@ -700,7 +700,7 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                            const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                           const int xcol_stride, int& refused_count) noexcept {
+                           const std::size_t xcol_stride, int& refused_count) noexcept {
         static_assert(nrhs >= 1, "ArrowheadLUppSolverStatic: nrhs must be >= 1");
         return solve_core<nrhs, false, internal_rhs, internal_work, internal_matrix>(
             A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, 0, refused_count);
@@ -726,7 +726,7 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                            const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                           const int xcol_stride) noexcept {
+                           const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
         return solve_inplace_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
             A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused_count);
@@ -757,14 +757,15 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                    const int work_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
-                   const int rhs_stride, const int xcol_stride, int& refused_count) noexcept {
+                   const int rhs_stride, const std::size_t xcol_stride,
+                   int& refused_count) noexcept {
         for (int m = 0; m < nrhs; ++m)
             for (int i = 0; i < dimension; ++i) {
                 if constexpr (internal_rhs)
                     x[m * dimension + i] = b[m * dimension + i];
                 else
-                    x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(m, xcol_stride)] =
-                        b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED(m, xcol_stride)];
+                    x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                        b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)];
             }
         return solve_inplace_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
             A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, refused_count);
@@ -790,7 +791,7 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                    const int work_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
-                   const int rhs_stride, const int xcol_stride) noexcept {
+                   const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
         return solve_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
             A, A_stride, work, work_stride, b, x, rhs_stride, xcol_stride, refused_count);
@@ -836,7 +837,7 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_border_canonical_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                                     const int work_stride, const int col0, T* TDLS_RESTRICT x,
-                                    const int rhs_stride, const int xcol_stride,
+                                    const int rhs_stride, const std::size_t xcol_stride,
                                     int& refused_count) noexcept {
         static_assert(nrhs >= 1 && nrhs <= Shape.border,
                       "ArrowheadLUppSolverStatic: nrhs must be in [1, border]");
@@ -866,7 +867,7 @@ struct ArrowheadLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_border_canonical_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                                     const int work_stride, const int col0, T* TDLS_RESTRICT x,
-                                    const int rhs_stride, const int xcol_stride) noexcept {
+                                    const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
         return solve_border_canonical_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
             A, A_stride, work, work_stride, col0, x, rhs_stride, xcol_stride, refused_count);
@@ -883,7 +884,7 @@ struct ArrowheadLUppSolverStatic {
                                     const int A_stride, T* TDLS_RESTRICT work,
                                     const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                                     const int col0, T* TDLS_RESTRICT x, const int x_stride,
-                                    const int xcol_stride, int& refused_count) noexcept {
+                                    const std::size_t xcol_stride, int& refused_count) noexcept {
         return solve_inplace_streamed_or_tangent<ntan, internal_rhs, internal_work, internal_matrix,
                                                  Provider&, Converged&, true>(
             provider, converged, A, A_stride, work, work_stride, y, rhs_stride, col0, x, x_stride,
@@ -897,7 +898,7 @@ struct ArrowheadLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_NO_INLINE_GPU static constexpr bool
     solve_core_out_of_line(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                            const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                           const int xcol_stride, const int col0, int& refused_count,
+                           const std::size_t xcol_stride, const int col0, int& refused_count,
                            Provider* provider) noexcept {
         return solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix>(
             A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, col0, refused_count,
@@ -947,9 +948,9 @@ struct ArrowheadLUppSolverStatic {
              typename... Provider>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr bool
     solve_core(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
-               T* TDLS_RESTRICT y, const int rhs_stride, [[maybe_unused]] const int xcol_stride,
-               [[maybe_unused]] const int col0, int& refused_count,
-               Provider*... provider) noexcept {
+               T* TDLS_RESTRICT y, const int rhs_stride,
+               [[maybe_unused]] const std::size_t xcol_stride, [[maybe_unused]] const int col0,
+               int& refused_count, Provider*... provider) noexcept {
         constexpr bool streamed = sizeof...(Provider) > 0;
         // Right-hand sides carried through the blocks.
         constexpr int ny = canonical ? 0 : nc;
@@ -1043,11 +1044,11 @@ struct ArrowheadLUppSolverStatic {
         if constexpr (canonical) {
             TDLS_ARROW_LUPP_FOR(
                 m, 0, nc,
-                TDLS_ARROW_LUPP_FOR(
-                    r, 0, B,
-                    y[internal_rhs ? unsigned(m * B + r)
-                                   : TDLS_STRIDED(r, rhs_stride) + TDLS_STRIDED(m, xcol_stride)] =
-                        rb[m * B + r];))
+                TDLS_ARROW_LUPP_FOR(r, 0, B,
+                                    y[internal_rhs ? unsigned(m * B + r)
+                                                   : TDLS_STRIDED(r, rhs_stride) +
+                                                         TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                                        rb[m * B + r];))
         } else {
             TDLS_ARROW_LUPP_FOR(
                 m, 0, nc, TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_YW(m, r) = rb[m * B + r];))
@@ -1086,7 +1087,7 @@ struct ArrowheadLUppSolverStatic {
     template<int ny, bool internal_rhs, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     condense(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-             [[maybe_unused]] const int xcol_stride, const int k, T* TDLS_RESTRICT Sacc,
+             [[maybe_unused]] const std::size_t xcol_stride, const int k, T* TDLS_RESTRICT Sacc,
              T* TDLS_RESTRICT racc) noexcept {
         constexpr bool forward_check         = forward_check_for<ny>;
         [[maybe_unused]] constexpr int ycols = ny;
@@ -1182,8 +1183,9 @@ struct ArrowheadLUppSolverStatic {
     template<int ny, bool internal_rhs, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     condense_streamed(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y,
-                      const int rhs_stride, [[maybe_unused]] const int xcol_stride, const int k,
-                      T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc, StreamedBlock& blk) noexcept {
+                      const int rhs_stride, [[maybe_unused]] const std::size_t xcol_stride,
+                      const int k, T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc,
+                      StreamedBlock& blk) noexcept {
         constexpr bool forward_check         = forward_check_for<ny>;
         constexpr int cols                   = B + ny;
         [[maybe_unused]] constexpr int ycols = ny == 0 ? 1 : ny;
@@ -1317,7 +1319,7 @@ struct ArrowheadLUppSolverStatic {
     template<int ny, bool internal_rhs, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     condense_or_store_streamed(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y,
-                               const int rhs_stride, const int xcol_stride, const int k,
+                               const int rhs_stride, const std::size_t xcol_stride, const int k,
                                T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc,
                                StreamedBlock& blk) noexcept {
         constexpr bool forward_check = forward_check_for<ny>;
@@ -1357,7 +1359,7 @@ struct ArrowheadLUppSolverStatic {
     template<int ny, bool internal_rhs, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     store_block(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                [[maybe_unused]] const int xcol_stride, const int k,
+                [[maybe_unused]] const std::size_t xcol_stride, const int k,
                 const StreamedBlock& blk) noexcept {
         [[maybe_unused]] constexpr int ycols = ny == 0 ? 1 : ny;
         TDLS_ARROW_LUPP_FOR(
@@ -1492,8 +1494,8 @@ struct ArrowheadLUppSolverStatic {
     template<int ny, bool internal_rhs, bool internal_matrix>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     schur_sub(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-              [[maybe_unused]] const int xcol_stride, T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc,
-              const int r, const int c, const T v) noexcept {
+              [[maybe_unused]] const std::size_t xcol_stride, T* TDLS_RESTRICT Sacc,
+              T* TDLS_RESTRICT racc, const int r, const int c, const T v) noexcept {
         [[maybe_unused]] constexpr int ycols = ny;
         if constexpr (in_place) {
             if (c < B)
@@ -1541,10 +1543,11 @@ struct ArrowheadLUppSolverStatic {
              typename... Streamed>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     condense_pass(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                  [[maybe_unused]] const int xcol_stride, const int k, const T* TDLS_RESTRICT Dl,
-                  const int* TDLS_RESTRICT pl, const T* TDLS_RESTRICT acoef,
-                  const T* TDLS_RESTRICT Mb, T* TDLS_RESTRICT Sacc, T* TDLS_RESTRICT racc,
-                  T* TDLS_RESTRICT Wsolved, const Streamed* TDLS_RESTRICT... blk) noexcept {
+                  [[maybe_unused]] const std::size_t xcol_stride, const int k,
+                  const T* TDLS_RESTRICT Dl, const int* TDLS_RESTRICT pl,
+                  const T* TDLS_RESTRICT acoef, const T* TDLS_RESTRICT Mb, T* TDLS_RESTRICT Sacc,
+                  T* TDLS_RESTRICT racc, T* TDLS_RESTRICT Wsolved,
+                  const Streamed* TDLS_RESTRICT... blk) noexcept {
         constexpr bool streamed = sizeof...(Streamed) > 0;
         constexpr int cols      = B + ny;
         constexpr int w         = cols - c0 < pass_width_for<ny> ? cols - c0 : pass_width_for<ny>;
@@ -1645,7 +1648,7 @@ struct ArrowheadLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     recover(const T* TDLS_RESTRICT A, const int A_stride, const T* TDLS_RESTRICT work,
             const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-            [[maybe_unused]] const int xcol_stride, const unsigned* TDLS_RESTRICT refused,
+            [[maybe_unused]] const std::size_t xcol_stride, const unsigned* TDLS_RESTRICT refused,
             const T* TDLS_RESTRICT rb) noexcept {
         constexpr int fcols                  = front_cols_for<nc>;
         [[maybe_unused]] constexpr int ycols = nc;
@@ -1745,8 +1748,9 @@ struct ArrowheadLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_NO_INLINE static constexpr bool
     second_pass(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                 const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
-                [[maybe_unused]] const int xcol_stride, const unsigned* TDLS_RESTRICT refused,
-                T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb, const T singular_floor) noexcept {
+                [[maybe_unused]] const std::size_t xcol_stride,
+                const unsigned* TDLS_RESTRICT refused, T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb,
+                const T singular_floor) noexcept {
         constexpr int fcols                  = front_cols_for<nc>;
         [[maybe_unused]] constexpr int ycols = nc;
         // First column of the right-hand sides in the front.
