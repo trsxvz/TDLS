@@ -32,8 +32,7 @@ size. On GPU, the consecutive threads then read consecutive addresses.
 
 Blocks of 2 interleaved systems, the batch padded to whole blocks: the
 stride is 2. On GPU, blocks of 32 systems keep the reads of a warp
-coalesced and each system within a few pages; measured on an RTX 5080,
-up to 23 % faster than the SoA batch.
+coalesced and each system within a few pages.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/batch_aosoa.cpp
 :language: cpp

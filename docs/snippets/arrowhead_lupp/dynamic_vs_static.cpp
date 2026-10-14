@@ -1,5 +1,6 @@
 /// \file
-/// \brief Documentation snippet: the runtime and compile-time solvers agree bit for bit.
+/// \brief Documentation snippet: the runtime and compile-time solvers agree bit for bit
+/// when the compiler contracts multiply-adds alike in both.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -36,7 +37,8 @@ int main() {
     const bool ok_dynamic =
         Dynamic::solve_inplace(shape, Md, 1, piv.data(), 1, wd.data(), 1, yd, 1);
 
-    // the same arithmetic: the same bits, second pass included
+    // the same arithmetic: the same bits when the compiler contracts multiply-adds alike,
+    // second pass included
     const bool same = std::memcmp(ys, yd, sizeof(ys)) == 0;
     // snippet end
 

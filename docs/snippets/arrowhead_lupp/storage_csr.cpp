@@ -27,7 +27,8 @@ int main() {
     int row_ptr[n + 1], col_idx[Solver::storage_size];
     Map::csr_pattern(shape, row_ptr, col_idx);
 
-    // the values in that order: any CSR matrix of this pattern is already in the storage
+    // the values in that order: a CSR matrix with these arrays (columns in increasing order, the
+    // zeros of the blocks stored) is already in the storage
     double values[Solver::storage_size];
     for (int r = 0; r < n; ++r)
         for (int e = row_ptr[r]; e < row_ptr[r + 1]; ++e)

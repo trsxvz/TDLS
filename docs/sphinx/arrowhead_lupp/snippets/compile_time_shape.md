@@ -1,10 +1,11 @@
 # Compile-time shape
 
-`ArrowheadLUppSolverStatic` on the 6 x 6 system, one snippet per entry
-point, on CPU. Its couplings are diagonal, the matrix stored Packed:
-the entries of the pattern only, written through the storage map by
-`store` (see {doc}`storages`). The calls are the same in a GPU kernel,
-see {doc}`getting_started`.
+`ArrowheadLUppSolverStatic` on the 6 x 6 system, one snippet per stored
+entry point, on CPU (the streamed ones are on {doc}`streamed_blocks`).
+Its couplings are diagonal, the matrix stored Packed: the entries of
+the pattern only, written through the storage map by `store` (see
+{doc}`storages`). The calls are the same in a GPU kernel, see
+{doc}`getting_started`.
 
 ## Solve in place
 
@@ -54,12 +55,14 @@ $$
 :dedent: 4
 ```
 
-## Solve a block in place
+## Several right-hand sides in place
 
 The two columns of Y ride one condensation: each block solves its
 coupling columns and both right-hand sides together, the border
-system two columns. Each column of X comes out bit for bit as
-`solve_inplace` gives it alone. The workspace holds
+system two columns. Under the default `rhs_pass_width`, used here,
+each column of X comes out bit for bit as `solve_inplace` gives it
+alone (within rounding errors under another), when the compiler
+contracts multiply-adds alike in the two paths. The workspace holds
 `multirhs_workspace_size<2>` entries.
 
 $$
@@ -86,7 +89,7 @@ $$
 :dedent: 4
 ```
 
-## Solve a block with two buffers
+## Several right-hand sides with two buffers
 
 `solve_multirhs` copies the columns of Y into X and solves in place:
 Y stays as it was.
@@ -117,10 +120,10 @@ $$
 
 ## One canonical column of the border
 
-The right-hand side is the unit column $e_1$ of the border. It vanishes
-on the blocks, which are condensed without right-hand side, and nothing
-is recovered. The result is column 1 of the border block of $A^{-1}$,
-border rows only.
+The right-hand side is the unit column $e_1$ of the border, indices
+from 0: the second one. It vanishes on the blocks, which are condensed
+without right-hand side, and nothing is recovered. The result is the
+second column of the border block of $A^{-1}$, border rows only.
 
 $$
 A = \left(\begin{array}{cc|cc|cc}
@@ -141,7 +144,7 @@ $$
 :dedent: 4
 ```
 
-## A block of canonical columns of the border
+## Several canonical columns of the border
 
 Every unit column of the border through one condensation: the whole
 border block of $A^{-1}$, the inverse of the Schur complement of the

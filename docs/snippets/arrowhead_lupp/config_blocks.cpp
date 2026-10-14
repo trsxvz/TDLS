@@ -18,12 +18,12 @@ int main() {
         y[i] = b[i];
 
     // snippet begin
-    // the blocks: TiledLUpp in tiles of 1, the row in place kept down to 0.5 of the best
-    // in-tile candidate; the border system: TiledLUpp in tiles of 2
+    // the blocks: TiledLUpp in tiles of 2, a whole block, the row in place kept down to 0.5 of
+    // the best in-tile candidate; the border system: TiledLUpp in tiles of 2
     constexpr auto config =
         tdls::ArrowheadLUppConfig<double>{.coupling        = tdls::ArrowheadCoupling::Diagonal,
                                           .storage         = tdls::ArrowheadStorage::Packed,
-                                          .block_tile_size = 1,
+                                          .block_tile_size = 2,
                                           .block_relative_pivot_threshold = 0.5,
                                           .block_oot_pivot_threshold      = 1e-10,
                                           .border_tile_size               = 2};

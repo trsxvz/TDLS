@@ -22,9 +22,9 @@
 /// columns:
 ///   - Full: (r, c) at r * n + c, or c * n + r;
 ///   - Packed: Abb, then the couplings (border x block per block, or one
-///     entry per block row under the diagonal coupling), then the A_kb
-///     (block x border each), then the D_k (block x block each), every
-///     stored block by rows or by columns;
+///     entry per unknown of the block under the diagonal coupling), then
+///     the A_kb (block x border each), then the D_k (block x block each),
+///     every stored block by rows or by columns;
 ///   - Csr: border row r holds Abb(r, :) then its coupling entries; block
 ///     row (k, i) holds A_kb(i, :) then D_k(i, :). CSC: border column c
 ///     holds Abb(:, c) then A_kb(:, c) of every block; block column (k, j)

@@ -31,15 +31,17 @@
 ///     the provider writes every entry of the block, zeros included, and
 ///     the solver factors and solves it;
 ///     the streamed entry points need streamed_workspace_size(shape)
-///     entries, the areas of the block after those of the stored path.
+///     entries: the block is written where the stored path copies it, and
+///     A_bk under the dense coupling and the copies that restore a refused
+///     block come after the areas of the stored path.
 ///     The provider must not throw: the entry points are noexcept.
 ///
 /// For equal shapes and configurations, the results are bitwise identical
 /// to the compile-time solver: the arithmetic sequence is the same, only
 /// the addressing and the loop mechanics differ. A compiler that fuses
-/// multiplications and additions differently in the two (gcc with
-/// -march=native does) changes the last bits; -ffp-contract=off keeps them
-/// identical.
+/// multiplications and additions differently in the two (GCC with
+/// -march=native does) changes the last bits. -ffp-contract=off
+/// (--fmad=false for nvcc) keeps them identical.
 ///
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (shapes unknown at compile time, faster builds).
@@ -419,11 +421,11 @@ struct ArrowheadLUppSolverDynamic {
 
     /// \brief Solves A X = Y in place for nrhs right-hand sides, counting
     /// the refused blocks. The right-hand sides ride along the
-    /// condensation, which runs once. Column m comes out bitwise identical
-    /// to solve_inplace on it alone under the default rhs_pass_width,
-    /// within rounding errors under another (see
-    /// ArrowheadLUppConfig::rhs_pass_width), and bitwise identical to the
-    /// compile-time solver.
+    /// condensation, which runs once. Column m comes out bitwise identical to
+    /// solve_inplace on it alone under the default rhs_pass_width, within
+    /// rounding errors under another (see ArrowheadLUppConfig::rhs_pass_width),
+    /// and bitwise identical to the compile-time solver (the same contraction
+    /// of multiply-adds assumed, see the file documentation).
     /// \param[in]     shape         shape of the matrix (valid)
     /// \param[in]     nrhs          number of right-hand sides, >= 1
     /// \param[in,out] A             matrix in its storage (pattern entries
@@ -609,11 +611,12 @@ struct ArrowheadLUppSolverDynamic {
     /// \brief Block k of a streamed solve: a view of the areas of the
     /// workspace where the solver factors and solves the block, which the
     /// caller fills through the accessors when the solver asks for it; the
-    /// factorization and the solve then run in place, without a copy. The
-    /// accessors are those of ArrowheadLUppSolverStatic::StreamedBlock, so
-    /// that one provider serves both solvers. Entries in logical order
-    /// whatever the layout and the storage. The areas hold the previous
-    /// block: the caller writes every entry, zeros included, by assignment.
+    /// factorization and the solve then run in place; only a save, after the
+    /// areas of the stored path, is copied to store a refused block as given.
+    /// The accessors are those of ArrowheadLUppSolverStatic::StreamedBlock, so
+    /// that one provider serves both solvers. Entries in logical order whatever
+    /// the layout and the storage. The areas hold the previous block: the
+    /// caller writes every entry, zeros included, by assignment.
     struct StreamedBlock {
         T* Dl;      ///< D_k in the layout of the factorization
         T* W;       ///< [A_kb | y_k], column c at c * S
@@ -666,11 +669,12 @@ struct ArrowheadLUppSolverDynamic {
     /// \brief Solves A x = y in place, the blocks streamed: provider(k, blk)
     /// fills block k (StreamedBlock) when the solver needs it, k = 0, 1, ...
     /// in order, exactly once, and the solver condenses it at once. The
-    /// caller writes beforehand only the border: A_bb in A and the border
-    /// rows of y. An accepted block leaves its recovery data in its storage;
-    /// a refused one is stored as given for the second pass. Bit for bit the
+    /// caller writes beforehand only the border: A_bb in A and the border rows
+    /// of y. An accepted block leaves its recovery data in its storage; a
+    /// refused one is stored as given for the second pass. Bit for bit the
     /// results of solve_inplace, and of
-    /// ArrowheadLUppSolverStatic::solve_inplace_streamed.
+    /// ArrowheadLUppSolverStatic::solve_inplace_streamed (the same contraction
+    /// of multiply-adds assumed, see the file documentation).
     /// \tparam Provider callable (int k, StreamedBlock& blk)
     /// \param[in]     shape         shape of the matrix (valid)
     /// \param[in]     provider      the source of the blocks
@@ -737,16 +741,17 @@ struct ArrowheadLUppSolverDynamic {
     /// provider may compute the residual meanwhile). When it returns false,
     /// the pass ends as solve_inplace_streamed (y holds the correction).
     /// When it returns true, the correction is not computed: the border
-    /// system condensed by the pass gives instead columns col0 .. col0 +
-    /// ntan - 1 of the border block of A^-1 in x (the consistent tangent of a
-    /// behaviour loaded through the border), refused blocks included. The
-    /// provider is called exactly once per block, in order, and converged()
-    /// once, after the last block. Bit for bit the results of
+    /// system condensed by the pass gives instead columns
+    /// col0 .. col0 + ntan - 1 of the border block of A^-1 in x (the consistent
+    /// tangent of a behaviour loaded through the border), refused blocks
+    /// included. The provider is called exactly once per block, in order, and
+    /// converged() once, after the last block. Bit for bit the results of
     /// solve_inplace_streamed and of
-    /// ArrowheadLUppSolverStatic::solve_inplace_streamed_or_tangent, and
-    /// those of solve_border_canonical_multirhs_streamed under the default
+    /// ArrowheadLUppSolverStatic::solve_inplace_streamed_or_tangent, and those
+    /// of solve_border_canonical_multirhs_streamed under the default
     /// rhs_pass_width (within rounding errors under another, see
-    /// ArrowheadLUppConfig::rhs_pass_width).
+    /// ArrowheadLUppConfig::rhs_pass_width), the same contraction of
+    /// multiply-adds assumed (see the file documentation).
     /// \tparam Provider  callable (int k, StreamedBlock& blk)
     /// \tparam Converged callable () returning bool
     /// \param[in]     shape         shape of the matrix (valid)

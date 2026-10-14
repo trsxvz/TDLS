@@ -25,8 +25,8 @@ int main() {
 
     double work[Solver::workspace_size]; // touched only when a block is refused
 
-    // <true, true, true>: y, work and A are local arrays, their strides the 1s. On exit, y holds
-    // the solution and A data of the solve; false means a singular matrix
+    // <true, true, true>: y, work and A are local arrays (their strides, here 1, are ignored). On
+    // exit, y holds the solution and A the recovery data; false means a singular matrix
     const bool ok = Solver::solve_inplace<true, true, true>(A, 1, work, 1, y, 1);
     // snippet end
 

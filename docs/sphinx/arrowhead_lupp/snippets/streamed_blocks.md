@@ -2,18 +2,22 @@
 
 The streamed entry points take the blocks from the caller, one at a
 time, when the solver condenses them: a provider, `provider(k, blk)`,
-writes block k through the accessors of `blk`, and the matrix is never
-stored whole. The caller stores beforehand only the border, $A_{bb}$
-and the border rows of y. See {doc}`../index` for the contract of the
-provider. The system is the 6 x 6 one of the other pages, its couplings
-diagonal, its storage Packed.
+writes block k through the accessors of `blk`, and the caller never
+writes the whole matrix. The storage keeps its full size: the caller
+stores beforehand only the border, $A_{bb}$ and the border rows of y,
+and the solver writes there the recovery data and the refused blocks.
+See {doc}`../index` for the contract of the provider. The system is
+the 6 x 6 one of the other pages, its couplings diagonal, its storage
+Packed.
 
 ## Solve in place, the blocks streamed
 
 The provider writes $D_k$, $A_{kb}$, the coupling of each unknown of the
 block (`coupling`, here; `abk(r, i)` under the dense coupling) and the
 rows of the right-hand side on the block. The result is bit for bit the
-one of `solve_inplace` on the stored matrix.
+one of `solve_inplace` on the stored matrix, the arithmetic being the
+same (see {doc}`../index` for the fusion of multiplications and
+additions).
 
 $$
 A = \left(\begin{array}{cc|cc|cc}
@@ -38,9 +42,11 @@ $$
 ## The border block of the inverse, the blocks streamed
 
 `solve_border_canonical_multirhs_streamed` gives columns of the border
-block of $A^{-1}$ as `solve_border_canonical_multirhs` does, bit for bit:
-the right-hand sides are unit columns of the border, so the provider
-does not write `y`, and only $A_{bb}$ is stored beforehand.
+block of $A^{-1}$ as `solve_border_canonical_multirhs` does, bit for bit
+(the same arithmetic; see {doc}`../index` for the fusion of
+multiplications and additions). The right-hand sides are unit columns
+of the border, so the provider does not write `y`, and only $A_{bb}$ is
+stored beforehand.
 
 $$
 (A^{-1})_{bb} = \frac{1}{16464}
@@ -62,7 +68,10 @@ asks `converged()` then: when it returns true, the border system the
 pass has just condensed gives columns of the border block of $A^{-1}$,
 the consistent tangent of a behaviour loaded through the border,
 instead of the correction. The blocks are not asked for again. The
-columns are those of `solve_border_canonical_multirhs`, bit for bit.
+columns are those of `solve_border_canonical_multirhs`, bit for bit
+under the default `rhs_pass_width` (within rounding errors under
+another). The storage, y and the provider `block` are those of the
+first snippet, set up before the markers.
 
 $$
 (A^{-1})_{bb} = \frac{1}{16464}
@@ -80,9 +89,10 @@ $$
 
 `ArrowheadLUppSolverDynamic` has the same entry points, the shape first.
 Its block is a view of the workspace, with the accessors of the
-compile-time solver: a generic lambda serves both. The workspace holds
-the areas of the block after those of the stored solve:
-`streamed_workspace_size(shape)` entries, or
+compile-time solver: a generic lambda serves both. The block is written
+where the stored solve copies it; $A_{bk}$ under the dense coupling and
+the copies that restore a refused block come after the areas of the
+stored solve: `streamed_workspace_size(shape)` entries, or
 `streamed_workspace_size(shape, nrhs)` for the canonical columns and
 the tangent.
 
@@ -105,8 +115,11 @@ sized for its 2 columns:
 
 A Newton iteration with the runtime solver: a pass that has not
 converged gives the correction in y, the pass that has gives the
-tangent in x. That pass has written intermediate values in y, the
-recovery data of its right-hand side: the correction is copied before.
+tangent in x. That pass writes intermediate values in y, the recovery
+data of its right-hand side, so the snippet copies the correction of
+the first pass before running the second. `border()` writes $A_{bb}$
+and the border rows of y before each pass, and `block` is the provider
+of the previous snippets.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/dynamic_streamed_tangent.cpp
 :language: cpp

@@ -23,6 +23,9 @@ int main() {
     using Solver = tdls::ArrowheadLUppSolverDynamic<double, config>;
 
     const tdls::ArrowheadShape runtime_shape{.border = 2, .block = 2, .blocks = 2};
+    // checked first: on a shape the solver rejects, the entry points return false, and
+    // workspace_size and pivot_size are 0
+    if (!Solver::valid(runtime_shape)) return 1;
 
     // the sizes follow the shape: storage, workspace, pivots
     std::vector<double> M(Solver::storage_map::size(runtime_shape));

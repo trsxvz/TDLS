@@ -40,9 +40,7 @@ $$
 Once the border unknowns $x_b$ are known, each block gives its own:
 $x_k = D_k^{-1} (y_k - A_{kb} x_b)$. This is static condensation. Its
 cost grows linearly with the number of blocks, where a dense LU of the
-whole matrix grows with $n^3$. On one CPU core, a border of 12 and
-blocks of 6 take about 0.19 µs per block, from 30 blocks to 9600
-($n = 57612$).
+whole matrix grows with $n^3$.
 
 **TiledLUpp does the dense work.** Each block is copied into a local
 array, in the order of its storage, and factored by a
@@ -60,8 +58,8 @@ TiledLUpp solvers.
 its own rows. The partial pivoting of the whole matrix would also
 consider the border rows that share the column. So each block is
 checked on its factors: every multiplier of its elimination, for its
-own rows ($L$) and for the border rows ($M = A_{bk} U^{-1}$), must stay
-below `1 / condensation_pivot_threshold` in magnitude, 100 by default.
+own rows ($L$) and for the border rows ($M = A_{bk} U^{-1}$), must not
+exceed `1 / condensation_pivot_threshold` in magnitude, 100 by default.
 A block that fails, a singular block among others, is refused and left
 untouched. This is a delayed pivot, in the words of the multifrontal
 solvers.
@@ -72,21 +70,30 @@ the workspace of the caller. The pivots are chosen over the $S$ rows of
 the block and the $B$ border rows, a row of the block preferred when it
 reaches `condensation_pivot_threshold` times the largest candidate. A
 border row may take a pivot; a row of the block then takes its place in
-the border, which keeps $B$ rows. A refused block never makes the solve
-fail: the solver succeeds whenever the whole matrix is invertible,
-rounding aside, and returns `false` on a singular matrix. The
-compile-time solver touches the workspace in this pass only; the
-runtime solver keeps all its temporaries there.
+the border, which keeps $B$ rows. A column whose largest candidate is
+zero or subnormal, below the `singular_floor` of TiledLUpp, makes the
+matrix singular, as in TiledLUpp; a row of the block below that floor
+is never preferred. A refused block never makes the solve fail: the
+solver succeeds whenever the whole matrix is invertible, rounding
+aside, and returns `false` on a singular matrix. The compile-time
+solver touches the workspace only when blocks are refused, in this
+pass and in their recovery; the runtime solver keeps all its
+temporaries there.
 
-**The recovery.** The border system solved, the blocks are recovered
-from the data the condensation left in place of $A_{kb}$ (and of $D_k$
-for a refused block), the last block first.
+**The recovery.** The border system solved, the blocks are recovered,
+the last one first. The condensation left their recovery data in place
+of $A_{kb}$ and $y_k$. A refused block also leaves data in place of
+$D_k$. Under the row-major layout with the dense coupling, every block
+does: its $U$ goes in the upper triangle of $D_k$.
 
 The solver reads the entries of the pattern only: the zeros outside the
 blocks are never read and need not be stored (see the storages below).
-Like TiledLUpp, it does not detect non-finite entries: they fail the
-pivot check and spread to the solution through the second pass. On
-exit, y holds the solution and A data of the solve.
+Like TiledLUpp, it does not detect non-finite entries: they spread to
+the solution. A non-finite multiplier fails the pivot check, and its
+block goes to the second pass. On
+exit, y holds the solution and A the recovery data (see above), with
+the Schur complement in its coupled border rows under
+`schur_in_place`; the other entries of A are only read.
 
 ## The layout picks the condensation path
 
@@ -111,7 +118,9 @@ knob: the choice costs nothing at run time.
   forward stage before anything is written, and completed by the
   backward stage, `backward_inplace_multirhs`. The check is the one of
   the elimination of $A^T$, as stable: a block may pass it in one layout
-  and fail it in the other.
+  and fail it in the other. This is the path of one pass, the default;
+  in several passes (`rhs_pass_width`), the check computes the border
+  multipliers apart and each pass runs the whole solve.
 
 ## Storages and couplings
 
@@ -124,7 +133,7 @@ layout and by columns under the column-major one.
 | `Full` | $n^2$ | the whole matrix, zeros included; only the pattern is read |
 | `Packed` | $B^2 + C + N_B S (B + S)$ | $A_{bb}$, then the couplings, then the $A_{kb}$, then the $D_k$, without index arrays |
 | `Csr` | $B^2 + C + N_B S (B + S)$ | compressed sparse rows (columns under `ColMajor`), border rows first |
-| `Bsr` | whole blocks of $S \times S$ | block sparse rows (columns); the border a multiple of $S$ |
+| `Bsr` | whole blocks of $S \times S$ | block sparse rows (columns); the border, and `coupling_row` under the diagonal coupling, multiples of $S$ |
 
 $C$ counts the couplings: $N_B S$ under the diagonal coupling, $N_B B S$
 under the dense one.
@@ -134,17 +143,20 @@ The couplings $A_{bk}$ take one of two patterns:
 - `Dense`, the default: every border row may touch every unknown of
   every block.
 - `Diagonal`: unknown $i$ of a block touches border row
-  `coupling_row + i` only, one entry per block row. This is the pattern
-  of a polycrystal, whose macroscopic strain averages the strains of
-  the phases: the solver then reads and updates $S$ border rows only.
+  `coupling_row + i` only, one entry per unknown of the block. This is
+  the pattern of a polycrystal, whose macroscopic strain averages the
+  strains of the phases: the solver then reads and updates $S$ border
+  rows only.
 
 The positions follow from the shape: the solver never reads an index
 array. `ArrowheadStorageMap` computes the index of every entry, so that
 the caller fills its matrix through it. For Csr and Bsr it writes the
-canonical index arrays, columns in increasing order and the zeros of
-the blocks included: a matrix assembled in these formats must follow
-them. Packed reads the fewest entries; on GPU the four storages run at
-the same speed, and on CPU Packed is the fastest, by up to 11 %.
+canonical index arrays, the minor indices (columns, or rows under
+`ColMajor`) in increasing order and the zeros of the blocks included: a
+matrix assembled in these formats must follow them. Packed and Csr
+store the fewest entries, the same number; Bsr stores as many under the
+dense coupling, and whole $S \times S$ coupling blocks under the
+diagonal one.
 
 ## Compile-time and runtime shape
 
@@ -165,14 +177,17 @@ runtime size: every temporary lives in the workspace, of
 `workspace_size(shape)` entries, and the pivots of the TiledLUpp solves
 in an int array of `pivot_size(shape)` entries. Every operand is a
 pointer plus a stride; there are no residency booleans and no unroll
-pragma. It is the flexibility path: shapes unknown at compile time,
-faster builds.
+pragma. The entry points check the shape first, `valid(shape, nrhs)`,
+and return `false` on a shape they reject, before any access; the
+sizes are 0 for it. It is the flexibility path: shapes unknown at
+compile time, faster builds.
 
 At equal shape and configuration, the two solvers execute the same
 arithmetic and produce bitwise identical results. A compiler that fuses
-multiplications and additions differently in the two (gcc with
-`-march=native` does) changes the last bits; build with
-`-ffp-contract=off` to compare them bit for bit.
+multiplications and additions differently in the two (GCC with
+`-march=native` does) changes the last bits. Build with
+`-ffp-contract=off` (`--fmad=false` for nvcc) to compare them bit for
+bit.
 
 ## Several right-hand sides
 
@@ -206,8 +221,7 @@ loaded through the border equations only, the macroscopic strain of a
 polycrystal for instance. `nrhs` is in [1, `border`].
 
 Six right-hand sides cost 1.2 to 2.9 times one, against 6 for six
-solves; six unit columns of the border cost 0.65 to 1.4 times one
-solve (polycrystals of 30 and 240 grains, dense couplings, Iwan
+solves (polycrystals of 30 and 240 grains, dense couplings, Iwan
 plasticity; both solvers, gcc and clang on CPU, an RTX 5080).
 
 ## Streamed blocks
@@ -227,7 +241,7 @@ solver condenses them:
 The contract of the provider:
 
 - The caller writes beforehand only the border: $A_{bb}$ in the storage
-  and the border rows of y.
+  and, but for the canonical columns, the border rows of y.
 - `provider(k, blk)` is called exactly once per block, for k = 0, 1,
   ... in order. It writes block k through the accessors of `blk`:
   `d(i, j)` for $D_k$, `akb(i, c)` for $A_{kb}$, `coupling(i)` (diagonal
@@ -251,25 +265,29 @@ The contract of the provider:
 
 A refused block is stored as the provider gave it, for the second pass.
 The arithmetic, the pivot check and the second pass are those of the
-stored solve: the results are bit for bit the same. A compiler that
-fuses multiplications and additions differently in the two code paths
-(gcc with `-march=native` does) changes the last bits; build with
-`-ffp-contract=off` to compare them bit for bit.
+stored solve: the results are bit for bit the same. The tangent of
+`solve_inplace_streamed_or_tangent` matches
+`solve_border_canonical_multirhs` bit for bit under the default
+`rhs_pass_width` (within rounding errors under another): the pass
+carries one more column through the blocks. A compiler that fuses
+multiplications and additions differently in the two code paths (GCC
+with `-march=native` does) changes the last bits. Build with
+`-ffp-contract=off` (`--fmad=false` for nvcc) to compare them bit for
+bit.
 
 `StreamedBlock` of the compile-time solver is made of the working arrays
-of the solver themselves: the factorization and the solve run in place,
-without a copy. The one of the runtime solver is a view of the
-workspace, with the same accessors, so that a generic lambda serves
-both solvers; its streamed entry points need
-`streamed_workspace_size(shape)` entries, or
+of the solver themselves: the factorization and the solve run in place.
+Only a save of the block is copied, $D_k$ and, in one column-major
+pass, $[A_{kb} \mid y_k]$, to store the block as given if it is
+refused. The one of the runtime solver is a view of the workspace, with
+the same accessors, so that a generic lambda serves both solvers; its
+streamed entry points need `streamed_workspace_size(shape)` entries, or
 `streamed_workspace_size(shape, nrhs)` for the canonical columns and
 the tangent.
 
-The two paths coexist: the stored entry points do not change. The
-streamed path is chosen at compile time (`if constexpr`), and the code
-of the stored path comes out the same, instruction for instruction
-(gcc 13 and clang 20 on CPU, nvcc 13 on GPU, against the solver without
-the streamed entry points).
+The streamed path is selected at compile time (`if constexpr`): the
+stored entry points keep their signatures, and their code is that of a
+solver without the streamed entry points.
 
 On GPU, the provider is compiled inside the loop of the solver: a call
 the compiler leaves out of line in it passes its arguments through the
@@ -289,13 +307,13 @@ individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 | `coupling` | `Dense` | pattern of the couplings $A_{bk}$, `Dense` or `Diagonal` |
 | `storage` | `Full` | storage of the matrix, `Full`, `Packed`, `Csr` or `Bsr` |
 | `layout` | `RowMajor` | order of the storage, `RowMajor` or `ColMajor`; picks the condensation path (see above) |
-| `condensation_pivot_threshold` | 0.01 | a block passes when no multiplier of its elimination exceeds the inverse; 0 refuses only the singular blocks; in [0, 1] |
+| `condensation_pivot_threshold` | 0.01 | a block passes when no multiplier of its elimination exceeds the inverse; 0 refuses only the singular blocks and those whose multipliers are not finite; in [0, 1] |
 | `block_tile_size` | 3 | tile size of TiledLUpp on the blocks |
-| `block_relative_pivot_threshold` | 0.01 | `relative_pivot_threshold` of TiledLUpp on the blocks: the rows of a block stay in place, and the reads of a warp stay coalesced |
+| `block_relative_pivot_threshold` | 0.01 | `relative_pivot_threshold` of TiledLUpp on the blocks: a row stays in place while its pivot reaches this fraction of the best in-tile candidate and `block_oot_pivot_threshold`, so that the pivot arrays stay alike across a warp and its reads stay coalesced |
 | `block_oot_pivot_threshold` | 1e-12 for `double` and `long double`<br>1e-6 for `float` | `oot_pivot_threshold` of TiledLUpp on the blocks, two orders below its default |
 | `border_tile_size` | 3 | tile size of TiledLUpp on the border system |
-| `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1]; 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there (8 % faster on a polycrystal of 240 grains); under the column-major layout, a width can move a block across the threshold of the pivot check, the results then differing by rounding errors |
-| `gather_rhs` | `false` | permutes the columns of a block by a gather into a second buffer instead of cycles in place; changes the register allocation, to measure per shape on GPU |
+| `rhs_pass_width` | 0 | columns $[A_{kb} \mid y_k]$ solved per pass, in [0, border + 1] for the compile-time solver (the runtime solver takes any width from 0, one pass above border + nrhs); 0 solves them all at once, the best on CPU; 2 is 18 to 28 % faster on GPU (RTX 5080) under the row-major layout with a border of 12, for the stored path; the streamed path, whose block is local, can prefer 0 there; under the column-major layout, a width can move a block across the threshold of the pivot check, the results then differing by rounding errors |
+| `gather_rhs` | `false` | permutes the rows of the columns $[A_{kb} \mid y_k]$ of a block by its pivots, through a gather into a second buffer instead of cycles in place; used only where the condensation runs the whole solve (row-major with the diagonal coupling, column-major in several passes); changes the register allocation, to measure per shape on GPU |
 | `schur_in_place` | `false` | accumulates the Schur complement in the border entries of A and y instead of a local array; fewer registers, more memory traffic |
 | `unroll_loops` | `true` | forced unrolling of the loops over the entries of a block and of the border, passed on to the TiledLUpp solvers; ignored by the runtime solver |
 | `streamed_out_of_line` | `false` | keeps the streamed entry points of the compile-time solver out of line on GPU (CUDA, HIP, SYCL), where the inliner may merge them into a large caller and allocate its registers worse; 19 % faster on a polycrystal of 240 grains (RTX 5080), to measure per provider; ignored elsewhere and by the runtime solver |
@@ -310,7 +328,8 @@ eliminated.
 
 ## Snippets
 
-One snippet per entry point, storage or knob. Each one is a complete
+One snippet per entry point, storage or knob, but
+`streamed_out_of_line`, which acts on GPU only. Each one is a complete
 program: the system it solves, then the code between the two markers of
 its source under `docs/snippets/arrowhead_lupp/`. ctest runs them all
 under the `snippets` label.
@@ -336,8 +355,8 @@ row $i$ only. The matrix, its variants and the batch of the batch pages
 are declared in `docs/snippets/common/arrow.hpp`, with `store`, which
 writes a full matrix in any storage through the map.
 
-The pages go from the simplest call to the storages, the knobs and the
-batches, CPU first, then GPU where it applies.
+The pages go from the simplest call to the storages, the knobs, the
+batches and the streamed blocks, CPU first, then GPU where it applies.
 
 ```{toctree}
 :maxdepth: 1

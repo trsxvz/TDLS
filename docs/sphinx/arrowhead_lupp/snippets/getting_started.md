@@ -23,7 +23,7 @@ The shape is a template argument: a border of 2, then 2 blocks of 2. The
 default configuration reads the full matrix, row-major, and accepts any
 coupling. The call takes the operands with their strides; the template
 booleans say where each one lives: `true` for a local array. The
-workspace serves the second pass only, when a block is refused.
+workspace is touched only when a block is refused.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/start_cpu.cpp
 :language: cpp

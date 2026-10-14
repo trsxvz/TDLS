@@ -118,9 +118,10 @@ struct ArrowheadLUppConfig {
     /// updates `block` border rows only.
     ArrowheadCoupling coupling = ArrowheadCoupling::Dense;
 
-    /// Storage of the matrix, see ArrowheadStorage. Packed holds the
-    /// pattern entries alone, without index arrays: the least memory, the
-    /// fastest on CPU, equal to Csr and Bsr on GPU.
+    /// Storage of the matrix, see ArrowheadStorage. Packed and Csr hold
+    /// the pattern entries alone, as many in both: the least memory. Bsr
+    /// holds as many under the dense coupling, whole coupling blocks under
+    /// the diagonal one.
     ArrowheadStorage storage = ArrowheadStorage::Full;
 
     /// Order of the stored matrix: by rows or by columns, for every
@@ -130,15 +131,15 @@ struct ArrowheadLUppConfig {
     /// that suits it (see solver_static.hpp).
     MatrixLayout layout = MatrixLayout::RowMajor;
 
-    /// Threshold of the pivot check of the condensation, in [0, 1]. A
-    /// block is eliminated before the border, its pivots chosen among its
-    /// own rows only. Each pivot must reach this fraction of the largest
-    /// candidate of its column, the border rows included, so that no
-    /// multiplier exceeds 1 / condensation_pivot_threshold in magnitude.
-    /// A block that fails is refused (a delayed pivot, as in multifrontal
-    /// solvers) and eliminated in the second pass, where the border rows
-    /// may serve as pivots. 0 refuses only the singular blocks. The second
-    /// pass prefers a row of the block as pivot when it reaches this
+    /// Threshold of the pivot check of the condensation, in [0, 1]. A block is
+    /// eliminated before the border, its pivots chosen among its own rows only.
+    /// Each pivot must reach this fraction of the largest candidate of its
+    /// column, the border rows included, so that no multiplier exceeds 1 /
+    /// condensation_pivot_threshold in magnitude. A block that fails is refused
+    /// (a delayed pivot, as in multifrontal solvers) and eliminated in the
+    /// second pass, where the border rows may serve as pivots. 0 refuses only
+    /// the singular blocks and those whose multipliers are not finite. The
+    /// second pass prefers a row of the block as pivot when it reaches this
     /// fraction of the largest candidate.
     ///
     /// On the jacobians of an implicit Berveiller-Zaoui polycrystal, 0.01
@@ -172,20 +173,21 @@ struct ArrowheadLUppConfig {
     int border_tile_size = 3;
 
     /// Right-hand sides [A_kb | y_k] of a block solved per pass, in
-    /// [0, border + 1]; 0 solves all border + 1 at once. One pass is the
-    /// best on CPU, where passes cost 13 to 170 %. Under the row-major
-    /// layout, small passes keep fewer values alive on GPU: with a border
-    /// of 12, passes of 2 are 18 to 28 % faster, 4 % with a border of 6
-    /// (RTX 5080). Under the column-major layout they gain nothing: one
-    /// pass reads the pivot check from the forward stage of the solve,
-    /// several need U and a separate check. The two order the operations
-    /// differently once a block spans several tiles: a block whose largest
-    /// multiplier lies within rounding of 1 / condensation_pivot_threshold
-    /// can pass the check in one pass and fail it in several, and the
-    /// solutions then differ by rounding errors. A nonzero width can also
-    /// give one pass to an entry point and several to another, whose
-    /// right-hand sides add columns; with 0, every entry point runs one
-    /// pass and the same check.
+    /// [0, border + 1] for the compile-time solver (the runtime solver
+    /// takes any width from 0, a width above border + nrhs meaning one
+    /// pass); 0 solves all border + 1 at once. One pass is the best on
+    /// CPU. Under the row-major layout, small passes keep fewer values
+    /// alive on GPU: with a border of 12, passes of 2 are 18 to 28 %
+    /// faster, 4 % with a border of 6 (RTX 5080). Under the column-major
+    /// layout they gain nothing: one pass reads the pivot check from the
+    /// forward stage of the solve, several need U and a separate check.
+    /// The two order the operations differently once a block spans
+    /// several tiles: a block whose largest multiplier lies within
+    /// rounding of 1 / condensation_pivot_threshold can pass the check in
+    /// one pass and fail it in several, and the solutions then differ by
+    /// rounding errors. A nonzero width can also give one pass to an entry
+    /// point and several to another, whose right-hand sides add columns;
+    /// with 0, every entry point runs one pass and the same check.
     int rhs_pass_width = 0;
 
     /// Permutes the right-hand sides of a block by its pivots through a

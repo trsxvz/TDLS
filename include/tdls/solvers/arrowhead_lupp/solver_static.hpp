@@ -26,8 +26,8 @@
 /// Algorithm. First pass, per block k:
 ///   1. D_k is copied into a local array and factored by TiledLUpp, a
 ///      TiledLUppSolverStatic of dimension S.
-///   2. The pivots are checked on the factors: every multiplier of the
-///      elimination of the block stays below 1 / condensation_pivot_threshold,
+///   2. The pivots are checked on the factors: no multiplier of the
+///      elimination of the block exceeds 1 / condensation_pivot_threshold,
 ///      for its own rows (L) and for the border rows that share its
 ///      columns (M = Cb U^-1). A block that fails, singular included, is
 ///      refused and left untouched for the second pass.
@@ -37,8 +37,10 @@
 /// Second pass, only when blocks were refused, in the workspace: each
 /// refused block is eliminated together with the border rows, by partial
 /// pivoting over its S rows and the B border rows. A border row may serve
-/// as pivot; a row of the block then takes its place in the border. The
-/// border keeps B rows whatever the number of refused blocks. Its rows
+/// as pivot; a row of the block then takes its place in the border. A
+/// column whose best candidate falls below BlockSolver::singular_floor,
+/// zero or subnormal, makes the matrix singular. The border keeps B rows
+/// whatever the number of refused blocks. Its rows
 /// carry their couplings to the refused blocks still to come through a
 /// mixing matrix T (B x S under the diagonal coupling, B x B otherwise).
 /// Each refused block leaves x_k = c_k - G_k xb - H_k w, where w gathers
@@ -91,10 +93,12 @@
 /// the border, and the provider writes every entry of the block, zeros
 /// included, in the working arrays of the solver (StreamedBlock). A
 /// refused block is stored as given for the second pass. The arithmetic
-/// is that of the stored path, bit for bit. The streamed path is selected
-/// at compile time: the stored entry points keep their signatures and
-/// their code. The entry points are noexcept: the provider must not
-/// throw.
+/// is that of the stored path, bit for bit when the compiler contracts
+/// multiply-adds alike in the two paths (-ffp-contract=off, or
+/// --fmad=false for nvcc, guarantees it; GCC with -march=native does
+/// not). The streamed path is selected at compile time: the stored entry
+/// points keep their signatures and their code. The entry points are
+/// noexcept: the provider must not throw.
 
 
 
@@ -301,7 +305,9 @@ struct ArrowheadLUppSolverStatic {
     /// \brief Block k of a streamed solve: the working arrays of the
     /// solver themselves, which the caller fills through the accessors when
     /// the solver asks for the block; the factorization and the solve then
-    /// run in place, without a copy. Entries in logical order whatever the
+    /// run in place. Only a save is copied (D_k, and [A_kb | y_k] when the
+    /// column-major check reads the forward stage), to store a refused
+    /// block as given. Entries in logical order whatever the
     /// layout and the storage. The arrays come uninitialized: the caller
     /// writes every entry, zeros included, by assignment.
     struct StreamedBlock {
@@ -346,7 +352,8 @@ struct ArrowheadLUppSolverStatic {
     /// accepted block leaves its recovery data in its storage; a refused one
     /// is stored as given for the second pass (the provider is called
     /// exactly once per block): the arithmetic, the pivot check and the
-    /// second pass are those of solve_inplace, bit for bit.
+    /// second pass are those of solve_inplace, bit for bit under the same
+    /// contraction of multiply-adds (see the file documentation).
     /// \tparam internal_rhs    y is a caller-local array (stride ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)

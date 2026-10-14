@@ -1,7 +1,9 @@
 # Configuration
 
-The knobs of `ArrowheadLUppConfig`, one snippet each, on the system of
-the other pages unless the snippet says otherwise.
+The knobs of `ArrowheadLUppConfig`, on the system of the other pages
+unless the snippet says otherwise. The coupling and the storage are on
+{doc}`storages`; the four knobs of the TiledLUpp solvers share one
+snippet, and `streamed_out_of_line` has none (see the last section).
 
 $$
 A = \left(\begin{array}{cc|cc|cc}
@@ -70,7 +72,9 @@ $$
 
 ## The TiledLUpp solvers of the blocks and of the border
 
-Their tile sizes and the two thresholds of the blocks.
+Their tile sizes and the two thresholds of the blocks. The tiles of 2
+hold a whole block, so that the relative threshold chooses among both
+rows of a column.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/config_blocks.cpp
 :language: cpp
@@ -92,7 +96,10 @@ The columns $[A_{kb} \mid y_k]$ of a block solved two at a time.
 
 ## Gather
 
-The pivots of a block applied to its columns by a gather.
+The pivots of a block applied to the rows of its columns
+$[A_{kb} \mid y_k]$ by a gather. The knob acts only where the
+condensation runs the whole solve, here the row-major layout with the
+diagonal coupling.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/config_gather.cpp
 :language: cpp
@@ -134,3 +141,11 @@ values.
 :end-before: // snippet end
 :dedent: 4
 ```
+
+## Streamed entry points out of line
+
+`streamed_out_of_line` keeps the streamed entry points of the
+compile-time solver out of line on GPU (CUDA, HIP, SYCL device code),
+where the provider is compiled inside the loop over the blocks. It is
+ignored elsewhere and by the runtime solver, so it has no CPU snippet;
+see {doc}`streamed_blocks` for these entry points.

@@ -3,7 +3,7 @@
 The same system in the four storages, then with dense couplings. Under
 the diagonal coupling, the first unknown of each block touches the first
 border row only, and the second unknown the second row: one coupling
-entry per block row.
+entry per unknown of the block.
 
 $$
 A = \left(\begin{array}{cc|cc|cc}
@@ -33,7 +33,7 @@ entries of the pattern only.
 ## Packed
 
 The entries of the pattern only: $A_{bb}$, the couplings, the $A_{kb}$,
-then the $D_k$. The storage map gives the index of every entry, the
+then the $D_k$. The storage map gives the index of every entry: the
 loop below does by hand what `store` does in the other snippets.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/storage_packed.cpp
@@ -46,9 +46,9 @@ loop below does by hand what `store` does in the other snippets.
 ## Csr
 
 The canonical CSR arrays of the pattern, written by `csr_pattern`: a
-CSR matrix of this pattern, assembled elsewhere, is already in the
-storage. The solver reads the values only; it never reads the index
-arrays.
+CSR matrix assembled elsewhere with these arrays (columns in increasing
+order, the zeros of the blocks stored) is already in the storage. The
+solver reads the values only; it never reads the index arrays.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/storage_csr.cpp
 :language: cpp
