@@ -10,7 +10,8 @@ same in a GPU kernel and in a group of threads, see
 ## Factorize, then substitute
 
 One factorization, two right-hand sides. The matrix holds the factors
-on exit, the pivot array the position of each row.
+on exit, the pivot array the position of each row of S, a column of A
+under the default row-major layout.
 
 $$
 A = \begin{pmatrix}
@@ -111,7 +112,7 @@ A x = e_2, \quad A = \begin{pmatrix}
 1 & 5 & 1 & 0 \\
 0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
-\end{pmatrix}
+\end{pmatrix}, \quad e_2 = \begin{pmatrix} 0 \\ 0 \\ 1 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/static_canonical.cpp
@@ -166,7 +167,7 @@ $$
 ## Newton iteration, then tangent columns
 
 The MFront pattern on a small nonlinear system. Each iteration builds
-a fresh jacobian and solves in place: the right-hand side becomes the
+a fresh Jacobian and solves in place: the right-hand side becomes the
 Newton step. At the solution, one factorization serves the tangent
 columns.
 

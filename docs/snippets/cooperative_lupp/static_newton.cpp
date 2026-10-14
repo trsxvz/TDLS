@@ -54,7 +54,7 @@ int main() {
         residual(A, c, x, r);
         jacobian(A, x, J);
 
-        // one solve in place per iteration, on a fresh jacobian: r becomes the Newton step
+        // one solve in place per iteration, on a fresh Jacobian: r becomes the Newton step
         if (!Solver::solve_inplace<true, true, true>(0, J, 1, piv, 1, r, 1, work)) return 1;
 
         double step = 0;

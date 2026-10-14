@@ -17,10 +17,11 @@ $$
 ## On CPU
 
 One thread solves the system: `rows_per_thread` = 4, as many rows as
-the dimension. Every entry point takes the rank of the thread first,
-here 0, then the operands with their strides, then `work`, the scratch
-space of the solver. The template booleans say where each operand
-lives: `true` for an array local to the thread.
+the dimension. Every entry point of the compile-time solver takes the
+rank of the thread first, here 0, then the operands with their
+strides, then `work`, the scratch space of the solver. The template
+booleans say where each operand lives: `true` for an array local to
+the thread.
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/start_cpu.cpp
 :language: cpp

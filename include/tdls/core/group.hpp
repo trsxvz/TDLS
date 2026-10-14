@@ -32,18 +32,18 @@
 ///     one wavefront (AMD). On entry, the lanes that run together match
 ///     the address of their workspace, and the group must find all its
 ///     threads among them. An incomplete group stops the program with a
-///     message, before any data is exchanged, and so does a workspace in
-///     the private memory of each thread: neither yields a wrong result
-///     or a deadlock. The barrier then involves exactly the lanes of the
-///     group.
+///     message (under SYCL, without one), before any data is exchanged,
+///     and so does a workspace in the private memory of each thread:
+///     neither yields a wrong result or a deadlock. The barrier then
+///     involves exactly the lanes of the group.
 ///   - on a CPU, the threads of a group are any threads running
 ///     concurrently: OpenMP, std::thread, Kokkos team threads and so on.
 ///     The barrier is a counter and a flag held in the first two elements
 ///     of the workspace, which must be zero before the first call; the
-///     barrier keeps them in that state between calls. A group waiting
-///     for more than a second prints a diagnostic once and keeps waiting:
-///     a thread may be late for a legitimate reason, so the wait is never
-///     cut short.
+///     barrier then leaves the counter at zero and the flag at 0 or 1
+///     between calls. A group waiting for more than a second prints a
+///     diagnostic once and keeps waiting: a thread may be late for a
+///     legitimate reason, so the wait is never cut short.
 ///
 /// **Targets.** The target is a property of the compilation pass, decided
 /// by the preprocessor in one place below:
@@ -72,11 +72,16 @@
 ///
 /// **When to pass a barrier.** Never for speed: the deduced barrier is
 /// the one a caller would write by hand, and make_sync lets a caller run
-/// its check on entry once for several calls. A barrier is needed in two
-/// cases only:
-///   - the compiler asks for it, on the passes listed above;
+/// its check on entry once for several calls. A barrier is needed in
+/// two cases only:
+///   - the compiler asks for it: on the passes listed above, and on CPU
+///     for a scalar type without lock-free atomics, such as long double
+///     with GCC and Clang on x86-64. There the compiler refuses the
+///     deduced barrier even for the runtime solver with one thread per
+///     system, which then takes tdls::NoSync;
 ///   - the group is not one the deduced barrier knows: a group larger
-///     than a warp, which the compiler refuses, or threads that a
+///     than a warp, which the compiler refuses for the compile-time
+///     solver and the runtime solver stops on entry, or threads that a
 ///     runtime runs one after the other, such as the work-items of a
 ///     SYCL kernel on CPU, where the deduced barrier waits and warns
 ///     after a second. The barrier of the model then serves: a block,
@@ -86,17 +91,19 @@
 /// use is reported, at compile time when possible:
 ///   - at compile time: a pass without the deduced barrier, tdls::NoSync
 ///     for a group of several threads of the compile-time solver, a
-///     group larger than a warp;
+///     group of the compile-time solver larger than a warp, a CPU scalar
+///     type without lock-free atomics;
 ///   - on GPU, with the deduced barrier: an incomplete group and a
-///     private workspace stop the program with a message;
+///     private workspace stop the program with a message (under SYCL,
+///     without one);
 ///   - on CPU, with the deduced barrier: a workspace whose barrier
 ///     elements hold no barrier state stops the program with a message,
 ///     and a group that waits for more than a second prints one;
 ///   - tdls::NoSync with the runtime solver on a dimension above
 ///     rows_per_thread stops the program with a message, wherever the
 ///     pass can stop it: everywhere but on SPIR-V devices, in the generic
-///     mode of AdaptiveCpp, in nvc++ offloading without -cuda and in GCC
-///     offloading.
+///     mode of AdaptiveCpp, in nvc++ offloading without -cuda, in its
+///     OpenACC backend of the parallel algorithms and in GCC offloading.
 /// Three misuses stay silent, since nothing tells them from a correct
 /// use: an explicit barrier that does not synchronize the group, two
 /// groups sharing one workspace (except on GPU when their lanes share a

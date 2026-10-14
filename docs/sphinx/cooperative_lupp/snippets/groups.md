@@ -1,12 +1,13 @@
 # Groups of threads
 
 A group of threads shares the rows of the matrix the solver factors.
-With T threads, thread `tx` holds rows `tx`, `tx + T` and so on. Under
-the default row-major layout, these rows are the columns of A. The
-figures mark each column with the thread that holds it. Every thread
-of the group calls the same entry point, with its own rank `tx` and
-the same workspace. The solver deduces the barrier of the group: the
-snippets pass none, unless they say otherwise.
+With P threads, `threads_per_system`, thread `tx` holds rows `tx`,
+`tx + P` and so on. Under the default row-major layout, these rows are
+the columns of A. The figures mark each column with the thread that
+holds it. Every thread of the group calls the same entry point, with
+its own rank `tx` and the same workspace. The solver deduces the
+barrier of the group: the snippets pass none, unless they say
+otherwise.
 
 ## On GPU
 
@@ -15,7 +16,7 @@ AMD: its natural place. {doc}`getting_started` solves one system with
 a group of 2 lanes, and the GPU kernel of {doc}`batches_and_layouts`
 puts several groups in each warp, one per system. Four rules hold:
 
-- the group fits in a warp, 32 lanes on NVIDIA and 64 on AMD;
+- the group lies within one warp, 32 lanes on NVIDIA and 64 on AMD;
 - its threads call the solver together, from the same path of the
   code;
 - its workspace is shared by the group, in shared or global memory,
@@ -23,10 +24,12 @@ puts several groups in each warp, one per system. Four rules hold:
 - the threads of the group know their rank `tx`, from 0 to
   `threads_per_system` - 1.
 
-The solver checks them as far as it can. A group larger than a warp
-is refused at compile time. On entry, an incomplete group or a
-workspace private to each thread stops the program with a message,
-before any exchange. Two groups on one workspace are caught only when
+The solver checks them as far as it can. The compile-time solver
+refuses a group larger than a warp at compile time. On entry, an
+incomplete group or a workspace private to each thread stops the
+program with a message (under SYCL, without a message), before any
+exchange. For the runtime solver, a group larger than a warp is an
+incomplete group. Two groups on one workspace are caught only when
 their lanes share a warp.
 
 ## On CPU
@@ -124,13 +127,15 @@ $$
 ## An explicit barrier
 
 The same system with a barrier passed by the caller, here a barrier
-of CPU threads, for the illustration. A barrier is needed only for a
-group that the deduced barrier does not know: a group larger than a
-warp on GPU, which takes a block barrier such as `__syncthreads`, or a
-group of CPU threads in `long double`, whose atomics are not lock-free
-on most CPUs. In both cases, the compiler says so. Any callable taking
-no argument serves; the solver uses it as is, and the workspace then
-needs no initial value.
+of CPU threads, for the illustration. A barrier is needed only in the
+cases listed on {doc}`the family page <../index>`: a target without a
+deduced barrier; a group larger than a warp on GPU, which takes a
+block barrier such as `__syncthreads`; threads that a runtime runs one
+after the other; on CPU, a scalar type without lock-free atomics, such
+as `long double` with GCC and Clang on x86-64, where the runtime solver
+takes `tdls::NoSync` even for one thread per system. Any callable
+taking no argument serves; the solver uses it as is, and the workspace
+then needs no initial value.
 
 $$
 A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}
@@ -154,11 +159,12 @@ $$
 
 The MFront pattern on a small nonlinear system, run by the group. Each
 thread builds the vectors it holds, columns of J under the default
-row-major layout, so the solver reads them without a barrier. On return, every thread reads the whole Newton step and
-updates its copy of x. A barrier keeps the next iteration from
-overwriting the step before every thread has read it: the one
-`make_sync` returns, the barrier the solver deduces. At the solution,
-one factorization serves the tangent columns.
+row-major layout, so the solver reads them without a barrier. On
+return, every thread reads the whole Newton step and updates its copy
+of x. A barrier keeps the next iteration from overwriting the step
+before every thread has read it: the one `make_sync` returns, the
+barrier the solver deduces. At the solution, one factorization serves
+the tangent columns.
 
 $$
 F(x) = A x + x \odot x - c = 0, \quad

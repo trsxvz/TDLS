@@ -96,11 +96,11 @@
 /// is CooperativeLUppSolverDynamic (solver_dynamic.hpp).
 ///
 /// **Calling convention.** Every thread of the group calls the same entry
-/// point, with the same template arguments, the same operands, the same
-/// workspace and its own rank tx in [0, threads_per_system). The solver
-/// never sees a global thread index: callers pre-offset every remote
-/// pointer with the system index and pass a runtime stride, as for the
-/// TiledLUpp solvers.
+/// point, with the same template arguments, the same operands (or, for
+/// an internal operand, its own slice), the same workspace and its own
+/// rank tx in [0, threads_per_system). The solver never sees a global
+/// thread index: callers pre-offset every remote pointer with the system
+/// index and pass a runtime stride, as for the TiledLUpp solvers.
 ///
 /// **Barrier.** The last argument, `sync`, is the barrier of the group,
 /// and most calls omit it. By default, tdls::AutoSync, the solver deduces
@@ -119,7 +119,7 @@
 /// core/group.hpp details these cases, and what the solver checks.
 ///
 /// **Fixed barrier sequence.** Every entry point executes a sequence of
-/// barriers set by N, rows_per_thread, the row interchanges and the entry
+/// barriers set by N, the row interchanges, the layout and the entry
 /// point alone: it never depends on the data, not even on a singular
 /// verdict, which is returned at the end instead of by an early exit. A
 /// barrier wider than the group (a whole warp, a work-group, a team) is
@@ -199,11 +199,11 @@
 /// enter the position of the step. The substitutions use the first
 /// 2 * N + 2 elements at most. Two more elements come first, those of
 /// the deduced CPU barrier: on CPU, they must be zero before the first
-/// call of a group of several threads, and the barrier keeps them in
-/// that state between calls. They keep their place whatever the dimension and the
-/// configuration, so that a workspace may serve other solves.
-/// workspace_size counts them all. The workspace
-/// pointer carries no restrict qualifier: the other threads of the
+/// call of a group of several threads, and the barrier then leaves the
+/// counter at zero and the flag at 0 or 1 between calls. They keep their
+/// place whatever the dimension and the configuration, so that a
+/// workspace may serve other solves. workspace_size counts them all. The
+/// workspace pointer carries no restrict qualifier: the other threads of the
 /// group write the workspace between two barriers, and a restrict
 /// pointer would let the compiler reuse a value read before the
 /// barrier. Every other operand keeps the qualifier, since each thread
@@ -212,8 +212,9 @@
 /// **Departures from the MAGMA kernel.** The arithmetic is MAGMA's, but
 /// for the relative threshold of the pivot choice; the other changes are
 /// structural.
-///   - rows_per_thread rows per thread instead of one, phantom rows
-///     skipped at compile time, so that several systems share a warp.
+///   - rows_per_thread rows per thread instead of one, so that several
+///     systems share a warp, phantom rows skipped (at compile time in a
+///     slot where no thread holds a real row, at run time otherwise).
 ///   - Device-callable entry points with a deduced or caller-provided
 ///     barrier, instead of a kernel with one system per block.
 ///   - The back substitution keeps the solution entry x_i in a register of

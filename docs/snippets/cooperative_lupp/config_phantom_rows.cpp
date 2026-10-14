@@ -19,7 +19,7 @@ int main() {
 
     // snippet begin
     // 5 rows on threads of 2 rows: 3 threads; slot 1 holds rows 3 and 4 on threads 0
-    // and 1, and a phantom row on thread 2, skipped at compile time
+    // and 1, and a phantom row on thread 2, skipped by a test at run time
     constexpr auto config = tdls::CooperativeLUppConfig<double>{.rows_per_thread = 2};
     using Solver          = tdls::CooperativeLUppSolverStatic<double, 5, config>;
     static_assert(Solver::threads_per_system == 3);

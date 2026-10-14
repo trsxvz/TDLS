@@ -11,14 +11,16 @@ dimension, one with a runtime dimension.
 The solver factors a matrix S read column-major: A itself under the
 column-major layout, A^T under the row-major one (see the next
 section). The rows of S are shared by the threads of a group. Each thread
-holds `rows_per_thread` rows. With T threads in the group, thread `tx`
-holds rows `tx`, `tx + T`, `tx + 2T` and so on. Any dimension works
-with any `rows_per_thread`. When the dimension is not a multiple of
-it, the last slots hold phantom rows: they need no padding of the
-matrix, and no operation runs on them. The compile-time solver skips
-them at compile time, the runtime solver at run time. A
-`rows_per_thread` reaching the dimension gives one thread per system:
-the solver then runs sequentially.
+holds `rows_per_thread` rows. With P threads in the group,
+`threads_per_system`, thread `tx` holds rows `tx`, `tx + P`, `tx + 2P`
+and so on. Any dimension works with any `rows_per_thread`. When the
+dimension is not a multiple of it, the last slots hold phantom rows:
+they need no padding of the matrix, and no operation runs on them. The
+compile-time solver drops at compile time a slot where every thread
+holds a phantom row, and tests at run time a slot where only some do.
+The runtime solver tests every row at run time. A `rows_per_thread`
+reaching the dimension gives one thread per system: the solver then
+runs sequentially.
 
 The elimination is right-looking, one column per step. At each step,
 the threads publish the magnitudes of the column in a workspace. Every
@@ -33,7 +35,7 @@ and U in place.
 
 With `row_interchange = Physical`, rows move between the threads, as
 in LAPACK. The row at position k always lives in the same slot of the
-same thread, so the owner of each pivot row is known in advance. Each
+same thread, so the owner of each row of U is known in advance. Each
 thread publishes a single candidate of the column instead of one
 magnitude per row, and each step of the factorization takes two
 barriers instead of three. In exchange, a column whose pivot is not in
@@ -44,21 +46,23 @@ position to the original index of its row. The workspace size differs.
 
 Both schemes choose the same pivots and run the same operations in the
 same order. On a matrix they do not declare singular, their solutions
-are bitwise identical when no multiply-add is fused. GPU compilers fuse
-them by default, possibly differently in the two schemes: the solutions
-may then differ in the last bits. The mapping of rows to threads
-changes nothing in the arithmetic either: every value of
-`rows_per_thread` produces bitwise identical results.
+are bitwise identical when no multiply-add is fused. A compiler that
+fuses multiplications and additions differently in the two (GPU
+compilers by default, GCC with `-march=native`) changes the last bits.
+Build with `-ffp-contract=off` (`--fmad=false` for nvcc) to compare them
+bit for bit. The mapping of rows to threads changes nothing in the
+arithmetic either: every value of `rows_per_thread` produces bitwise
+identical results.
 
 The pivot of a column follows a relative threshold,
 `relative_pivot_threshold`: the row in place keeps the pivot when it
-reaches that fraction of the largest magnitude of the column, and the
-largest magnitude wins otherwise. Rows then move less often, and the
-multipliers stay bounded by the inverse of the threshold. The default
-0.1 saves most row interchanges on matrices that pivot often, up to 30%
-of the solve time on GPU, for a backward error below 1e-13 in double.
+reaches both that fraction of the largest magnitude of the column and
+`singular_floor`, and the largest magnitude wins otherwise. Rows then
+move less often, and the multipliers stay bounded by the inverse of the
+threshold. The default 0.1 saves most row interchanges on matrices
+that pivot often, with multipliers of magnitude at most 10.
 A threshold of 1 is the partial pivoting of LAPACK, with its pivots: on
-matrices that never interchange, such as Newton jacobians close to the
+matrices that never interchange, such as Newton Jacobians close to the
 identity, it saves the few percent that the test costs. TiledLUpp has
 the same knob, applied to the candidates of its diagonal tile only.
 
@@ -73,9 +77,10 @@ a smaller threshold departs from it on purpose, keeping the row in
 place more often, so the pivots and the results then differ. Under the
 row-major layout, the substitutions are the mirror of MAGMA's, with one
 barrier per step instead of two. The header of the solver lists the
-other changes: the mapping of rows to threads, the device-callable
-entry points, the pivot output, the singularity criterion, and a data
-race of the back substitution, removed.
+other changes, among them the mapping of rows to threads, the
+device-callable entry points, the pivot output, the singularity
+criterion, physical row interchanges as an option, and a data race of
+the back substitution, removed.
 
 The portions derived from MAGMA remain subject to its license, BSD
 3-Clause. The license is reproduced at the top of each solver header
@@ -109,7 +114,8 @@ and solve A x = b and A^T x = b respectively.
 ## Groups of threads
 
 Every thread of the group makes the same call, with the same template
-arguments, the same operands and its own rank `tx`. The workspace of
+arguments, the same operands (or, for an internal operand, its own
+slice) and its own rank `tx`. The workspace of
 the group comes in addition to the operands: `workspace_size`
 elements, in memory shared by the group, shared memory on GPU, a plain
 array on CPU.
@@ -123,13 +129,16 @@ for.
 
 | Target | Deduced barrier |
 |---|---|
-| any target, one thread per system | none |
+| one thread per system, compile-time solver, any target | none |
 | NVIDIA GPU, sm_70 or newer | `__syncwarp` on the lanes of the group |
 | AMD GPU | a wavefront fence: the lanes of a wavefront run in lockstep |
-| CPU threads | a counter in the first two elements of the workspace |
+| CPU threads | a counter and a flag in the first two elements of the workspace |
 
-On GPU, this covers every model whose kernels the compiler builds as
-GPU code:
+The runtime solver, whose group size is unknown to the compiler, needs
+`tdls::NoSync` for one thread per system where the deduced barrier is
+missing, or where the scalar type has no lock-free atomics (see below).
+
+On GPU, the deduced barrier serves these models:
 
 - CUDA and HIP;
 - Kokkos and RAJA;
@@ -146,7 +155,8 @@ stops the program with a message, before any exchange. So does a
 workspace in the private memory of each thread, whose address is the
 same in every lane: the group shares its workspace, in shared or
 global memory. Neither a badly placed group nor a private workspace
-gives a wrong result or a deadlock.
+gives a wrong result or a deadlock. Under SYCL, the kernel stops
+without a message.
 The threads of a group must therefore call the solver together, from
 the same path of the code, as they do when they solve the same system.
 The check runs once per call, and the barrier is the one a caller
@@ -155,14 +165,14 @@ would write by hand.
 On CPU, the threads of a group are any threads that run concurrently:
 OpenMP, `std::thread`, Kokkos team threads. The first two elements of
 the workspace must be zero before the first call, as in a
-`std::vector`, and the barrier keeps them so between calls. They keep
-their place whatever the dimension and the configuration, so a
-workspace may serve other solves. A group that waits for more than a
-second prints a diagnostic once and keeps waiting: the threads of a
-group must not run one after the other, as in a worksharing loop or in
-the parallel algorithms on CPU. A barrier between CPU threads costs
-more than a step of the solve: one thread per system stays the fast
-choice on CPU.
+`std::vector`. The barrier then leaves the counter at zero and the flag
+at 0 or 1 between calls. They keep their place whatever the dimension
+and the configuration, so a workspace may serve other solves. A group
+that waits for more than a second prints a diagnostic once and keeps
+waiting: the threads of a group must not run one after the other, as
+in a worksharing loop or in the parallel algorithms on CPU. A barrier
+between CPU threads costs more than a step of the solve: one thread
+per system stays the fast choice on CPU.
 
 ### When to pass a barrier
 
@@ -170,9 +180,9 @@ Never for speed: the deduced barrier is the one a caller would write
 by hand, and `make_sync` lets a caller run its check on entry once for
 several calls (see below). A barrier is needed in two cases only.
 
-**The compiler asks for it.** On a few targets, a group of several
-threads has no deduced barrier, and the compilation stops with a
-message that says why:
+**The compiler asks for it.** On a few targets, and for some scalar
+types on CPU, a group of several threads has no deduced barrier, and
+the compilation stops with a message that says why:
 
 - nvc++ OpenMP or OpenACC offloading without `-cuda`, the OpenACC
   backend of nvc++ for the parallel algorithms, the generic mode of
@@ -185,10 +195,13 @@ message that says why:
   a kernel that finds its group incomplete, so the check could not
   keep its promise there;
 - a CPU whose standard library lacks `std::atomic_ref`, as libc++
-  before 19.
+  before 19;
+- on CPU, a scalar type without lock-free atomics, such as
+  `long double` with GCC and Clang on x86-64: the deduced barrier
+  needs `std::atomic_ref<T>::is_always_lock_free`.
 
-On these targets, the runtime solver needs an explicit choice even for
-one thread per system: its group size depends on n, unknown to the
+In all these cases, the runtime solver needs an explicit choice even
+for one thread per system: its group size depends on n, unknown to the
 compiler. `tdls::NoSync` states that choice, and the solver checks it
 on entry (see what TDLS checks, below).
 
@@ -198,8 +211,9 @@ running concurrently on CPU. Any other group needs the barrier of its
 model:
 
 - a group larger than a warp, 32 lanes on NVIDIA or 64 on AMD, which
-  the compiler refuses: a block barrier (`__syncthreads`), a
-  work-group barrier or a team barrier;
+  the compile-time solver refuses at compile time and the runtime
+  solver stops on entry, as an incomplete group: a block barrier
+  (`__syncthreads`), a work-group barrier or a team barrier;
 - threads that a runtime runs one after the other, such as the
   work-items of a SYCL kernel on CPU: a work-group barrier. The
   compiler cannot tell this case: the deduced barrier waits, and
@@ -232,12 +246,14 @@ calls it, and passes it to the entry points, which then use it as is.
 Every misuse that TDLS can tell from a correct use is reported, at
 compile time when possible:
 
-- at compile time: a target without a deduced barrier, `tdls::NoSync`
-  for a group of several threads of the compile-time solver, a group
-  larger than a warp;
+- at compile time: a target without a deduced barrier, a CPU scalar
+  type without lock-free atomics, `tdls::NoSync` for a group of several
+  threads of the compile-time solver, a group of the compile-time
+  solver larger than a warp;
 - on GPU, with the deduced barrier: a group whose threads are not
-  together in their warp, and a workspace in private memory, stop the
-  program with a message before any exchange;
+  together in their warp, such as a group of the runtime solver larger
+  than a warp, and a workspace in private memory, stop the program with
+  a message before any exchange;
 - on CPU, with the deduced barrier: a workspace whose first two
   elements hold no barrier state stops the program with a message, and
   a group that waits for more than a second prints one;
@@ -245,7 +261,10 @@ compile time when possible:
   `rows_per_thread`, a group of several threads, stops the program with
   a message. The targets that cannot stop a kernel let it run: SPIR-V
   devices, the generic mode of AdaptiveCpp, nvc++ offloading without
-  `-cuda` and GCC offloading.
+  `-cuda`, its OpenACC backend of the parallel algorithms, and GCC
+  offloading.
+
+Under SYCL, a kernel stops without a message.
 
 Three misuses stay silent, since nothing tells them from a correct
 use, and may give wrong results or a deadlock:
@@ -260,18 +279,23 @@ use, and may give wrong results or a deadlock:
 ### The sequence of barriers
 
 Every entry point runs a fixed sequence of barriers. It depends on the
-dimension, on `rows_per_thread`, on the row interchanges and on the
-entry point, never on the data. A singular matrix runs the whole
+solver, the dimension, the row interchanges, the layout and the entry
+point, never on the data. A singular matrix runs the whole
 sequence too, and the verdict comes at the end. A barrier wider than
 the group, a whole warp or a work-group, is therefore valid as well,
 provided every thread of its scope makes the same calls.
 
 On entry, each thread reads only the entries of its own rows of S and
 of the right-hand side: under the row-major layout, its columns of A.
-The vectors a thread builds itself need no barrier before the call. Every entry
-point ends with a barrier. On return, all the results are visible to
-the whole group, whatever the residency of the operands, and the
-workspace is free again.
+The vectors a thread builds itself need no barrier before the call.
+One exception: the substitutions of the runtime solver, under the
+row-major layout and physical row interchanges, read the factored
+matrix of the other threads before any barrier. It must be visible to
+the group before the call, as it is after `factorize`.
+
+Every entry point ends with a barrier. On return, all the results are
+visible to the whole group, whatever the residency of the operands,
+and the workspace is free again.
 
 ## Compile-time and runtime dimension
 
@@ -298,7 +322,11 @@ the group, which the deduced barrier checks at run time. With
 `tdls::NoSync`, n must not exceed `rows_per_thread`.
 
 At equal shape and configuration, the two solvers execute the same
-arithmetic and produce bitwise identical results.
+arithmetic and produce bitwise identical results. A compiler that fuses
+multiplications and additions differently in the two (GCC with
+`-march=native` does) changes the last bits. Build with
+`-ffp-contract=off` (`--fmad=false` for nvcc) to compare them bit for
+bit.
 
 ## Configuration
 
@@ -311,7 +339,7 @@ defaults.
 |---|---|---|
 | `rows_per_thread` | 1 | vectors held by each thread, rows of S: columns of A row-major, rows column-major; the main performance axis: a system of dimension N takes `ceil(N / rows_per_thread)` threads; from N on, one thread per system |
 | `row_interchange` | `Logical` | row interchanges, `Logical` (rows never move, as in MAGMA) or `Physical` (rows move between the threads, as in LAPACK); same pivots and operations, different factored formats and workspace sizes |
-| `relative_pivot_threshold` | 0.1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column; 1 is the partial pivoting of LAPACK; in (0, 1] |
+| `relative_pivot_threshold` | 0.1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column and `singular_floor`; 1 is the partial pivoting of LAPACK; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular; positive |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: those indexing the register rows, whose unrolling keeps them in registers on GPU; the pivot search never carries a pragma; `false` is the choice on CPU; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, which picks the vectors of a thread: `RowMajor`, the threads hold columns and the solve runs through the factors of A^T; `ColMajor`, the threads hold rows, the kernel of MAGMA; in both, a group reads consecutive addresses |
@@ -327,19 +355,19 @@ the system it solves, then the code between the two markers of its
 source under `docs/snippets/cooperative_lupp/`. ctest runs them all
 under the `snippets` label.
 
-Above the shown code, the program declares what the formula displays:
-the matrix as a row-major `double` array, the right-hand sides, and
-the expected solution. Below the shown code, it checks its result.
+Outside the shown code, the program declares what the formula
+displays (the matrix as a row-major array, the right-hand sides, the
+expected solution) and checks its result.
 
 The pages go from the simplest call to the groups of threads, the
 knobs and the batches, CPU first, then GPU where it applies. Until the
-groups page, one thread solves each system, as with TiledLUpp. The
-groups page then starts groups of CPU threads by hand, and the next
-pages with `snippets::run_group`, the same code in a function. When a
-snippet uses a group, a mark $t_j$ names the thread that holds a vector
-of A. Under the default row-major layout, a thread holds columns: the
-mark sits above the column. Under the column-major layout, a thread
-holds rows: the mark sits beside the row.
+groups page, one thread solves each system on CPU, as with TiledLUpp.
+The groups page starts its first group of CPU threads by hand, and the
+later snippets with `snippets::run_group`, the same code in a
+function. When a snippet uses a group, a mark $t_j$ names the thread
+that holds a vector of A. Under the default row-major layout, a thread
+holds columns: the mark sits above the column. Under the column-major
+layout, a thread holds rows: the mark sits beside the row.
 
 ```{toctree}
 :maxdepth: 1

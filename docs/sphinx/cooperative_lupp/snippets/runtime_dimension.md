@@ -113,7 +113,7 @@ A x = e_2, \quad A = \begin{pmatrix}
 0 & 1 & 7 & 1 & 0 \\
 0 & 0 & 1 & 8 & 1 \\
 1 & 0 & 0 & 1 & 9
-\end{pmatrix}
+\end{pmatrix}, \quad e_2 = \begin{pmatrix} 0 \\ 0 \\ 1 \\ 0 \\ 0 \end{pmatrix}
 $$
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/dynamic_canonical.cpp
@@ -151,7 +151,11 @@ $$
 ## Same results as the compile-time solver
 
 The two solvers at equal shape and configuration: the factors, the
-row positions and the solution are bitwise identical.
+row positions and the solution are bitwise identical, and the program
+compares all three. A compiler that fuses multiplications and
+additions differently in the two (GCC with `-march=native` does)
+changes the last bits. Build with `-ffp-contract=off` (`--fmad=false`
+for nvcc) to compare them bit for bit.
 
 $$
 A = \begin{pmatrix}

@@ -58,7 +58,10 @@ struct CooperativeLUppConfig {
     /// per warp and wastes fewer lanes, at the price of more registers per
     /// thread. The default 1 is the original mapping of MAGMA, one row per
     /// thread. When N is not a multiple of rows_per_thread, the last
-    /// thread holds phantom vectors, skipped at compile time. A value
+    /// slots hold phantom vectors, on one thread or more: the compile-time
+    /// solver drops at compile time a slot where every thread holds a
+    /// phantom vector and tests at run time a slot where only some do,
+    /// and the runtime solver tests every vector at run time. A value
     /// reaching N gives one thread per system, the setting of sequential
     /// CPU code, and a larger value acts as N. Requires
     /// rows_per_thread >= 1.
@@ -91,19 +94,17 @@ struct CooperativeLUppConfig {
     /// one on ties. The multipliers stay bounded by the inverse of the
     /// threshold.
     ///
-    /// The default 0.1 is the classical value of threshold pivoting. It
-    /// saves most row interchanges on matrices that pivot often, up to 30%
-    /// of the solve time measured on GPU. The multipliers stay below 10,
-    /// and the backward error measured below 1e-13 in double, against a
-    /// few 1e-16 for LAPACK. A value of 1 is the partial pivoting of LAPACK,
-    /// with the pivots of LAPACK and MAGMA, and the solvers then compile
-    /// the test out. On matrices that never interchange, such as Newton
-    /// jacobians close to the identity, 1 thus saves the few percent the
-    /// test costs. Values below 0.1 save few more interchanges, at a much
-    /// larger price in stability. The threshold is relative: unlike the
-    /// absolute oot_pivot_threshold of TiledLUpp, a value such as 1e-10
-    /// would practically disable the pivoting. The solvers enforce the
-    /// range at compile time.
+    /// The default 0.1 is the classical value of threshold pivoting. It saves
+    /// most row interchanges on matrices that pivot often, and the
+    /// multipliers stay at most 10 in magnitude. A value of 1 is the partial
+    /// pivoting of LAPACK, with the pivots of LAPACK and MAGMA, and the
+    /// solvers then compile the test out. On matrices that never interchange,
+    /// such as Newton Jacobians close to the identity, 1 thus saves the few
+    /// percent the test costs. Values below 0.1 save few more interchanges,
+    /// at a much larger price in stability. The threshold is relative: unlike
+    /// the absolute oot_pivot_threshold of TiledLUpp, a value such as 1e-10
+    /// would practically disable the pivoting. The solvers enforce the range
+    /// at compile time.
     StructuralReal<T> relative_pivot_threshold = T(0.1);
 
     /// Singularity floor: the factorization is declared singular when the

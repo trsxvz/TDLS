@@ -38,7 +38,8 @@ int main() {
     const bool ok1 = Logical::solve_inplace<true, true, true>(0, A1, 1, piv1, 1, y1, 1, work);
     const bool ok2 = Physical::solve_inplace<true, true, true>(0, A2, 1, piv2, 1, y2, 1, work);
 
-    // same pivots, same operations: the solutions are bitwise identical
+    // same pivots, same operations: the solutions are bitwise identical when the compiler
+    // contracts multiply-adds alike in both
     const bool identical = std::memcmp(y1, y2, sizeof y1) == 0;
     // under the default row-major layout the solver factors A^T: its rows
     // are the columns of A, and column 1 holds the pivot of row 0. Logical:

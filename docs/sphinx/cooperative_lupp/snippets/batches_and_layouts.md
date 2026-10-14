@@ -21,10 +21,11 @@ $$
 ## Residencies
 
 The same solve on the slices of the 2 threads of a group, then on a
-system of an SoA batch. An internal operand is the slice of the calling thread: its
-rows, their pivot entries and their right-hand-side entries, in local
-arrays. An external operand is the whole object, reachable by the
-group and walked with a stride.
+system of an SoA batch. An internal operand is the slice of the
+calling thread: its rows of S (columns of A under the default
+row-major layout), their pivot entries and their right-hand-side
+entries, in local arrays. An external operand is the whole object,
+reachable by the group and walked with a stride.
 
 ```{literalinclude} ../../../snippets/cooperative_lupp/batch_residencies.cpp
 :language: cpp

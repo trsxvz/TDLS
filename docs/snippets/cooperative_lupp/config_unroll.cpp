@@ -29,7 +29,8 @@ int main() {
     double work[Unrolled::workspace_size];
     int piv[4];
 
-    // no unroll pragma: same values, smaller code and faster builds, the choice for CPU code
+    // no unroll pragma: the same values when the compiler contracts multiply-adds alike,
+    // smaller code and faster builds, the choice for CPU code
     const bool ok1 =
         Unrolled::solve_inplace<true, true, true>(0, A_unrolled, 1, piv, 1, y_unrolled, 1, work);
     const bool ok2 =

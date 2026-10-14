@@ -28,7 +28,8 @@ int main() {
     double x1[4], x2[4];
 
     // 0 is the rank of the thread, the only one; A becomes L and U in place, piv the
-    // position of each row in the pivoted order; false means a singular matrix
+    // position of each row of S (a column of A, row-major) in the pivoted order; false means
+    // a singular matrix
     if (!Solver::factorize<true, true>(0, A, 1, piv, 1, work)) return 1;
 
     // two right-hand sides on the same factorization

@@ -33,13 +33,17 @@ int main() {
     std::vector<int> piv_dynamic(n);
     int piv_static[5];
 
-    // same shape, same configuration: the same arithmetic, bit for bit
+    // same shape, same configuration: the same arithmetic, bit for bit when the compiler
+    // contracts multiply-adds alike in both
     const bool ok_dynamic = Dynamic::solve_inplace(n, 0, A_dynamic.data(), 1, piv_dynamic.data(), 1,
                                                    y_dynamic.data(), 1, work.data());
     const bool ok_static = Static::solve_inplace<false, false, false>(0, A_static, 1, piv_static, 1,
                                                                       y_static, 1, work.data());
     // snippet end
 
+    // the factors, the row positions and the solution, bit for bit
     if (!ok_dynamic || !ok_static) return 1;
-    return snippets::check_bitwise(y_dynamic.data(), y_static, n);
+    return snippets::check_bitwise(A_dynamic.data(), A_static, n * n) |
+           snippets::check_bitwise(piv_dynamic.data(), piv_static, n) |
+           snippets::check_bitwise(y_dynamic.data(), y_static, n);
 }

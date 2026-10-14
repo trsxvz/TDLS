@@ -133,17 +133,22 @@ $$
 
 ## Row interchanges
 
-The same system under logical and physical row interchanges. Row 0
-has a zero in column 0, so row 1 holds its pivot, whatever the
-threshold. The logical scheme leaves the rows in place and records
-their positions; the physical one moves them, as LAPACK does. The
-solutions are bitwise identical, and so are the factored rows once
-placed.
+The same system under logical and physical row interchanges. Under the
+default row-major layout, the solver factors A^T, whose rows are the
+columns of A. Row 0 of A has a zero in column 0, so column 1 holds the
+first pivot, whatever the threshold. The logical scheme leaves the
+columns in place and records their positions; the physical one moves
+them, as LAPACK moves rows. The solutions are bitwise identical, and
+so are the factored columns once placed. A compiler that fuses
+multiplications and additions differently in the two (GCC with
+`-march=native` does) changes the last bits. Build with
+`-ffp-contract=off` (`--fmad=false` for nvcc) to compare them bit for
+bit.
 
 $$
 A = \begin{pmatrix}
-0 & 2 & 0 & 1 \\
-\color{red}{4} & 1 & 1 & 0 \\
+0 & \color{red}{2} & 0 & 1 \\
+4 & 1 & 1 & 0 \\
 0 & 1 & 3 & 1 \\
 2 & 0 & 1 & 5
 \end{pmatrix}, \quad
@@ -160,19 +165,20 @@ $$
 
 ## Relative pivot threshold
 
-The row in place holds 3 in column 0, below the 4 of row 1. The
-partial pivoting of LAPACK, a threshold of 1, exchanges the two rows.
-The default threshold 0.1 keeps the row in place, since 3 reaches a
-tenth of 4: no row moves at all.
+Under the default row-major layout, the first pivot search runs along
+row 0 of A: the entry in place holds 3, column 1 holds 4. The partial
+pivoting of LAPACK, a threshold of 1, exchanges columns 0 and 1. The
+default threshold 0.1 keeps the entry in place, since 3 reaches a
+tenth of 4: no column moves at all.
 
 $$
 A = \begin{pmatrix}
-\color{red}{3} & 1 & 0 & 0 \\
-4 & 6 & 1 & 0 \\
+\color{red}{3} & 4 & 0 & 0 \\
+1 & 6 & 1 & 0 \\
 0 & 1 & 5 & 1 \\
 0 & 0 & 1 & 4
 \end{pmatrix}, \quad
-b = \begin{pmatrix} 5 \\ 19 \\ 21 \\ 19 \end{pmatrix}, \quad
+b = \begin{pmatrix} 11 \\ 16 \\ 21 \\ 19 \end{pmatrix}, \quad
 x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \end{pmatrix}
 $$
 
@@ -209,7 +215,7 @@ $$
 ## No forced unrolling
 
 The same solve with and without the unroll pragmas: bitwise identical
-results.
+results when the compiler contracts multiply-adds alike in both.
 
 $$
 A = \begin{pmatrix}
@@ -236,8 +242,8 @@ row-major layout, the solver factors A^T. The threads hold columns of
 A, and the solve runs through the factors of A^T. Under the
 column-major layout, the solver factors A. The threads hold rows of A:
 this is the kernel of MAGMA (see {doc}`../index`). Either way, the
-threads of a group read consecutive addresses. Here with a group of 2
-threads:
+threads of a group read consecutive addresses. With a group of 2
+threads, the threads would hold these vectors:
 
 $$
 \text{row-major:}\ A = \overset{\displaystyle\begin{matrix} \scriptstyle t_0 & \scriptstyle t_1 & \scriptstyle t_0 & \scriptstyle t_1 \end{matrix}}{\begin{pmatrix}

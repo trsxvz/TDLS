@@ -94,9 +94,10 @@
 /// For equal shapes (n = N, same configuration), results are bitwise
 /// identical to the compile-time solver: factored rows, pivot entries and
 /// solution. The arithmetic sequence is the same, only the storage of the
-/// rows and the loop mechanics differ. Under physical row interchanges,
-/// this holds up to the multiply-adds a compiler may fuse differently in
-/// each (see CooperativeLUppConfig::row_interchange).
+/// rows and the loop mechanics differ. A compiler that fuses
+/// multiplications and additions differently in the two (GCC with
+/// -march=native does) changes the last bits. Build with
+/// -ffp-contract=off (--fmad=false for nvcc) to compare them bit for bit.
 ///
 /// The compile-time solver is the performance path; this variant is the
 /// flexibility path (dimensions unknown at compile time, fast builds).
@@ -104,12 +105,14 @@
 /// The calling convention, the factored format and the pivot convention
 /// are those of the compile-time solver, described in solver_static.hpp.
 /// So are the guarantees of the group: a fixed sequence of barriers, no
-/// data race, inputs read by their owners on entry, results visible to
-/// the whole group on return. The workspace holds workspace_size(n)
-/// elements, laid out as there with n for N, without the restrict
-/// qualifier, for the reason given there. The matrix layout follows
-/// Config.layout, row-major by default, and selects the solve at compile
-/// time, as there.
+/// data race, inputs read by their owners on entry, results visible to the
+/// whole group on return. One exception: under the row-major layout and
+/// physical row interchanges, the substitutions read the factored matrix of the
+/// other threads before any barrier, so it must be visible to the group before
+/// the call, as it is after factorize. The workspace holds workspace_size(n)
+/// elements, laid out as there with n for N, without the restrict qualifier,
+/// for the reason given there. The matrix layout follows Config.layout,
+/// row-major by default, and selects the solve at compile time, as there.
 ///
 /// Preconditions: n >= 1 and 0 <= tx < threads_per_system(n). The flat
 /// element index (for the matrix, n*n) must stay below 2^31; element
