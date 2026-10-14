@@ -29,7 +29,7 @@ int main() {
             Abb[r * 2 + c] = A[r * n + c];
         y[r] = b[r];
     }
-    auto block = [](const int k, Solver::StreamedBlock& blk) {
+    auto block = [](const int k, Solver::RecomputedBlock& blk) {
         for (int i = 0; i < 2; ++i) {
             const int row = 2 + 2 * k + i;
             for (int j = 0; j < 2; ++j)

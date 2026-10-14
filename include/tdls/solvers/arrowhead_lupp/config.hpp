@@ -216,7 +216,9 @@ struct ArrowheadLUppConfig {
     /// those of the default path. With block_tile_size at least the block,
     /// the pivots are those of TiledLUpp and the results agree within
     /// rounding errors. For small blocks: the loops are unrolled over the
-    /// block, S^3 operations. Ignored by the runtime solver.
+    /// block, S^3 operations. The runtime solver, whose block lives in the
+    /// workspace, runs the same operations in the same order: both solvers
+    /// stay bitwise identical.
     bool register_blocks = false;
 
     /// Accumulates the Schur complement in place, in the border entries of

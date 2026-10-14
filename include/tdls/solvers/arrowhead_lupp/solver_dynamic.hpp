@@ -634,10 +634,6 @@ struct ArrowheadLUppSolverDynamic {
         int S;      ///< block size
         int B;      ///< border size
         int stride; ///< element stride of the workspace
-        /// Set by solve_inplace_recomputed when it asks for the block again,
-        /// in its recovery: the provider may then skip what it accumulates
-        /// once per pass, a residual for instance. False otherwise.
-        bool recovery = false;
         /// \param[in] i row of the block
         /// \param[in] j column of the block
         /// \return entry (i, j) of D_k
@@ -670,6 +666,20 @@ struct ArrowheadLUppSolverDynamic {
                                                                 const int i) const noexcept {
             return Abk[TDLS_STRIDED(r * S + i, stride)];
         }
+    };
+
+    /// \brief Block k of a recomputed solve (solve_inplace_recomputed,
+    /// solve_inplace_recomputed_or_tangent): a StreamedBlock, the same view
+    /// and accessors, and whether the solver asks for the block again, in its
+    /// recovery. A provider taking a StreamedBlock& serves too; one taking a
+    /// RecomputedBlock&, or auto&, reads the flag. The streamed entry points
+    /// keep the StreamedBlock alone, so that their code is that of a solver
+    /// without the recomputed ones.
+    struct RecomputedBlock : StreamedBlock {
+        /// Set when the solver asks for the block again, in its recovery: the
+        /// provider may then skip what it accumulates once per pass, a
+        /// residual for instance. False while it condenses the block.
+        bool recovery = false;
     };
 
     /// \brief Outcome of solve_inplace_streamed_or_tangent.
@@ -1164,8 +1174,7 @@ struct ArrowheadLUppSolverDynamic {
         }
         int count = 0;
         for (int k = 0; k < NB; ++k) {
-            StreamedBlock blk = streamed_block(z, o, so, work, work_stride);
-            blk.recovery      = false;
+            RecomputedBlock blk{streamed_block(z, o, so, work, work_stride), false};
             provider(k, blk);
             const int verdict = condense_or_keep_recomputed(
                 shape, z, o, so, ro, capacity, piv, piv_stride, work, work_stride, k, count);
@@ -1228,8 +1237,7 @@ struct ArrowheadLUppSolverDynamic {
                 --j;
                 continue;
             }
-            StreamedBlock blk = streamed_block(z, o, so, work, work_stride);
-            blk.recovery      = true;
+            RecomputedBlock blk{streamed_block(z, o, so, work, work_stride), true};
             provider(k, blk);
             // y_k - A_kb x_b, then the column solved in place of A_kb(:, 0)
             for (int i = 0; i < S; ++i) {

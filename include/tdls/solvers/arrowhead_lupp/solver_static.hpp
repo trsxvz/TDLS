@@ -365,10 +365,6 @@ struct ArrowheadLUppSolverStatic {
         T Dl[S * S];             ///< D_k in the layout of the factorization
         T W[(B + 1) * S];        ///< [A_kb | y_k], column c at c * S
         T Abk[diag ? S : B * S]; ///< A_bk: coupled rows (diagonal) or B x S (dense)
-        /// Set by solve_inplace_recomputed when it asks for the block again,
-        /// in its recovery: the provider may then skip what it accumulates
-        /// once per pass, a residual for instance. False otherwise.
-        bool recovery = false;
         /// \param[in] i row of the block
         /// \param[in] j column of the block
         /// \return entry (i, j) of D_k
@@ -398,6 +394,20 @@ struct ArrowheadLUppSolverStatic {
         TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& abk(const int r, const int i) noexcept {
             return Abk[r * S + i];
         }
+    };
+
+    /// \brief Block k of a recomputed solve (solve_inplace_recomputed,
+    /// solve_inplace_recomputed_or_tangent): a StreamedBlock, the same
+    /// accessors, and whether the solver asks for the block again, in its
+    /// recovery. A provider taking a StreamedBlock& serves too; one taking a
+    /// RecomputedBlock&, or auto&, reads the flag. The streamed entry points
+    /// keep the StreamedBlock alone, so that their code is that of a solver
+    /// without the recomputed ones.
+    struct RecomputedBlock : StreamedBlock {
+        /// Set when the solver asks for the block again, in its recovery: the
+        /// provider may then skip what it accumulates once per pass, a
+        /// residual for instance. False while it condenses the block.
+        bool recovery = false;
     };
 
     /// \brief Solves A x = y in place, the blocks streamed: provider(k, blk)
@@ -957,7 +967,7 @@ struct ArrowheadLUppSolverStatic {
     static constexpr int recomputed_workspace_size = recomputed_size<capacity, nrhs>();
 
     /// \brief Solves A x = y in place, the blocks recomputed: provider(k,
-    /// blk) fills block k (StreamedBlock) once while the solver condenses
+    /// blk) fills block k (RecomputedBlock) once while the solver condenses
     /// it, k = 0, 1, ... in order, and once more, blk.recovery set, while it
     /// recovers the unknowns of the block, in decreasing k. Nothing of an
     /// accepted block is stored: the solver factors the block again and
@@ -1145,7 +1155,7 @@ struct ArrowheadLUppSolverStatic {
         int count     = 0;
         refused_count = 0;
         for (int k = 0; k < NB; ++k) {
-            StreamedBlock blk;
+            RecomputedBlock blk;
             blk.recovery = false;
             provider(k, blk);
             // A save of the block, to keep it as given if it is refused: D_k,
@@ -1232,7 +1242,7 @@ struct ArrowheadLUppSolverStatic {
         // refused ones from the store; then the border.
         for (int k = NB - 1; k >= 0; --k) {
             if ((refused[k >> 5] >> (k & 31)) & 1u) continue;
-            StreamedBlock blk;
+            RecomputedBlock blk;
             blk.recovery = true;
             provider(k, blk);
             T xk[S];

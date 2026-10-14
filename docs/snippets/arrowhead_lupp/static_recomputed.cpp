@@ -34,7 +34,7 @@ int main() {
 
     // block k, written when the solver asks for it: once to condense it,
     // once more (blk.recovery set) to recover its unknowns
-    auto block = [](const int k, Solver::StreamedBlock& blk) {
+    auto block = [](const int k, Solver::RecomputedBlock& blk) {
         for (int i = 0; i < 2; ++i) {
             const int row = 2 + 2 * k + i;
             for (int j = 0; j < 2; ++j)

@@ -89,7 +89,11 @@ auto make_provider(const tdls_tests::ArrowProblem<T>& p, CallLog& log) {
     return [&p, &log](const int k, auto& blk) {
         const tdls::ArrowheadShape& s = p.shape;
         const int B = s.border, S = s.block;
-        if (blk.recovery) {
+        // the flag of the recomputed solves (RecomputedBlock); the streamed
+        // reference gives a StreamedBlock, always a condensation
+        bool recovery = false;
+        if constexpr (requires { blk.recovery; }) recovery = blk.recovery;
+        if (recovery) {
             log.recovered.push_back(k);
         } else {
             log.ordered = log.ordered && k == log.next && log.recovered.empty();

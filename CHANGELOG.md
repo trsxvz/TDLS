@@ -22,7 +22,7 @@ the API may change between minor versions.
   their unknowns, nothing of an accepted block stored: no matrix
   storage, the border block given alone, a workspace that holds only
   the refused blocks, at most a capacity of them (`deferred` beyond,
-  y untouched). `StreamedBlock::recovery` tells the provider which call
+  y untouched). `RecomputedBlock::recovery` tells the provider which call
   it serves. `solve_inplace_recomputed_or_tangent`, the pass of a Newton
   iteration: the tangent when converged, the blocks then asked for once
   and y untouched. The runtime solver has both, bit for bit those of the

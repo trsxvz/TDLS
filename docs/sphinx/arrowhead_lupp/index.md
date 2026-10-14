@@ -295,7 +295,9 @@ A streamed solve still writes the recovery data of every block, about
 the size of the matrix, and reads them back. `solve_inplace_recomputed`
 of the compile-time solver stores nothing of an accepted block: it asks
 the provider for every block twice, once to condense it and once more,
-`blk.recovery` set, to recover its unknowns, the last block first; it
+`blk.recovery` set (a `RecomputedBlock`, the accessors of
+`StreamedBlock` and that flag), to recover its unknowns, the last block
+first; it
 factors the block again and solves
 $x_k = D_k^{-1} (y_k - A_{kb} x_b)$. The caller gives the border block
 alone, $B \times B$ in the layout of the configuration, and the border
