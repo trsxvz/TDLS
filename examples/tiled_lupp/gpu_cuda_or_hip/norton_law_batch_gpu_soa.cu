@@ -17,12 +17,12 @@
 /// booleans set to false and the batch stride, so consecutive threads
 /// touch consecutive addresses and every access is coalesced.
 ///
-/// A 7 x 7 system fits in registers, so the register variant is the
-/// faster one here. This placement is the one a law with a larger
-/// system needs, when register pressure would throttle occupancy: only
-/// the residency booleans and the (pointer, stride) pairs handed to the
-/// solver change. The price is that the batch of systems occupies
-/// device memory, which bounds its size.
+/// At 7 x 7, the thread-local variant is the faster one. This placement
+/// is the one a law with a larger system needs, when register pressure
+/// would throttle occupancy: only the residency booleans and the
+/// (pointer, stride) pairs handed to the solver change. The price is
+/// that the batch of systems occupies device memory, which bounds its
+/// size.
 
 #include <cmath>
 #include <cstddef>

@@ -1,8 +1,8 @@
 /// \file
 /// \brief Example: reaction substep of an operator-splitting scheme on
-/// GPU, one independent stiff implicit step chain per cell, with the
-/// linear systems held in registers through the internal residencies of
-/// the compile-time TiledLUpp solver.
+/// GPU, one independent stiff implicit step chain per cell, with
+/// thread-local linear systems through the internal residencies of the
+/// compile-time TiledLUpp solver.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -16,8 +16,10 @@
 ///
 /// Why the residencies are internal: each thread passes
 /// residency booleans set to true, so the solver indexes the matrix,
-/// the pivots and the right-hand side with compile-time strides and the
-/// whole system lives in thread registers. Device memory only holds the
+/// the pivots and the right-hand side with compile-time strides. The
+/// working tiles stay in registers; the matrix and the pivots, whose
+/// rows the pivots index at run time, live in the local memory of the
+/// thread, which the caches serve. Device memory only holds the
 /// per-cell inputs (a temperature factor) and outputs (the cell state):
 /// the batch of matrices is never materialized, so the batch size is
 /// bounded by compute capacity, not by device memory.
@@ -36,7 +38,7 @@ namespace {
 using namespace robertson;
 
 /// \brief One cell per thread: reads the cell inputs, integrates the
-/// chemistry entirely in registers, writes the final state (SoA layout,
+/// chemistry with thread-local data only, writes the final state (SoA layout,
 /// coalesced) and a success flag.
 /// \param[in]  cells number of cells
 /// \param[in]  steps number of Radau steps per cell
@@ -55,7 +57,7 @@ __global__ void reaction_substep(const int cells, const int steps, const double 
     // Per-cell inputs: fresh mixture and the cell temperature factor.
     double y[species] = {1.0, 0.0, 0.0};
 
-    // Newton systems in registers: every operand is thread-local.
+    // Newton systems: every operand is thread-local.
     double M[N * N], r[N], dz[N];
     int piv[N];
     bool success = true;

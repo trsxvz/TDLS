@@ -30,6 +30,18 @@ the API may change between minor versions.
   nrhs)`, which does not grow with the number of blocks, and
   `valid_recomputed`.
 
+### Fixed
+
+- TiledLUpp documentation: a caller-local matrix does not stay in
+  registers on GPU. The logical pivoting writes each tile back at the
+  physical rows of the pivot array, known at run time only, so the
+  matrix and its pivots live in the local memory of the thread; only
+  the working tiles stay in registers. The file documentation, the
+  `unroll_loops` knob, the Sphinx page, the test page and the GPU and
+  parallel STL examples said otherwise. The `tile_size` and
+  `unroll_loops` knobs now give the measurements inside implicit MFront
+  behaviours, and `register_blocks` those on larger blocks.
+
 ## [0.3.0] - 2026-10-14
 
 ### Added

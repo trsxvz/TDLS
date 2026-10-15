@@ -20,7 +20,7 @@
 /// pointers live in managed memory.
 ///
 /// The Newton systems are local arrays of the lambda, so each point
-/// solves in registers on a device; the per-point outputs live in the
+/// solves with thread-local data on a device; the per-point outputs live in the
 /// vectors, structure-of-arrays. The state before the last step is
 /// recorded, so that the last step can be checked on every point
 /// against the radial return, and on a sample of points against central

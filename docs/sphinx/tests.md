@@ -155,9 +155,10 @@ program, so `TiledLUppSolverStatic` applies. The examples show the
 canonical reason for the split factorize/substitute interface, the
 frozen Jacobian practice. On GPU, they show the two residency choices:
 
-- `implicit_ode_batch_gpu`: residency booleans set to true, the whole
-  system lives in thread registers, device memory only holds the
-  per-cell inputs and outputs;
+- `implicit_ode_batch_gpu`: residency booleans set to true, the system
+  is thread-local (the working tiles in registers, the matrix and the
+  pivots in the local memory of the thread), device memory only holds
+  the per-cell inputs and outputs;
 - `implicit_ode_batch_gpu_soa`: residency booleans set to false, the
   batch of systems is materialized in device memory
   structure-of-arrays and walked with the batch stride, every access

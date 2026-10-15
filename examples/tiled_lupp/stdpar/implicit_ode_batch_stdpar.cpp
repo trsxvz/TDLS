@@ -22,7 +22,7 @@
 /// this model: its headers compile as plain C++.
 ///
 /// The linear systems are local arrays of the lambda, so each cell
-/// solves in registers on a device; only the per-cell outputs live in
+/// solves with thread-local data on a device; only the per-cell outputs live in
 /// the vectors, structure-of-arrays.
 
 #include <algorithm>

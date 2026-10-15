@@ -52,7 +52,10 @@ struct TiledLUppConfig {
     /// Tile extent: the matrix is processed as a grid of tile_size x
     /// tile_size register tiles. This is the main performance axis of the
     /// solvers. Tune it per system dimension: the optimum measured in
-    /// tfelGPU, the source project, depends on N. Both TiledLUpp solvers
+    /// tfelGPU, the source project, depends on N. On an RTX 5080, one
+    /// thread per system inside implicit MFront behaviours (N = 12 to 19,
+    /// double), tiles of 4 or 5 were the fastest, and 3 was up to 28 %
+    /// slower at N = 19 (tile 4, left-looking, best there). Both TiledLUpp solvers
     /// only require tile_size >= 1. The tile size may exceed the
     /// dimension (the grid is then a single partial tile), and
     /// tile_size = 1 degenerates into an untiled scalar elimination.
@@ -123,9 +126,13 @@ struct TiledLUppConfig {
     /// indexing the register tiles (the in-tile scalar loops) and, in the
     /// compile-time solver, the loops over the N entries of the pivot and
     /// vector operands. true: they carry a forced-unroll pragma, the guard
-    /// that keeps the tiles and the caller-local operands in registers on
-    /// GPU backends, where a rolled loop indexes them dynamically and
-    /// demotes them to slow local memory. false: no unroll pragma
+    /// that keeps the tiles in registers on GPU backends, where a rolled
+    /// loop indexes them dynamically and demotes them to slow local
+    /// memory. A caller-local matrix stays in local memory anyway: the
+    /// pivots index its rows at run time. Caller-local pivots and
+    /// right-hand sides may too, depending on the dimension and the
+    /// compiler. Inside implicit behaviours, false was 10 to 23 % slower
+    /// (RTX 5080, double). false: no unroll pragma
     /// anywhere, for faster compiles, GPU performance not guaranteed. The
     /// tile sweeps walk memory, not registers, and carry no pragma in
     /// either branch. The runtime solver carries no pragma and ignores

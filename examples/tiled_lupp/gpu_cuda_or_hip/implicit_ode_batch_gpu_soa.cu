@@ -18,7 +18,7 @@
 /// addresses and every access is coalesced.
 ///
 /// External residency is the right choice when the systems cannot or
-/// should not stay in registers: larger dimensions, register pressure
+/// should not stay thread-local: larger dimensions, register pressure
 /// throttling occupancy, or matrices produced by a separate assembly
 /// kernel. The price is that the batch now occupies device memory,
 /// which bounds its size; the register variant has no such bound.

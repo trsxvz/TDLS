@@ -12,10 +12,14 @@ and Gaussian elimination runs on tiles instead of scalars. The tiles
 of the current step are copied into local arrays: the working set,
 kept in registers. The full matrix can stay in remote memory (shared,
 global or plain host memory), walked with a stride. It can also be a
-caller-local array, which the compile-time solver keeps in registers
-through its residency booleans. Pivoting is logical: a pivot array
-maps logical rows to physical rows, and rows are physically swapped
-only inside the diagonal tile.
+caller-local array, through the residency booleans of the compile-time
+solver. Pivoting is logical: a pivot array maps logical rows to
+physical rows, and rows are physically swapped only inside the
+diagonal tile. Each tile goes back to the physical rows that the pivot
+array gives, an index known at run time only. A caller-local matrix and
+its pivots are thus indexed at run time: on GPU they live in the local
+memory of the thread, which the caches serve, and only the working
+tiles stay in registers.
 
 Any dimension works with any tile size. When the dimension is not a
 multiple of `tile_size`, the last tile of each row and column is
@@ -76,9 +80,11 @@ The first solves A x = b, the second A^T x = b.
 `TiledLUppSolverStatic<T, N, Config>` takes the dimension N at compile
 time. Three residency template booleans, `internal_rhs`,
 `internal_piv` and `internal_matrix`, declare where each operand
-lives. A caller-local array is indexed at compile time, so that a
-whole system can stay in registers. External memory is walked with a
-runtime stride. The booleans have no default: each call site states
+lives. A caller-local array saves the strided addressing; on GPU its
+working tiles stay in registers, but the matrix itself lives in the
+local memory of the thread, since the pivots index its rows at run
+time (see Algorithm). External memory is walked with a runtime
+stride. The booleans have no default: each call site states
 what its buffers are.
 
 `TiledLUppSolverDynamic<T, Config>` takes the dimension n at run time.
@@ -102,13 +108,13 @@ individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 
 | Knob | Default | Role |
 |---|---|---|
-| `tile_size` | 3 | extent of the register tiles, the main performance axis; may exceed the dimension |
+| `tile_size` | 3 | extent of the register tiles, the main performance axis; may exceed the dimension; on an RTX 5080, one thread per system inside implicit MFront behaviours (N = 12 to 19, double), tiles of 4 or 5 were the fastest, 3 up to 28 % slower at N = 19 |
 | `schedule` | `RightLooking` | elimination schedule, `RightLooking` or `LeftLooking` |
 | `oot_pivot_threshold` | 1e-10 for `double` and `long double`<br>1e-4 for `float` | an in-tile pivot at least this large is accepted without searching below the tile |
 | `oot_first_acceptable` | `true` | the search below the tile stops at the first candidate reaching `oot_pivot_threshold` |
 | `relative_pivot_threshold` | 0.1 | in the diagonal tile only, the row in place keeps the pivot when it reaches this fraction of the best in-tile candidate and `oot_pivot_threshold`; 1 takes the best in-tile candidate; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular, after an out-of-tile search or in the last diagonal tile, where no row is left to search; positive, at most `oot_pivot_threshold` |
-| `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops and the loops over the N entries of the pivot and vector operands, whose unrolling keeps the tiles and the caller-local operands in registers on GPU; the tile sweeps never carry a pragma; ignored by the runtime solver |
+| `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: the in-tile loops and the loops over the N entries of the pivot and vector operands, whose unrolling keeps the tiles in registers on GPU (a caller-local matrix stays in local memory anyway, its rows indexed by the pivots at run time); the tile sweeps never carry a pragma; ignored by the runtime solver |
 | `layout` | `RowMajor` | matrix storage, `RowMajor` or `ColMajor`; column-major factors A^T and solves through the transposed factors (see above) |
 
 The floating-point knobs are written as plain `T` values. They are stored

@@ -17,9 +17,13 @@
 /// current step are copied into local arrays, the working set kept in
 /// registers. The full matrix can stay in remote memory (shared, global or
 /// plain host memory), walked with a stride, or be a caller-local array
-/// that the residency booleans keep in registers too. Pivoting is
-/// logical: piv[] maps logical row -> physical row, rows are physically
-/// swapped only inside the diagonal tile. Inside the tile, the row in
+/// (the residency booleans). Pivoting is logical: piv[] maps logical row
+/// -> physical row, rows are physically swapped only inside the diagonal
+/// tile, and each tile goes back to the physical rows that piv gives, an
+/// index known at run time only. A caller-local matrix and its pivots
+/// are thus indexed at run time: on GPU they live in the local memory of
+/// the thread, which the caches serve, and only the working tiles stay
+/// in registers. Inside the tile, the row in
 /// place keeps the pivot when it reaches both
 /// Config.relative_pivot_threshold times the best in-tile candidate and
 /// Config.oot_pivot_threshold (threshold pivoting, in-tile only).
@@ -764,8 +768,9 @@ struct TiledLUppSolverStatic {
        RIGHT-LOOKING schedule. Step k: factor the diagonal tile, then push
        its factors into the trailing matrix (TRSM right over the row panel,
        TRSM down + Schur complement over the rows below). The physical-row
-       segments pk/pi are cached per tile (they fold to nothing when the
-       permutation itself is internal).
+       segments pk/pi are cached per tile. Their entries are known at run
+       time only, an internal permutation included: a caller-local matrix
+       is indexed through them, so on GPU it lives in local memory.
        ===================================================================== */
 
     /// \brief RL: one row-panel tile update, Akj := L^-1 Akj.

@@ -1,7 +1,7 @@
 /// \file
 /// \brief Example: Norton viscoplasticity on a batch of integration
-/// points on GPU, the Newton systems held in registers through the
-/// internal residencies of the compile-time TiledLUpp solver.
+/// points on GPU, the Newton systems thread-local through the internal
+/// residencies of the compile-time TiledLUpp solver.
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -15,8 +15,11 @@
 ///
 /// Why the residencies are internal: each thread hands the solver
 /// local arrays for the jacobian, the pivot and the right-hand side,
-/// with the residency booleans set to true, so the whole 7 x 7 Newton
-/// system lives in thread registers. Device memory only holds the
+/// with the residency booleans set to true: the 7 x 7 Newton system is
+/// thread-local. Its working tiles stay in registers; the matrix and the
+/// pivots, whose rows the pivots index at run time, live in the local
+/// memory of the thread, which the caches serve. Device memory only
+/// holds the
 /// per-point state and outputs, structure-of-arrays so that every
 /// access is coalesced.
 
@@ -34,7 +37,7 @@ namespace {
 using namespace norton;
 
 /// \brief One integration point per thread: integrates the loading
-/// history with the Newton systems in registers, records the state
+/// history with thread-local Newton systems, records the state
 /// before the last step for the host-side checks, and writes the final
 /// stress, tangent operator and success flag.
 /// \param[in]  points     number of integration points

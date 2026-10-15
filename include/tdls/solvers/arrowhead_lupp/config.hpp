@@ -216,7 +216,12 @@ struct ArrowheadLUppConfig {
     /// those of the default path. With block_tile_size at least the block,
     /// the pivots are those of TiledLUpp and the results agree within
     /// rounding errors. For small blocks: the loops are unrolled over the
-    /// block, S^3 operations. The runtime solver, whose block lives in the
+    /// block, S^3 operations. Measured on an RTX 5080: the recomputed path
+    /// 3.5 times faster with it (polycrystal, blocks of 6, float); on
+    /// diagonally dominant blocks with the dense coupling and the matrix
+    /// stored (border of 12, 8 blocks), 0.8 to 1.2 times the speed of the
+    /// default path up to blocks of 12, 0.54 to 0.95 times from 18. To
+    /// measure per shape. The runtime solver, whose block lives in the
     /// workspace, runs the same operations in the same order: both solvers
     /// stay bitwise identical.
     bool register_blocks = false;
