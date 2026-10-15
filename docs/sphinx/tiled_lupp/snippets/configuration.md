@@ -6,14 +6,14 @@ are listed on the {doc}`family page <../index>`.
 ## Defaults
 
 The default configuration, and the two solvers instantiated with it:
-it is also the default of their configuration argument. Tiles of 3 cut
-this 4 x 4 matrix into a full tile and a trailing tile of 1.
+it is also the default of their configuration argument. Tiles of 4
+make this 4 x 4 matrix a single tile.
 
 $$
-A = \left(\begin{array}{ccc|c}
+A = \left(\begin{array}{cccc}
 4 & 1 & 0 & 2 \\
 1 & 5 & 1 & 0 \\
-0 & 1 & 6 & 1 \\ \hline
+0 & 1 & 6 & 1 \\
 2 & 0 & 1 & 7
 \end{array}\right), \quad
 b = \begin{pmatrix} 14 \\ 14 \\ 24 \\ 33 \end{pmatrix}, \quad

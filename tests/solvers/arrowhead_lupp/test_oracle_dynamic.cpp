@@ -43,6 +43,9 @@ namespace {
 template<typename T>
 constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col) {
     tdls::ArrowheadLUppConfig<T> c;
+    // tiles of 3, so that blocks of 4 are cut into tiles of 3 and 1
+    c.block_tile_size       = 3;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.storage  = tdls::ArrowheadStorage::Packed;
     c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;

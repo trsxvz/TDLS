@@ -38,16 +38,19 @@ namespace {
 /// \tparam T scalar type
 /// \param[in] diag      diagonal coupling
 /// \param[in] col       column-major layout
-/// \param[in] registers blocks eliminated in registers (register_blocks)
+/// \param[in] registers blocks eliminated in registers (RowInterchange::Physical)
 /// \return the configuration
 template<typename T>
 constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col,
                                                    const bool registers = false) {
     tdls::ArrowheadLUppConfig<T> c;
+    // tiles of 3, so that blocks of 4 are cut into tiles of 3 and 1
+    c.block_tile_size = 3;
     c.coupling        = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.storage         = tdls::ArrowheadStorage::Packed;
     c.layout          = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
-    c.register_blocks = registers;
+    c.block_row_interchange =
+        registers ? tdls::RowInterchange::Physical : tdls::RowInterchange::Logical;
     return c;
 }
 
@@ -60,7 +63,7 @@ constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool c
 /// \tparam Shape  shape of the matrices
 /// \tparam diag   diagonal coupling (and pattern)
 /// \tparam col    column-major layout
-/// \tparam reg    blocks eliminated in registers (register_blocks)
+/// \tparam reg    blocks eliminated in registers (RowInterchange::Physical)
 /// \param[in] count     number of systems
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed

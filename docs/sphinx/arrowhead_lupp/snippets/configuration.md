@@ -72,7 +72,9 @@ $$
 
 ## The TiledLUpp solvers of the blocks and of the border
 
-Their tile sizes and the two thresholds of the blocks. The tiles of 2
+Their tile sizes and the two thresholds of the blocks, eliminated by
+tiles (`block_row_interchange = Logical`: by default, blocks of 2 are
+eliminated in registers, which ignores the tile size). The tiles of 2
 hold a whole block, so that the relative threshold chooses among both
 rows of a column.
 
@@ -98,8 +100,9 @@ The columns $[A_{kb} \mid y_k]$ of a block solved two at a time.
 
 The pivots of a block applied to the rows of its columns
 $[A_{kb} \mid y_k]$ by a gather. The knob acts only where the
-condensation runs the whole solve, here the row-major layout with the
-diagonal coupling.
+condensation runs the whole solve with the blocks eliminated by tiles
+(`block_row_interchange = Logical`: blocks in registers ignore it),
+here the row-major layout with the diagonal coupling.
 
 ```{literalinclude} ../../../snippets/arrowhead_lupp/config_gather.cpp
 :language: cpp
@@ -110,11 +113,11 @@ diagonal coupling.
 
 ## Blocks in registers
 
-Each block factored by physical row interchanges, every index known at
-compile time, instead of by TiledLUpp: on GPU the block and its
-right-hand sides stay in registers.
+Each block factored by TiledLUpp with physical row interchanges, every
+index known at compile time: on GPU the block and its right-hand sides
+stay in registers. `Auto`, the default, chooses them for blocks that fit.
 
-```{literalinclude} ../../../snippets/arrowhead_lupp/config_register_blocks.cpp
+```{literalinclude} ../../../snippets/arrowhead_lupp/config_block_row_interchange.cpp
 :language: cpp
 :start-after: // snippet begin
 :end-before: // snippet end

@@ -70,8 +70,7 @@ the end. They are built with `TDLS_BUILD_TFEL_SNIPPETS`, against TFEL
 
 The objects are declared in the shown code, since their types are the
 point. The default configuration applies unless the snippet says
-otherwise: tiles of 3, so the 4 x 4 systems have one full tile and a
-trailing tile of 1.
+otherwise: tiles of 4, so the 4 x 4 systems are a single tile.
 
 ```{toctree}
 :maxdepth: 1

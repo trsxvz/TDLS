@@ -22,9 +22,11 @@ int main() {
     tfel::math::tvector<4, double> y{10, 13, 24, 31};
     tfel::math::fsarray<4, int> piv;
 
-    // the trailing int&: the columns whose best in-tile pivot fell below the threshold
+    // the trailing int&: the columns whose best in-tile pivot fell below the threshold, here
+    // in tiles of 3
+    constexpr auto config = tdls::TiledLUppConfig<double>{.tile_size = 3};
     int oot_count;
-    const bool ok = tdls::solve_inplace(A, piv, y, oot_count);
+    const bool ok = tdls::solve_inplace<config>(A, piv, y, oot_count);
 
     const bool searched_below_the_tile = oot_count == 1 && piv[0] == 3;
     // snippet end

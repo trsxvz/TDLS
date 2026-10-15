@@ -19,11 +19,13 @@ int main() {
 
     // snippet begin
     // the rows of [A_kb | y_k] permuted by a gather into a second buffer instead of cycles in
-    // place: another register allocation, to measure per shape on GPU
+    // place, the blocks eliminated by tiles (Logical): another register allocation, to
+    // measure per shape on GPU
     constexpr auto config =
-        tdls::ArrowheadLUppConfig<double>{.coupling   = tdls::ArrowheadCoupling::Diagonal,
-                                          .storage    = tdls::ArrowheadStorage::Packed,
-                                          .gather_rhs = true};
+        tdls::ArrowheadLUppConfig<double>{.coupling = tdls::ArrowheadCoupling::Diagonal,
+                                          .storage  = tdls::ArrowheadStorage::Packed,
+                                          .block_row_interchange = tdls::RowInterchange::Logical,
+                                          .gather_rhs            = true};
     using Solver = tdls::ArrowheadLUppSolverStatic<double, shape, config>;
 
     double M[Solver::storage_size];

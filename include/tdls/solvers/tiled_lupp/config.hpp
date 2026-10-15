@@ -55,14 +55,48 @@ struct TiledLUppConfig {
     /// tfelGPU, the source project, depends on N. On an RTX 5080, one
     /// thread per system inside implicit MFront behaviours (N = 12 to 19,
     /// double), tiles of 4 or 5 were the fastest, and 3 was up to 28 %
-    /// slower at N = 19 (tile 4, left-looking, best there). Both TiledLUpp solvers
+    /// slower at N = 19 (tile 4, left-looking, best there); 4, the default
+    /// (3 up to version 0.3.0). Both TiledLUpp solvers
     /// only require tile_size >= 1. The tile size may exceed the
     /// dimension (the grid is then a single partial tile), and
     /// tile_size = 1 degenerates into an untiled scalar elimination.
-    int tile_size = 3;
+    int tile_size = 4;
 
     /// Elimination schedule of the tiled factorization, see Schedule.
     Schedule schedule = Schedule::RightLooking;
+
+    /// Row interchanges of the partial pivoting. Logical, the default:
+    /// rows never move in the stored matrix, the pivot array maps each
+    /// position to its row, and the tiles go back to the rows it gives, an
+    /// index known at run time only. On GPU, a caller-local matrix is then
+    /// indexed at run time and lives in the local memory of the thread.
+    ///
+    /// Physical: the whole matrix is a single tile, and the rows are
+    /// interchanged as in LAPACK, through a test of every row index against
+    /// the pivot row, so that once the loops are unrolled every index is
+    /// known at compile time: a caller-local matrix, its pivots and its
+    /// right-hand sides stay in registers. tile_size and schedule are
+    /// ignored. The pivots are those of Logical over a single tile (a
+    /// tile_size of at least N), and so are the operations of the
+    /// factorization: the factors agree bitwise, rows reordered; the
+    /// substitutions sum in another order, the solutions agree within
+    /// rounding errors. The pivot
+    /// array then holds the interchanges: piv[j] is the row exchanged with
+    /// row j at step j. A factorization keeps the scheme of its
+    /// configuration, so its substitutions share it by construction.
+    ///
+    /// For small systems only: the elimination is unrolled over the whole
+    /// matrix, N^3 operations in the code, and it pays only while the
+    /// matrix fits in the registers of a thread, about N^2 sizeof(T) / 4 <=
+    /// 200 on NVIDIA GPUs, less what the caller keeps alive. Beyond it, the
+    /// compiler spills the matrix, and Logical keeps only the working tiles
+    /// in registers.
+    ///
+    /// Auto is rejected at compile time: it is the default of the blocks of
+    /// ArrowheadLUpp only (ArrowheadLUppConfig::block_row_interchange),
+    /// which choose by block size, precision and target and hand TiledLUpp
+    /// Physical or Logical.
+    RowInterchange row_interchange = RowInterchange::Logical;
 
     /// Acceptable-pivot threshold of the out-of-tile search. The
     /// floating-point knobs carry the scalar type T by construction, stored

@@ -129,16 +129,23 @@ struct ArrowheadLUppSolverDynamic {
     /// once from the configuration at compile time (see
     /// ArrowheadLUppConfig::condensation_pivot_threshold).
     static constexpr T condensation_pivot_threshold = Config.condensation_pivot_threshold;
-    static_assert(Config.rhs_pass_width >= 0,
-                  "ArrowheadLUppSolverDynamic: rhs_pass_width must be >= 0");
+    static_assert(Config.rhs_pass_width >= -1,
+                  "ArrowheadLUppSolverDynamic: rhs_pass_width must be >= -1");
 
     using BlockSolver  = TiledLUppSolverDynamic<T, detail::arrowhead_block_config(Config)>;
     using BorderSolver = TiledLUppSolverDynamic<T, detail::arrowhead_border_config(Config)>;
+    /// Solver of the diagonal blocks in registers: TiledLUpp with
+    /// physical row interchanges.
+    using PhysicalBlockSolver =
+        TiledLUppSolverDynamic<T, detail::arrowhead_physical_block_config(Config)>;
 
     /// \brief Sizes of a shape, the names of the compile-time solver, for a
     /// number of right-hand sides (front_cols, pass_width).
     struct Sizes {
         int B, S, NB, R, R0, front_rows, front_cols, extra_cols, pass_width;
+        /// Blocks eliminated in registers (ArrowheadLUppConfig::block_row_interchange,
+        /// Auto resolved for this block size).
+        bool reg;
     };
     /// \brief Offsets of the temporaries in the workspace, of type I: int
     /// for the solve, long long for the size check of valid().
@@ -166,17 +173,19 @@ struct ArrowheadLUppSolverDynamic {
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr Sizes
     sizes(const ArrowheadShape& shape, const int nc, const int ny) noexcept {
         Sizes z{};
-        z.B          = shape.border;
-        z.S          = shape.block;
-        z.NB         = shape.blocks;
-        z.R          = diag ? z.S : z.B;
-        z.R0         = diag ? shape.coupling_row : 0;
-        z.front_rows = z.S + z.B;
-        z.front_cols = z.S + z.B + z.R + nc;
-        z.extra_cols = z.R > z.S ? z.R - z.S : 0;
-        z.pass_width = Config.rhs_pass_width == 0 || Config.rhs_pass_width > z.B + ny
-                           ? z.B + ny
-                           : Config.rhs_pass_width;
+        z.B                                  = shape.border;
+        z.S                                  = shape.block;
+        z.NB                                 = shape.blocks;
+        z.R                                  = diag ? z.S : z.B;
+        z.R0                                 = diag ? shape.coupling_row : 0;
+        z.front_rows                         = z.S + z.B;
+        z.front_cols                         = z.S + z.B + z.R + nc;
+        z.extra_cols                         = z.R > z.S ? z.R - z.S : 0;
+        constexpr RowInterchange interchange = Config.block_row_interchange;
+        constexpr int width                  = Config.rhs_pass_width;
+        z.reg          = detail::arrowhead_register_blocks_here<T>(interchange, z.S);
+        const int pass = detail::arrowhead_rhs_pass_width_here(width, z.reg);
+        z.pass_width   = pass == 0 || pass > z.B + ny ? z.B + ny : pass;
         return z;
     }
 
@@ -1248,7 +1257,7 @@ struct ArrowheadLUppSolverDynamic {
             }
             for (int i = 0; i < S; ++i)
                 TDLS_ARROW_LUPP_DYN_W(o.W + i) = TDLS_ARROW_LUPP_DYN_W(o.s + i);
-            if constexpr (Config.register_blocks) {
+            if (z.reg) {
                 (void)physical_factor(z, o, work, work_stride, piv, piv_stride);
                 physical_solve(z, o, work, work_stride, piv, piv_stride, 1, true);
             } else {
@@ -1291,7 +1300,7 @@ struct ArrowheadLUppSolverDynamic {
                                 T* TDLS_RESTRICT work, const int work_stride, const int k,
                                 int& count) noexcept {
         const int B = z.B, S = z.S;
-        const bool forward_check = !Config.register_blocks && col && z.pass_width == B + 1;
+        const bool forward_check = !z.reg && col && z.pass_width == B + 1;
         for (int e = 0; e < S * S; ++e)
             TDLS_ARROW_LUPP_DYN_W(so.Dsave + e) = TDLS_ARROW_LUPP_DYN_W(o.Dl + e);
         if (forward_check)
@@ -1619,10 +1628,10 @@ struct ArrowheadLUppSolverDynamic {
                         TDLS_ARROW_LUPP_DYN_A(storage_map::d(shape, k, i, j));
         }
         // Factored by TiledLUpp, or by physical interchanges
-        // (register_blocks): Dl then holds U in logical row order and the
+        // (blocks in registers): Dl then holds U in logical row order and the
         // check of L is made.
         bool ok = true;
-        if constexpr (Config.register_blocks) {
+        if (z.reg) {
             const int verdict = physical_factor(z, o, work, work_stride, piv, piv_stride);
             if (verdict == 2) return false;
             ok = verdict == 0;
@@ -1634,10 +1643,10 @@ struct ArrowheadLUppSolverDynamic {
                 TDLS_ARROW_LUPP_DYN_W(o.acoef + i) =
                     TDLS_ARROW_LUPP_DYN_A(storage_map::abk_diag(shape, k, i));
         }
-        const bool forward_check = !Config.register_blocks && col && z.pass_width == B + ny;
+        const bool forward_check = !z.reg && col && z.pass_width == B + ny;
         // The multipliers L, and U in logical row order unless the forward
         // stage of the solve gives the border multipliers.
-        if constexpr (Config.register_blocks) {
+        if (z.reg) {
             for (int l = 0; l < S; ++l)
                 for (int j = l; j < S; ++j)
                     TDLS_ARROW_LUPP_DYN_W(o.U + l * S + j) =
@@ -1733,7 +1742,7 @@ struct ArrowheadLUppSolverDynamic {
         const int B = z.B, S = z.S;
         const int ny                         = canonical ? 0 : NC > 0 ? NC : nrhs;
         [[maybe_unused]] constexpr int ycols = NC;
-        const bool forward_check = !Config.register_blocks && col && z.pass_width == B + ny;
+        const bool forward_check             = !z.reg && col && z.pass_width == B + ny;
         for (int e = 0; e < S * S; ++e)
             TDLS_ARROW_LUPP_DYN_W(so.Dsave + e) = TDLS_ARROW_LUPP_DYN_W(o.Dl + e);
         if (forward_check)
@@ -1827,7 +1836,8 @@ struct ArrowheadLUppSolverDynamic {
     }
 
     /// \brief Factors the block at o.Dl in place in the workspace
-    /// (ArrowheadLUppConfig::register_blocks): the operations of
+    /// (RowInterchange::Physical), by TiledLUpp with physical
+    /// row interchanges (PhysicalBlockSolver): the operations of
     /// ArrowheadLUppSolverStatic::register_factor in the same order, so
     /// that both solvers agree bit for bit. The in-tile pivot rule of
     /// TiledLUpp over a single tile, the rows interchanged physically and
@@ -1846,50 +1856,9 @@ struct ArrowheadLUppSolverDynamic {
     TDLS_HOST_DEVICE static constexpr int
     physical_factor(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
                     int* TDLS_RESTRICT piv, const int piv_stride) noexcept {
-        const int S           = z.S;
-        const T u             = condensation_pivot_threshold;
-        constexpr T rel       = BlockSolver::relative_pivot_threshold;
-        constexpr T oot       = BlockSolver::oot_pivot_threshold;
-        constexpr T floor_val = BlockSolver::singular_floor;
-        bool ok               = true;
-        bool singular         = false;
-        for (int j = 0; j < S; ++j) {
-            T best = detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j));
-            int r  = j;
-            for (int i = j + 1; i < S; ++i) {
-                const T a = detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + j));
-                if (a > best) {
-                    best = a;
-                    r    = i;
-                }
-            }
-            if constexpr (rel < T(1)) {
-                const T in_place = detail::abs(TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j));
-                if (in_place >= rel * best && in_place >= oot) r = j;
-            }
-            const bool pivot_ok              = best >= floor_val;
-            singular                         = singular || !pivot_ok;
-            piv[TDLS_STRIDED(j, piv_stride)] = r;
-            if (r != j) {
-                for (int c = 0; c < S; ++c) {
-                    const T t = TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + c);
-                    TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + c) =
-                        TDLS_ARROW_LUPP_DYN_W(o.Dl + r * S + c);
-                    TDLS_ARROW_LUPP_DYN_W(o.Dl + r * S + c) = t;
-                }
-            }
-            const T inv = pivot_ok ? T(1) / TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j) : T(0);
-            TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + j) = inv;
-            for (int i = j + 1; i < S; ++i) {
-                const T l = TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + j) * inv;
-                TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + j) = l;
-                ok                                      = ok && u * detail::abs(l) <= T(1);
-                for (int c = j + 1; c < S; ++c)
-                    TDLS_ARROW_LUPP_DYN_W(o.Dl + i * S + c) -=
-                        l * TDLS_ARROW_LUPP_DYN_W(o.Dl + j * S + c);
-            }
-        }
-        return singular ? 2 : ok ? 0 : 1;
+        return PhysicalBlockSolver::physical_factorize_checked(
+            z.S, work + TDLS_STRIDED(o.Dl, work_stride), work_stride, piv, piv_stride,
+            condensation_pivot_threshold);
     }
 
     /// \brief Solves the w columns at o.W in place with the factors of
@@ -1913,58 +1882,15 @@ struct ArrowheadLUppSolverDynamic {
     physical_solve(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
                    const int* TDLS_RESTRICT piv, const int piv_stride, const int w,
                    const bool backward = !multiplier_update) noexcept {
-        const int S = z.S;
-        if constexpr (!col) {
-            for (int j = 0; j < S; ++j) {
-                const int r = piv[TDLS_STRIDED(j, piv_stride)];
-                if (r != j)
-                    for (int c = 0; c < w; ++c) {
-                        const T t                    = TDLS_ARROW_LUPP_DYN_RC(c, j);
-                        TDLS_ARROW_LUPP_DYN_RC(c, j) = TDLS_ARROW_LUPP_DYN_RC(c, r);
-                        TDLS_ARROW_LUPP_DYN_RC(c, r) = t;
-                    }
-            }
-            for (int j = 0; j < S; ++j)
-                for (int i = j + 1; i < S; ++i) {
-                    const T l = TDLS_ARROW_LUPP_DYN_LU(i, j);
-                    for (int c = 0; c < w; ++c)
-                        TDLS_ARROW_LUPP_DYN_RC(c, i) -= l * TDLS_ARROW_LUPP_DYN_RC(c, j);
-                }
-            if (backward) {
-                for (int j = S - 1; j >= 0; --j)
-                    for (int c = 0; c < w; ++c) {
-                        T v = TDLS_ARROW_LUPP_DYN_RC(c, j);
-                        for (int q = j + 1; q < S; ++q)
-                            v -= TDLS_ARROW_LUPP_DYN_LU(j, q) * TDLS_ARROW_LUPP_DYN_RC(c, q);
-                        TDLS_ARROW_LUPP_DYN_RC(c, j) = v * TDLS_ARROW_LUPP_DYN_LU(j, j);
-                    }
-            }
-        } else {
-            for (int j = 0; j < S; ++j) {
-                for (int c = 0; c < w; ++c)
-                    TDLS_ARROW_LUPP_DYN_RC(c, j) *= TDLS_ARROW_LUPP_DYN_LU(j, j);
-                for (int q = j + 1; q < S; ++q) {
-                    const T uq = TDLS_ARROW_LUPP_DYN_LU(j, q);
-                    for (int c = 0; c < w; ++c)
-                        TDLS_ARROW_LUPP_DYN_RC(c, q) -= uq * TDLS_ARROW_LUPP_DYN_RC(c, j);
-                }
-            }
-            for (int j = S - 1; j >= 0; --j)
-                for (int q = j + 1; q < S; ++q) {
-                    const T l = TDLS_ARROW_LUPP_DYN_LU(q, j);
-                    for (int c = 0; c < w; ++c)
-                        TDLS_ARROW_LUPP_DYN_RC(c, j) -= l * TDLS_ARROW_LUPP_DYN_RC(c, q);
-                }
-            for (int j = S - 1; j >= 0; --j) {
-                const int r = piv[TDLS_STRIDED(j, piv_stride)];
-                if (r != j)
-                    for (int c = 0; c < w; ++c) {
-                        const T v                    = TDLS_ARROW_LUPP_DYN_RC(c, j);
-                        TDLS_ARROW_LUPP_DYN_RC(c, j) = TDLS_ARROW_LUPP_DYN_RC(c, r);
-                        TDLS_ARROW_LUPP_DYN_RC(c, r) = v;
-                    }
-            }
-        }
+        const int S              = z.S;
+        const T* TDLS_RESTRICT F = work + TDLS_STRIDED(o.Dl, work_stride);
+        T* TDLS_RESTRICT W       = work + TDLS_STRIDED(o.W, work_stride);
+        const std::size_t cs     = TDLS_STRIDED(S, work_stride);
+        PhysicalBlockSolver::physical_forward(S, w, F, work_stride, piv, piv_stride, W, work_stride,
+                                              cs);
+        if (col || backward)
+            PhysicalBlockSolver::physical_backward(S, w, F, work_stride, piv, piv_stride, W,
+                                                   work_stride, cs);
     }
 
     /// \brief Turns one border row, at offset m of the workspace, into its
@@ -2089,7 +2015,7 @@ struct ArrowheadLUppSolverDynamic {
                                 ? TDLS_ARROW_LUPP_DYN_A(storage_map::akb(shape, k, i, c0 + j))
                                 : TDLS_ARROW_LUPP_DYN_YW(c0 + j - B, B + k * S + i);
             }
-            if constexpr (Config.register_blocks) {
+            if (z.reg) {
                 physical_solve(z, o, work, work_stride, piv, piv_stride, w);
             } else if constexpr (multiplier_update) {
                 BlockSolver::forward_inplace_multirhs(S, w, Dl, work_stride, piv, piv_stride, W,

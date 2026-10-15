@@ -43,6 +43,7 @@ using tdls::ArrowheadShape;
 /// \return the configuration
 constexpr ArrowheadLUppConfig<double> base(const bool diag, const bool col) {
     ArrowheadLUppConfig<double> c;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
     c.storage  = tdls::ArrowheadStorage::Packed;

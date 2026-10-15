@@ -116,6 +116,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `inplace_paths` | the two in-place substitution algorithms around their switchover dimensions, in both layouts |
 | `multirhs` | the `_multirhs` entry points against the same columns solved one by one, bitwise, on both solvers and in both layouts; the two stages `forward_inplace_multirhs` then `backward_inplace_multirhs` against the in-place block |
 | `tile_sizes` | every tile size against the anchored one, including unit tiles (tile size 1) and tile sizes exceeding the dimension |
+| `physical` | the physical row interchanges (`row_interchange = Physical`) against the logical scheme over a single tile: the same verdicts, factors bit for bit (rows reordered) and counts of weak pivots, the solutions within rounding errors (a small backward error everywhere); the runtime solver bit for bit on every entry point and the strided residency; matrices that keep their rows, that pivot at every column and random ones, both layouts, float and double; a weak pivot counted as by the logical scheme |
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case |
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the in-tile pivot choice under a relative threshold, which leaves the out-of-tile search to its absolute trigger |
 | `constexpr` | compile-time certificates on both solvers |
@@ -123,7 +124,7 @@ The oracle of the family is a naive LU with physical row swaps
 | `dynamic_edges` | runtime-size edge cases of the dynamic variant |
 | `wide_offsets` | element offsets beyond 2^32: one system spread over tens of gigabytes of a lazily backed arena (POSIX with memory overcommit, not run elsewhere) by strides that take the offsets of the matrix, the pivots, the right-hand side and the columns of a block past 2^32, the stride between the columns past 2^32 by itself, against the same system stored contiguously, bitwise, on both solvers and in both layouts |
 | `device_constant_dimension` | the runtime solver called from a kernel with dimensions known at compile time, through every substitution entry point, in both layouts and both layouts of a block of right-hand sides, against the same solves on the host within 1e-12; built with the GPU examples (`TDLS_BUILD_CUDA_EXAMPLES` or `TDLS_BUILD_HIP_EXAMPLES`), skipped without a device |
-| `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1] |
+| `reject_config_*` | the threshold contracts of the configuration: ordering and positivity, and a relative pivot threshold in (0, 1]; no `Auto` row interchanges |
 
 For the detail of any suite, the authoritative description is the
 `\file` documentation at the top of its source in
@@ -232,7 +233,7 @@ keeps the instrumented builds short.
 | `singular` | singular and near-singular systems, including the tiny-but-solvable counter-case, with a verdict uniform across the group |
 | `config_knobs` | each configuration knob changes what it should and nothing else, including the pivot choice under a relative threshold |
 | `constexpr` | compile-time certificates on both solvers, one thread per system, under both row interchanges |
-| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a relative pivot threshold in (0, 1], no `tdls::NoSync` for a group of several threads |
+| `reject_*` | the compile-time contracts: positive floor, at least one row per thread, a relative pivot threshold in (0, 1], no `tdls::NoSync` for a group of several threads, no `Auto` row interchanges |
 | `stop_*` | the run-time contracts of the barrier: `tdls::NoSync` with the runtime solver on a dimension above `rows_per_thread`, and a workspace that was not zero before a group of CPU threads used it |
 
 For the detail of any suite, the authoritative description is the
@@ -330,9 +331,9 @@ every batch.
 
 | Suite | What it locks |
 |---|---|
-| `oracle_static`, `oracle_dynamic` | backward error of `solve` against the naive LU, on a grid of shapes crossing the structure of the solver (blocks of one unknown, a border smaller than the blocks, a border not a multiple of the block, blocks of 12, blocks cut into tiles of 3 and 1, a polycrystal, 1452 unknowns), both couplings and layouts, in float, double and long double; the singular verdict on a structurally singular matrix, and a floor of refused blocks; the same with the blocks in registers (`register_blocks`) |
+| `oracle_static`, `oracle_dynamic` | backward error of `solve` against the naive LU, on a grid of shapes crossing the structure of the solver (blocks of one unknown, a border smaller than the blocks, a border not a multiple of the block, blocks of 12, blocks cut into tiles of 3 and 1, a polycrystal, 1452 unknowns), both couplings and layouts, in float, double and long double; the singular verdict on a structurally singular matrix, and a floor of refused blocks; the same with the blocks in registers (`block_row_interchange = Physical`) |
 | `second_pass` | the refused blocks: zero pivots at the start, the middle and the end of a block, two in one block, as many singular blocks as the couplings have rank (invertible), one more (singular, both solvers must say so), every block refused by strong couplings, a subnormal pivot (a border row takes the pivot, or the matrix is singular, as for TiledLUpp); the backward error at the level of the naive LU |
-| `static_vs_dynamic` | bitwise equality of the two variants on every path of the condensation: the four storages, both couplings and layouts, passes, the gather, the Schur complement in place, the unroll policy off, the blocks in registers |
+| `static_vs_dynamic` | bitwise equality of the two variants on every path of the condensation: the four storages, both couplings and layouts, passes, the gather, the Schur complement in place, the unroll policy off, the blocks in registers; `block_row_interchange = Auto` runs the operations of the row interchanges it chooses (registers up to blocks of 12 in double on CPU, tiles beyond) and the two variants choose alike |
 | `storages` | the four storages bitwise identical; the index maps bijective, and matching the canonical CSR and BSR index arrays; `valid` accepting the shapes the solvers accept and rejecting the others without overflowing; the runtime solver rejecting before any access the shapes whose workspace passes 2^31 entries |
 | `residencies` | every residency combination against the external one, bitwise, the strided gaps of the arenas untouched; the runtime solver at the same strides |
 | `layouts` | the AoS, SoA and AoSoA batch addressing against the systems solved one by one, bitwise, on both solvers |

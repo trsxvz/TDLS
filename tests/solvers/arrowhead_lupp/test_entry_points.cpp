@@ -90,6 +90,7 @@ void entry_case(const int count, const std::uint64_t seed) {
 /// \return the configuration
 constexpr tdls::ArrowheadLUppConfig<double> entry_config(const bool diag, const bool col) {
     tdls::ArrowheadLUppConfig<double> c;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
     c.storage  = tdls::ArrowheadStorage::Packed;

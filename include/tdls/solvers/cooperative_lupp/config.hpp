@@ -84,7 +84,9 @@ struct CooperativeLUppConfig {
     /// compilers fuse them by default, possibly differently in the two
     /// schemes: the solutions may then differ in the last bits. The
     /// factored matrix, the pivot array and the workspace size differ: see
-    /// the solvers.
+    /// the solvers. Auto is rejected at compile time: it is the default of
+    /// the blocks of ArrowheadLUpp only
+    /// (ArrowheadLUppConfig::block_row_interchange).
     RowInterchange row_interchange = RowInterchange::Logical;
 
     /// Relative threshold of the pivot choice, in (0, 1]. At each column,

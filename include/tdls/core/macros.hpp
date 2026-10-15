@@ -26,6 +26,8 @@
 
 #include <cstddef>
 
+#include <tdls/core/target.hpp>
+
 
 
 /// \def TDLS_HOST_DEVICE
@@ -40,9 +42,9 @@
 /// to and works whatever the include order.
 
 #ifndef TDLS_HOST_DEVICE
-#if defined(__HIPCC__) || defined(__HIP__)
+#if defined(TDLS_DETAIL_LANG_HIP)
 #define TDLS_HOST_DEVICE __attribute__((host)) __attribute__((device))
-#elif defined(__CUDACC__) || defined(__CUDA__)
+#elif defined(TDLS_DETAIL_FRONTEND_CUDA)
 #define TDLS_HOST_DEVICE __host__ __device__
 #else
 #define TDLS_HOST_DEVICE
@@ -65,11 +67,11 @@
 /// Its pair TDLS_FORCE_INLINE_ALL forces the inlining on CPU too.
 
 #ifndef TDLS_FORCE_INLINE_GPU
-#if defined(__HIPCC__) || defined(__HIP__)
+#if defined(TDLS_DETAIL_LANG_HIP)
 #define TDLS_FORCE_INLINE_GPU inline __attribute__((always_inline))
-#elif defined(__CUDACC__) || defined(__CUDA__)
+#elif defined(TDLS_DETAIL_FRONTEND_CUDA)
 #define TDLS_FORCE_INLINE_GPU __forceinline__
-#elif defined(__SYCL_DEVICE_ONLY__)
+#elif defined(TDLS_DETAIL_LANG_SYCL_DEVICE)
 #define TDLS_FORCE_INLINE_GPU inline __attribute__((always_inline))
 #else
 #define TDLS_FORCE_INLINE_GPU inline
@@ -89,11 +91,11 @@
 /// TiledLUppSolverStatic::permute_cycles).
 
 #ifndef TDLS_FORCE_INLINE_ALL
-#if defined(__HIPCC__) || defined(__HIP__) || defined(__CUDACC__) || defined(__CUDA__)
+#if defined(TDLS_DETAIL_LANG_HIP) || defined(TDLS_DETAIL_FRONTEND_CUDA)
 #define TDLS_FORCE_INLINE_ALL TDLS_FORCE_INLINE_GPU
-#elif defined(_MSC_VER) && !defined(__clang__)
+#elif defined(TDLS_DETAIL_COMPILER_MSVC)
 #define TDLS_FORCE_INLINE_ALL __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
+#elif defined(TDLS_DETAIL_COMPILER_GNU_ATTRIBUTES)
 #define TDLS_FORCE_INLINE_ALL inline __attribute__((always_inline))
 #else
 #define TDLS_FORCE_INLINE_ALL inline
@@ -113,11 +115,11 @@
 /// inliner is left free.
 
 #ifndef TDLS_NO_INLINE_GPU
-#if defined(__HIPCC__) || defined(__HIP__)
+#if defined(TDLS_DETAIL_LANG_HIP)
 #define TDLS_NO_INLINE_GPU __attribute__((noinline))
-#elif defined(__CUDACC__) || defined(__CUDA__)
+#elif defined(TDLS_DETAIL_FRONTEND_CUDA)
 #define TDLS_NO_INLINE_GPU __noinline__
-#elif defined(__SYCL_DEVICE_ONLY__)
+#elif defined(TDLS_DETAIL_LANG_SYCL_DEVICE)
 #define TDLS_NO_INLINE_GPU __attribute__((noinline))
 #else
 #define TDLS_NO_INLINE_GPU inline
@@ -134,11 +136,11 @@
 /// (see the second pass of ArrowheadLUppSolverStatic).
 
 #ifndef TDLS_NO_INLINE
-#if defined(__CUDACC__) || defined(__CUDA__)
+#if defined(TDLS_DETAIL_FRONTEND_CUDA)
 #define TDLS_NO_INLINE __noinline__
-#elif defined(_MSC_VER) && !defined(__clang__)
+#elif defined(TDLS_DETAIL_COMPILER_MSVC)
 #define TDLS_NO_INLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
+#elif defined(TDLS_DETAIL_COMPILER_GNU_ATTRIBUTES)
 #define TDLS_NO_INLINE __attribute__((noinline))
 #else
 #define TDLS_NO_INLINE
@@ -151,7 +153,7 @@
 /// \brief Non-aliasing pointer qualifier (`__restrict__`; `__restrict` on MSVC).
 
 #ifndef TDLS_RESTRICT
-#if defined(_MSC_VER) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_MSVC)
 #define TDLS_RESTRICT __restrict
 #else
 #define TDLS_RESTRICT __restrict__
@@ -204,10 +206,10 @@
 /// them partially.
 
 #ifndef TDLS_UNROLL_FORCE
-#if defined(__CUDACC__) || defined(__CUDA__) || defined(__HIPCC__) || defined(__HIP__) ||          \
-    defined(__NVCOMPILER) || defined(__clang__)
+#if defined(TDLS_DETAIL_FRONTEND_CUDA) || defined(TDLS_DETAIL_LANG_HIP) ||                         \
+    defined(TDLS_DETAIL_COMPILER_NVCXX) || defined(TDLS_DETAIL_COMPILER_CLANG)
 #define TDLS_UNROLL_FORCE _Pragma("unroll")
-#elif defined(__GNUC__)
+#elif defined(TDLS_DETAIL_COMPILER_GCC)
 #define TDLS_UNROLL_FORCE _Pragma("GCC unroll 64")
 #else
 #define TDLS_UNROLL_FORCE
@@ -230,7 +232,8 @@
 /// functions it emits and needs nothing.
 
 #ifndef TDLS_EXEC_CHECK_DISABLE
-#if defined(__CUDACC__) && !defined(__clang__) && !defined(__NVCOMPILER)
+#if defined(TDLS_DETAIL_FRONTEND_CUDA) && !defined(TDLS_DETAIL_COMPILER_CLANG) &&                  \
+    !defined(TDLS_DETAIL_COMPILER_NVCXX)
 #define TDLS_EXEC_CHECK_DISABLE _Pragma("nv_exec_check_disable")
 #else
 #define TDLS_EXEC_CHECK_DISABLE

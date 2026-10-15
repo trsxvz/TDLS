@@ -104,9 +104,11 @@
 
 #include <cmath>
 #include <type_traits>
+#include <utility>
 
 #include <tdls/core/macros.hpp>
 #include <tdls/core/math.hpp>
+#include <tdls/core/target.hpp>
 #include <tdls/solvers/arrowhead_lupp/config.hpp>
 #include <tdls/solvers/arrowhead_lupp/storage_map.hpp>
 #include <tdls/solvers/tiled_lupp/solver_static.hpp>
@@ -122,11 +124,11 @@
 // ("the #pragma unroll must precede a loop"); nvcc 12.9 and 13.0 place it
 // on the loop. Both suppressions are scoped to this header and to those
 // warnings only.
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif
-#if defined(__NVCC__)
+#if defined(TDLS_DETAIL_COMPILER_NVCC)
 #pragma nv_diagnostic push
 #pragma nv_diag_suppress 20058
 #endif
@@ -166,6 +168,23 @@ namespace tdls {
 /// \brief Entry (r, c) of the front of the second pass, row-major at the
 /// start of the workspace, fcols columns per row.
 #define TDLS_ARROW_LUPP_F(r, c) TDLS_ARROW_LUPP_W((r) * fcols + (c))
+/// \def TDLS_ARROW_LUPP_SIDED
+/// \brief Under the side dispatch of nvc++ (TDLS_TARGET_GPU), when the host
+/// and the device choose differently (sided), returns the call, the
+/// variadic argument, run by the solver of the side of the code: SolverGpu
+/// on the device, SolverCpu on the host; nothing elsewhere and in constant
+/// expressions.
+#if defined(TDLS_DETAIL_SIDE_DISPATCH)
+#define TDLS_ARROW_LUPP_SIDED(...)                                                                 \
+    if constexpr (sided) {                                                                         \
+        if (!std::is_constant_evaluated()) {                                                       \
+            if (detail::on_device_side()) return SolverGpu::__VA_ARGS__;                           \
+            return SolverCpu::__VA_ARGS__;                                                         \
+        }                                                                                          \
+    }
+#else
+#define TDLS_ARROW_LUPP_SIDED(...)
+#endif
 /// \def TDLS_ARROW_LUPP_FOR
 /// \brief `for (int i = first; i < last; ++i) { body }` under the unroll
 /// policy of the configuration: the two-branch `if constexpr` of the
@@ -182,6 +201,103 @@ namespace tdls {
             __VA_ARGS__                                                                            \
         }                                                                                          \
     }
+
+
+
+namespace detail {
+
+/// \brief Block k of a streamed solve of ArrowheadLUppSolverStatic
+/// (ArrowheadLUppSolverStatic::StreamedBlock): the working arrays of the
+/// solver themselves, which the caller fills through the accessors when
+/// the solver asks for the block; the factorization and the solve then
+/// run in place. Only a save is copied (D_k, and [A_kb | y_k] when the
+/// column-major check reads the forward stage), to store a refused
+/// block as given. Entries in logical order whatever the
+/// layout and the storage. The arrays come uninitialized: the caller
+/// writes every entry, zeros included, by assignment.
+/// \tparam T    scalar type
+/// \tparam S    unknowns of a block
+/// \tparam B    border unknowns
+/// \tparam col  column-major layout
+/// \tparam diag diagonal coupling
+template<typename T, int S, int B, bool col, bool diag>
+struct ArrowheadStreamedBlock {
+    T Dl[S * S];             ///< D_k in the layout of the factorization
+    T W[(B + 1) * S];        ///< [A_kb | y_k], column c at c * S
+    T Abk[diag ? S : B * S]; ///< A_bk: coupled rows (diagonal) or B x S (dense)
+    /// \param[in] i row of the block
+    /// \param[in] j column of the block
+    /// \return entry (i, j) of D_k
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& d(const int i, const int j) noexcept {
+        return Dl[col ? j * S + i : i * S + j];
+    }
+    /// \param[in] i row of the block
+    /// \param[in] c border column
+    /// \return entry (i, c) of A_kb
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& akb(const int i, const int c) noexcept {
+        return W[c * S + i];
+    }
+    /// \param[in] i row of the block
+    /// \return entry i of y_k, the right-hand side on the rows of the
+    ///         block
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& y(const int i) noexcept {
+        return W[B * S + i];
+    }
+    /// \param[in] i row and column of the block
+    /// \return the coupling A_bk(coupling_row + i, i) (diagonal coupling)
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& coupling(const int i) noexcept {
+        return Abk[i];
+    }
+    /// \param[in] r border row
+    /// \param[in] i column of the block
+    /// \return entry (r, i) of A_bk (dense coupling)
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& abk(const int r, const int i) noexcept {
+        return Abk[r * S + i];
+    }
+};
+
+
+/// \brief Block k of a recomputed solve (solve_inplace_recomputed,
+/// solve_inplace_recomputed_or_tangent): a StreamedBlock, the same
+/// accessors, and whether the solver asks for the block again, in its
+/// recovery. A provider taking a StreamedBlock& serves too; one taking a
+/// RecomputedBlock&, or auto&, reads the flag. The streamed entry points
+/// keep the StreamedBlock alone, so that their code is that of a solver
+/// without the recomputed ones.
+/// \tparam T    scalar type
+/// \tparam S    unknowns of a block
+/// \tparam B    border unknowns
+/// \tparam col  column-major layout
+/// \tparam diag diagonal coupling
+template<typename T, int S, int B, bool col, bool diag>
+struct ArrowheadRecomputedBlock : ArrowheadStreamedBlock<T, S, B, col, diag> {
+    /// Set when the solver asks for the block again, in its recovery: the
+    /// provider may then skip what it accumulates once per pass, a
+    /// residual for instance. False while it condenses the block.
+    bool recovery = false;
+};
+
+/// \brief Outcome of ArrowheadLUppSolverStatic::solve_inplace_streamed_or_tangent.
+enum class ArrowheadStreamedOutcome {
+    solved,  ///< y holds the solution (converged() returned false)
+    tangent, ///< converged: x holds the canonical border columns, y
+             ///< intermediate values
+    singular ///< the matrix is singular
+};
+
+/// \brief Outcome of ArrowheadLUppSolverStatic::solve_inplace_recomputed and
+/// solve_inplace_recomputed_or_tangent.
+enum class ArrowheadRecomputedOutcome {
+    solved,   ///< y holds the solution
+    tangent,  ///< converged (solve_inplace_recomputed_or_tangent): x holds
+              ///< the tangent columns, y is untouched
+    singular, ///< the matrix is singular; y is untouched
+    deferred  ///< more blocks refused than the capacity of the store; y is
+              ///< untouched, for a solve that stores them
+              ///< (solve_inplace_streamed)
+};
+
+} // namespace detail
 
 
 
@@ -207,6 +323,34 @@ struct ArrowheadLUppSolverStatic {
     static constexpr int NB    = Shape.blocks;
     static constexpr bool col  = Config.layout == MatrixLayout::ColMajor;
     static constexpr bool diag = Config.coupling == ArrowheadCoupling::Diagonal;
+    /// Blocks eliminated in registers (ArrowheadLUppConfig::block_row_interchange,
+    /// Auto resolved for this block size, precision and compilation pass).
+    static constexpr bool reg = detail::arrowhead_register_blocks(Config, S);
+    /// Width of the passes over [A_kb | y_k], -1 resolved
+    /// (ArrowheadLUppConfig::rhs_pass_width).
+    static constexpr int rhs_pass = detail::arrowhead_rhs_pass_width(Config, reg);
+#if defined(TDLS_DETAIL_SIDE_DISPATCH)
+    /// The configuration with the choices of the GPU made explicit (the
+    /// side dispatch of nvc++, TDLS_TARGET_GPU).
+    static constexpr ArrowheadLUppConfig<T> config_gpu =
+        detail::arrowhead_resolved_config<T, true>(Config, S);
+    /// The configuration with the choices of the CPU made explicit.
+    static constexpr ArrowheadLUppConfig<T> config_cpu =
+        detail::arrowhead_resolved_config<T, false>(Config, S);
+    /// Whether the two sides choose differently: the solves then run the
+    /// solver of the explicit configuration of their side.
+    static constexpr bool sided =
+        config_gpu.block_row_interchange != config_cpu.block_row_interchange ||
+        config_gpu.rhs_pass_width != config_cpu.rhs_pass_width;
+    /// The solver of the device side.
+    using SolverGpu = ArrowheadLUppSolverStatic<T, Shape, config_gpu>;
+    /// The solver of the host side.
+    using SolverCpu = ArrowheadLUppSolverStatic<T, Shape, config_cpu>;
+#endif
+    /// Every instantiation reaches the cores of the others (the side
+    /// dispatch of nvc++).
+    template<typename U, ArrowheadShape OtherShape, ArrowheadLUppConfig<U> OtherConfig>
+    friend struct ArrowheadLUppSolverStatic;
     /// Border rows the blocks update: block rows from coupling_row on
     /// under the diagonal coupling, every row otherwise. Only these rows of
     /// the Schur complement are accumulated during the sweep over the
@@ -245,21 +389,19 @@ struct ArrowheadLUppSolverStatic {
     /// blocks are refused.
     static constexpr int workspace_size = multirhs_workspace_size<1>;
     /// Columns [A_kb | y_k] solved per pass, one right-hand side.
-    static constexpr int pass_width = Config.rhs_pass_width == 0 ? B + 1 : Config.rhs_pass_width;
+    static constexpr int pass_width = rhs_pass == 0 ? B + 1 : rhs_pass;
 
   private:
     /// Columns [A_kb | Y_k] solved per pass with ny right-hand sides in
     /// the blocks (pass_width for ny = 1).
     template<int ny>
-    static constexpr int pass_width_for =
-        Config.rhs_pass_width == 0 || Config.rhs_pass_width > B + ny ? B + ny
-                                                                     : Config.rhs_pass_width;
+    static constexpr int pass_width_for = rhs_pass == 0 || rhs_pass > B + ny ? B + ny : rhs_pass;
     /// Column-major and a single pass: [A_kb | Y_k] is loaded once, and the
     /// pivot check reads its border part from the forward stage (not with
-    /// register_blocks, whose check computes the border multipliers apart).
+    /// the blocks in registers, whose check computes the border multipliers
+    /// apart).
     template<int ny>
-    static constexpr bool forward_check_for =
-        !Config.register_blocks && col && pass_width_for<ny> == B + ny;
+    static constexpr bool forward_check_for = !reg && col && pass_width_for<ny> == B + ny;
     /// Whether the condensation stores the recovery data of the accepted
     /// blocks (in place of A_kb and y_k, and U in D_k under the row-major
     /// layout with the dense coupling): not without right-hand side in the
@@ -276,8 +418,6 @@ struct ArrowheadLUppSolverStatic {
     /// Schur complement accumulated in the border entries of A and y
     /// (ArrowheadLUppConfig::schur_in_place).
     static constexpr bool in_place = Config.schur_in_place;
-    /// Blocks eliminated in registers (ArrowheadLUppConfig::register_blocks).
-    static constexpr bool reg = Config.register_blocks;
 
     static_assert(Shape.border >= 1 && Shape.block >= 1 && Shape.blocks >= 1,
                   "ArrowheadLUppSolverStatic: border, block and blocks must be >= 1");
@@ -300,11 +440,15 @@ struct ArrowheadLUppSolverStatic {
     /// once from the configuration at compile time (see
     /// ArrowheadLUppConfig::condensation_pivot_threshold).
     static constexpr T condensation_pivot_threshold = Config.condensation_pivot_threshold;
-    static_assert(Config.rhs_pass_width >= 0 && Config.rhs_pass_width <= Shape.border + 1,
-                  "ArrowheadLUppSolverStatic: rhs_pass_width must be in [0, border + 1]");
+    static_assert(Config.rhs_pass_width >= -1 && Config.rhs_pass_width <= Shape.border + 1,
+                  "ArrowheadLUppSolverStatic: rhs_pass_width must be in [-1, border + 1]");
 
     using BlockSolver  = TiledLUppSolverStatic<T, S, detail::arrowhead_block_config(Config)>;
     using BorderSolver = TiledLUppSolverStatic<T, B, detail::arrowhead_border_config(Config)>;
+    /// Solver of the diagonal blocks in registers: TiledLUpp with
+    /// physical row interchanges.
+    using PhysicalBlockSolver =
+        TiledLUppSolverStatic<T, S, detail::arrowhead_physical_block_config(Config)>;
 
     // The recomputed solve runs the second pass of the solver of its store
     // of refused blocks, another instantiation.
@@ -353,62 +497,15 @@ struct ArrowheadLUppSolverStatic {
         ArrowheadLUppSolverStatic<T, ArrowheadShape{B, S, capacity, R0}, store_config>;
 
   public:
-    /// \brief Block k of a streamed solve: the working arrays of the
-    /// solver themselves, which the caller fills through the accessors when
-    /// the solver asks for the block; the factorization and the solve then
-    /// run in place. Only a save is copied (D_k, and [A_kb | y_k] when the
-    /// column-major check reads the forward stage), to store a refused
-    /// block as given. Entries in logical order whatever the
-    /// layout and the storage. The arrays come uninitialized: the caller
-    /// writes every entry, zeros included, by assignment.
-    struct StreamedBlock {
-        T Dl[S * S];             ///< D_k in the layout of the factorization
-        T W[(B + 1) * S];        ///< [A_kb | y_k], column c at c * S
-        T Abk[diag ? S : B * S]; ///< A_bk: coupled rows (diagonal) or B x S (dense)
-        /// \param[in] i row of the block
-        /// \param[in] j column of the block
-        /// \return entry (i, j) of D_k
-        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& d(const int i, const int j) noexcept {
-            return Dl[col ? j * S + i : i * S + j];
-        }
-        /// \param[in] i row of the block
-        /// \param[in] c border column
-        /// \return entry (i, c) of A_kb
-        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& akb(const int i, const int c) noexcept {
-            return W[c * S + i];
-        }
-        /// \param[in] i row of the block
-        /// \return entry i of y_k, the right-hand side on the rows of the
-        ///         block
-        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& y(const int i) noexcept {
-            return W[B * S + i];
-        }
-        /// \param[in] i row and column of the block
-        /// \return the coupling A_bk(coupling_row + i, i) (diagonal coupling)
-        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& coupling(const int i) noexcept {
-            return Abk[i];
-        }
-        /// \param[in] r border row
-        /// \param[in] i column of the block
-        /// \return entry (r, i) of A_bk (dense coupling)
-        TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr T& abk(const int r, const int i) noexcept {
-            return Abk[r * S + i];
-        }
-    };
-
-    /// \brief Block k of a recomputed solve (solve_inplace_recomputed,
-    /// solve_inplace_recomputed_or_tangent): a StreamedBlock, the same
-    /// accessors, and whether the solver asks for the block again, in its
-    /// recovery. A provider taking a StreamedBlock& serves too; one taking a
-    /// RecomputedBlock&, or auto&, reads the flag. The streamed entry points
-    /// keep the StreamedBlock alone, so that their code is that of a solver
-    /// without the recomputed ones.
-    struct RecomputedBlock : StreamedBlock {
-        /// Set when the solver asks for the block again, in its recovery: the
-        /// provider may then skip what it accumulates once per pass, a
-        /// residual for instance. False while it condenses the block.
-        bool recovery = false;
-    };
+    /// \brief Block k of a streamed solve (detail::ArrowheadStreamedBlock):
+    /// the working arrays of the solver, filled by the provider through the
+    /// accessors. The type depends on T, the sizes, the layout and the
+    /// coupling only, so that the solvers of two configurations that differ
+    /// otherwise hand their providers the same type.
+    using StreamedBlock = detail::ArrowheadStreamedBlock<T, S, B, col, diag>;
+    /// \brief Block k of a recomputed solve (detail::ArrowheadRecomputedBlock):
+    /// a StreamedBlock and the recovery flag.
+    using RecomputedBlock = detail::ArrowheadRecomputedBlock<T, S, B, col, diag>;
 
     /// \brief Solves A x = y in place, the blocks streamed: provider(k, blk)
     /// fills block k (StreamedBlock) when the solver needs it, k = 0, 1, ...
@@ -446,13 +543,9 @@ struct ArrowheadLUppSolverStatic {
                 A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
     }
 
-    /// \brief Outcome of solve_inplace_streamed_or_tangent.
-    enum class StreamedOutcome {
-        solved,  ///< y holds the solution (converged() returned false)
-        tangent, ///< converged: x holds the canonical border columns, y
-                 ///< intermediate values
-        singular ///< the matrix is singular
-    };
+    /// \brief Outcome of solve_inplace_streamed_or_tangent
+    /// (detail::ArrowheadStreamedOutcome).
+    using StreamedOutcome = detail::ArrowheadStreamedOutcome;
 
     /// \brief One streamed pass of a Newton iteration: the blocks condensed
     /// as solve_inplace_streamed does, then converged() is called (the
@@ -508,6 +601,11 @@ struct ArrowheadLUppSolverStatic {
                                       int& refused_count) noexcept {
         static_assert(ntan >= 1 && ntan <= Shape.border,
                       "ArrowheadLUppSolverStatic: ntan must be in [1, border]");
+        TDLS_ARROW_LUPP_SIDED(
+            template solve_inplace_streamed_or_tangent<
+                ntan, internal_rhs, internal_work, internal_matrix, Provider, Converged, outlined>(
+                std::forward<Provider>(provider), std::forward<Converged>(converged), A, A_stride,
+                work, work_stride, y, rhs_stride, col0, x, x_stride, xcol_stride, refused_count))
         if constexpr (Config.streamed_out_of_line && !outlined)
             return streamed_or_tangent_out_of_line<ntan, internal_rhs, internal_work,
                                                    internal_matrix>(
@@ -946,16 +1044,8 @@ struct ArrowheadLUppSolverStatic {
     }
 
     /// \brief Outcome of solve_inplace_recomputed and
-    /// solve_inplace_recomputed_or_tangent.
-    enum class RecomputedOutcome {
-        solved,   ///< y holds the solution
-        tangent,  ///< converged (solve_inplace_recomputed_or_tangent): x holds
-                  ///< the tangent columns, y is untouched
-        singular, ///< the matrix is singular; y is untouched
-        deferred  ///< more blocks refused than the capacity of the store; y is
-                  ///< untouched, for a solve that stores them
-                  ///< (solve_inplace_streamed)
-    };
+    /// solve_inplace_recomputed_or_tangent (detail::ArrowheadRecomputedOutcome).
+    using RecomputedOutcome = detail::ArrowheadRecomputedOutcome;
 
     /// \brief Entries of the workspace of solve_inplace_recomputed with a
     /// store of capacity refused blocks, and of
@@ -993,7 +1083,7 @@ struct ArrowheadLUppSolverStatic {
     ///
     /// On GPU, the solve then streams nothing of the matrix through memory:
     /// one thread per system keeps the block and the Schur complement in
-    /// registers with register_blocks. The cost is a second call of the
+    /// registers (block_row_interchange). The cost is a second call of the
     /// provider, and a second factorization, per block: it pays where
     /// memory is the bound, on GPU, not on CPU, where the caches hold the
     /// recovery data.
@@ -1094,7 +1184,7 @@ struct ArrowheadLUppSolverStatic {
 // -Wmaybe-uninitialized at -O3 (see condense_or_store_streamed): the report
 // is spurious. The suppression is scoped to this function and to that
 // warning only.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -1132,6 +1222,10 @@ struct ArrowheadLUppSolverStatic {
                     [[maybe_unused]] T* TDLS_RESTRICT x, [[maybe_unused]] const int x_stride,
                     [[maybe_unused]] const std::size_t xcol_stride, int& refused_count,
                     Converged*... converged) noexcept {
+        TDLS_ARROW_LUPP_SIDED(
+            template recomputed_core<ntan, capacity, internal_rhs, internal_work, internal_matrix>(
+                provider, Abb, Abb_stride, work, work_stride, y, rhs_stride, col0, x, x_stride,
+                xcol_stride, refused_count, converged...))
         static_assert(capacity >= 0 && capacity <= NB,
                       "ArrowheadLUppSolverStatic: the capacity of the store of refused blocks "
                       "must be in [0, blocks]");
@@ -1259,7 +1353,7 @@ struct ArrowheadLUppSolverStatic {
         TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_Y(r) = rb[r];)
         return RecomputedOutcome::solved;
     }
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 
@@ -1360,7 +1454,7 @@ struct ArrowheadLUppSolverStatic {
 
 // The block the provider wrote for the recovery (see the suppression
 // before condense_streamed): scoped to recover_block and to that warning.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -1382,7 +1476,7 @@ struct ArrowheadLUppSolverStatic {
         }
     }
 
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 
@@ -1526,6 +1620,10 @@ struct ArrowheadLUppSolverStatic {
                T* TDLS_RESTRICT y, const int rhs_stride,
                [[maybe_unused]] const std::size_t xcol_stride, [[maybe_unused]] const int col0,
                int& refused_count, Provider*... provider) noexcept {
+        TDLS_ARROW_LUPP_SIDED(
+            template solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix>(
+                A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, col0, refused_count,
+                provider...))
         constexpr bool streamed = sizeof...(Provider) > 0;
         // Right-hand sides carried through the blocks.
         constexpr int ny = canonical ? 0 : nc;
@@ -1743,7 +1841,7 @@ struct ArrowheadLUppSolverStatic {
 // the block (StreamedBlock), and the copies only keep it as given: the
 // report is spurious. The suppression is scoped to the three functions
 // below and to that warning only.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -1973,7 +2071,7 @@ struct ArrowheadLUppSolverStatic {
             TDLS_ARROW_LUPP_FOR(i, 0, S, TDLS_ARROW_LUPP_YW(0, B + k * S + i) = blk.W[B * S + i];)
         }
     }
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 
@@ -2052,7 +2150,7 @@ struct ArrowheadLUppSolverStatic {
 // condense_streamed): gcc 10 reports its reads through
 // -Wmaybe-uninitialized, spuriously. Scoped to the functions below and to
 // that warning only.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
@@ -2070,7 +2168,7 @@ struct ArrowheadLUppSolverStatic {
 #if __has_builtin(__builtin_is_constant_evaluated)
         if (__builtin_is_constant_evaluated()) return x < T(0) ? -x : x;
 #endif
-#elif defined(_MSC_VER) && _MSC_VER >= 1925
+#elif defined(TDLS_DETAIL_COMPILER_MSVC) && _MSC_VER >= 1925
         if (__builtin_is_constant_evaluated()) return x < T(0) ? -x : x;
 #endif
         return std::fabs(x);
@@ -2130,15 +2228,17 @@ struct ArrowheadLUppSolverStatic {
     }
 
     /// \brief Factors F in place in registers (ArrowheadLUppConfig::
-    /// register_blocks). F is the block as TiledLUpp factors it, D_k or
+    /// block_row_interchange), by TiledLUpp with physical row interchanges
+    /// (PhysicalBlockSolver). F is the block as TiledLUpp factors it, D_k or
     /// D_k^T under the column-major layout, S x S by rows. The pivot rule
     /// is the in-tile rule of TiledLUpp over a single tile; the rows are
     /// interchanged physically and whole. On exit F holds L below its
     /// diagonal and U above it, in logical row order, with 1 / pivot on the
     /// diagonal (the format of TiledLUpp, row by row), and p[j] is the row
     /// interchanged with row j at step j. The multipliers of L are checked
-    /// as lower_pass checks them. Once the loops are unrolled, every index
-    /// is known at compile time and F stays in registers.
+    /// as lower_pass checks them, inside the elimination. Once the loops are
+    /// unrolled,
+    /// every index is known at compile time and F stays in registers.
     /// \param[in,out] F the block on entry, its factors on exit
     /// \param[out]    p the interchanges
     /// \return 0 when L passes the check, 1 when it fails it, 2 when a
@@ -2146,80 +2246,8 @@ struct ArrowheadLUppSolverStatic {
     ///         TiledLUpp (BlockSolver::singular_floor)
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
     register_factor(T* TDLS_RESTRICT F, int* TDLS_RESTRICT p) noexcept {
-        bool ok       = true;
-        bool singular = false;
-        TDLS_ARROW_LUPP_FOR(j, 0, S, ok = register_step(F, p, j, singular) && ok;)
-        return singular ? 2 : ok ? 0 : 1;
-    }
-
-    /// \brief Step j of register_factor: the pivot of column j, the
-    /// interchange, the elimination below the pivot. Every loop runs over
-    /// a full range, the triangle selected inside: nvcc does not unroll a
-    /// loop whose trip count depends on an outer index, and the run-time
-    /// indices of the rolled loop would send F to the stack.
-    /// \param[in,out] F        the block, factored up to column j
-    /// \param[out]    p        the interchanges
-    /// \param[in]     j        column
-    /// \param[in,out] singular set when the column has no candidate above
-    ///                         the singularity floor
-    /// \return false when a multiplier of the column fails the check
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
-    register_step(T* TDLS_RESTRICT F, int* TDLS_RESTRICT p, const int j, bool& singular) noexcept {
-        const T u             = condensation_pivot_threshold;
-        constexpr T rel       = BlockSolver::relative_pivot_threshold;
-        constexpr T oot       = BlockSolver::oot_pivot_threshold;
-        constexpr T floor_val = BlockSolver::singular_floor;
-        // The best candidate of the column; the row in place keeps the
-        // pivot down to rel times it (threshold pivoting of TiledLUpp).
-        T best = magnitude(F[j * S + j]);
-        int r  = j;
-        TDLS_ARROW_LUPP_FOR(
-            i, 0, S, const T a = magnitude(F[i * S + j]); if (i > j && a > best) {
-                best = a;
-                r    = i;
-            })
-        if constexpr (rel < T(1)) {
-            const T in_place = magnitude(F[j * S + j]);
-            if (in_place >= rel * best && in_place >= oot) r = j;
-        }
-        const bool pivot_ok = best >= floor_val;
-        singular            = singular || !pivot_ok;
-        p[j]                = r;
-        // Rarely taken: the branch stays uniform across a warp.
-        if (r != j) register_interchange<S>(F, j, r, 1, S);
-        const T inv  = pivot_ok ? T(1) / F[j * S + j] : T(0);
-        F[j * S + j] = inv;
-        bool ok      = true;
-        TDLS_ARROW_LUPP_FOR(
-            i, 0, S, if (i > j) {
-                const T l    = F[i * S + j] * inv;
-                F[i * S + j] = l;
-                ok           = ok && u * magnitude(l) <= T(1);
-                TDLS_ARROW_LUPP_FOR(c, 0, S, if (c > j) F[i * S + c] -= l * F[j * S + c];)
-            })
-        return ok;
-    }
-
-    /// \brief Interchanges rows j and r > j of the n columns of X, entry
-    /// (i, c) at i * rs + c * cs: a test of every unrolled row index
-    /// against r (TileOperations::swap_rows), so that no index is known at
-    /// run time only.
-    /// \tparam n number of columns
-    /// \param[in,out] X  the columns
-    /// \param[in]     j  first row
-    /// \param[in]     r  second row
-    /// \param[in]     cs column stride of X
-    /// \param[in]     rs row stride of X
-    template<int n>
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    register_interchange(T* TDLS_RESTRICT X, const int j, const int r, const int cs,
-                         const int rs) noexcept {
-        TDLS_ARROW_LUPP_FOR(
-            i, 0, S, if (i > j && i == r) {
-                TDLS_ARROW_LUPP_FOR(c, 0, n, const T t = X[j * rs + c * cs];
-                                    X[j * rs + c * cs] = X[i * rs + c * cs];
-                                    X[i * rs + c * cs] = t;)
-            })
+        return PhysicalBlockSolver::template physical_factorize_checked<true, true>(
+            F, 1, p, 1, condensation_pivot_threshold);
     }
 
     /// \brief Solves w columns in place in registers with the factors of
@@ -2227,7 +2255,7 @@ struct ArrowheadLUppSolverStatic {
     /// stage alone, L^-1 P W, under the row-major layout with the dense
     /// coupling (multiplier_update). Under the column-major layout F = D_k^T
     /// and P F = L U, so D_k = U^T L^T P: U^-T, then L^-T, then the
-    /// interchanges in reverse order.
+    /// interchanges in reverse order. The two stages of PhysicalBlockSolver.
     /// \tparam w        number of columns
     /// \tparam backward whether the row-major solve runs its backward stage
     ///                  (always, but for the forward stage alone of the
@@ -2239,90 +2267,14 @@ struct ArrowheadLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     register_solve(const T* TDLS_RESTRICT F, const int* TDLS_RESTRICT p,
                    T* TDLS_RESTRICT W) noexcept {
-        if constexpr (!col) {
-            // P W, the interchanges in their order, then L^-1 and U^-1.
-            TDLS_ARROW_LUPP_FOR(j, 0, S, if (p[j] != j) register_interchange<w>(W, j, p[j], S, 1);)
-            TDLS_ARROW_LUPP_FOR(j, 0, S, register_lower_column<w>(F, W, j);)
-            if constexpr (backward) {
-                TDLS_ARROW_LUPP_FOR(t, 0, S, register_upper_row<w>(F, W, S - 1 - t);)
-            }
-        } else {
-            // U^-T, then L^-T, then the interchanges in reverse order.
-            TDLS_ARROW_LUPP_FOR(j, 0, S, register_upper_transposed_column<w>(F, W, j);)
-            TDLS_ARROW_LUPP_FOR(t, 0, S, register_lower_transposed_row<w>(F, W, S - 1 - t);)
-            TDLS_ARROW_LUPP_FOR(t, 0, S, const int j = S - 1 - t;
-                                if (p[j] != j) register_interchange<w>(W, j, p[j], S, 1);)
-        }
+        PhysicalBlockSolver::template forward_inplace_multirhs<w, true, true, true>(F, 1, p, 1, W,
+                                                                                    1, S);
+        if constexpr (col || backward)
+            PhysicalBlockSolver::template backward_inplace_multirhs<w, true, true, true>(F, 1, p, 1,
+                                                                                         W, 1, S);
     }
 
-    /// \brief Column j of the forward substitution by L (unit diagonal):
-    /// the rows below j of the w columns lose L(i, j) times row j.
-    /// \tparam w number of columns
-    /// \param[in]     F factors
-    /// \param[in,out] W columns, column c at c * S
-    /// \param[in]     j column of L
-    template<int w>
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    register_lower_column(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W, const int j) noexcept {
-        TDLS_ARROW_LUPP_FOR(
-            i, 0, S, if (i > j) {
-                const T l = F[i * S + j];
-                TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + i] -= l * W[c * S + j];)
-            })
-    }
-
-    /// \brief Row j of the backward substitution by U: row j of the w
-    /// columns, the rows below it solved already.
-    /// \tparam w number of columns
-    /// \param[in]     F factors (1 / pivot on the diagonal)
-    /// \param[in,out] W columns, column c at c * S
-    /// \param[in]     j row of U
-    template<int w>
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    register_upper_row(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W, const int j) noexcept {
-        TDLS_ARROW_LUPP_FOR(
-            c, 0, w, T v = W[c * S + j];
-            TDLS_ARROW_LUPP_FOR(q, 0, S, if (q > j) v -= F[j * S + q] * W[c * S + q];)
-                W[c * S + j] = v * F[j * S + j];)
-    }
-
-    /// \brief Column j of the forward substitution by U^T: row j of the w
-    /// columns is solved, then the rows below it lose U(j, q) times it.
-    /// \tparam w number of columns
-    /// \param[in]     F factors (1 / pivot on the diagonal)
-    /// \param[in,out] W columns, column c at c * S
-    /// \param[in]     j column of U^T
-    template<int w>
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    register_upper_transposed_column(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W,
-                                     const int j) noexcept {
-        TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + j] *= F[j * S + j];)
-        TDLS_ARROW_LUPP_FOR(
-            q, 0, S, if (q > j) {
-                const T uq = F[j * S + q];
-                TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + q] -= uq * W[c * S + j];)
-            })
-    }
-
-    /// \brief Row j of the backward substitution by L^T (unit diagonal):
-    /// row j of the w columns loses L(q, j) times each row q below it,
-    /// solved already.
-    /// \tparam w number of columns
-    /// \param[in]     F factors
-    /// \param[in,out] W columns, column c at c * S
-    /// \param[in]     j row of L^T
-    template<int w>
-    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
-    register_lower_transposed_row(const T* TDLS_RESTRICT F, T* TDLS_RESTRICT W,
-                                  const int j) noexcept {
-        TDLS_ARROW_LUPP_FOR(
-            q, 0, S, if (q > j) {
-                const T l = F[q * S + j];
-                TDLS_ARROW_LUPP_FOR(c, 0, w, W[c * S + j] -= l * W[c * S + q];)
-            })
-    }
-
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 
@@ -2741,15 +2693,16 @@ struct ArrowheadLUppSolverStatic {
 #undef TDLS_ARROW_LUPP_W
 #undef TDLS_ARROW_LUPP_F
 #undef TDLS_ARROW_LUPP_FOR
+#undef TDLS_ARROW_LUPP_SIDED
 
 
 
 } // namespace tdls
 
-#if defined(__NVCC__)
+#if defined(TDLS_DETAIL_COMPILER_NVCC)
 #pragma nv_diagnostic pop
 #endif
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic pop
 #endif
 

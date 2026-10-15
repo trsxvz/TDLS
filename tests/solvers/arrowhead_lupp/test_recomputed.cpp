@@ -13,7 +13,7 @@
 /// stores only the refused blocks, at most `capacity` of them. On the
 /// standard batch (dominant and random blocks, singular and pivot-poor
 /// ones, so that blocks are refused) and one structurally singular matrix,
-/// for both eliminations of the blocks (TiledLUpp and register_blocks):
+/// for both eliminations of the blocks (tiles and registers):
 ///   - with a store of every block: solved exactly when the streamed solve
 ///     succeeds, the same refused blocks, the border rows of the solution
 ///     bit for bit, the rows of the blocks within rounding errors;
@@ -56,17 +56,18 @@ namespace {
 /// \param[in] diag      diagonal coupling
 /// \param[in] col       column-major layout
 /// \param[in] pass      rhs_pass_width
-/// \param[in] registers register_blocks
+/// \param[in] registers blocks eliminated in registers
 /// \return the configuration
 constexpr tdls::ArrowheadLUppConfig<double> path_config(const tdls::ArrowheadStorage storage,
                                                         const bool diag, const bool col,
                                                         const int pass, const bool registers) {
     tdls::ArrowheadLUppConfig<double> c;
-    c.coupling        = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
-    c.storage         = storage;
-    c.layout          = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
-    c.rhs_pass_width  = pass;
-    c.register_blocks = registers;
+    c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
+    c.storage        = storage;
+    c.layout         = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+    c.rhs_pass_width = pass;
+    c.block_row_interchange =
+        registers ? tdls::RowInterchange::Physical : tdls::RowInterchange::Logical;
     return c;
 }
 
@@ -79,16 +80,19 @@ struct CallLog {
 
 /// \brief A provider that fills block k from the full matrix of a problem,
 /// logging its calls.
-/// \tparam diag diagonal coupling (the accessor of the couplings)
-/// \tparam T    scalar type
-/// \param[in]     p   problem
+/// \tparam Shape shape of the problem: its loops run to compile-time
+///               bounds, so that the compiler sees the whole block filled
+///               (GCC 10 otherwise warns that a block of one unknown, which
+///               it keeps in a scalar, may be read uninitialized)
+/// \tparam diag  diagonal coupling (the accessor of the couplings)
+/// \tparam T     scalar type
+/// \param[in]     p   problem of shape Shape
 /// \param[in,out] log the calls
 /// \return the provider
-template<bool diag, typename T>
+template<tdls::ArrowheadShape Shape, bool diag, typename T>
 auto make_provider(const tdls_tests::ArrowProblem<T>& p, CallLog& log) {
     return [&p, &log](const int k, auto& blk) {
-        const tdls::ArrowheadShape& s = p.shape;
-        const int B = s.border, S = s.block;
+        constexpr int B = Shape.border, S = Shape.block;
         // the flag of the recomputed solves (RecomputedBlock); the streamed
         // reference gives a StreamedBlock, always a condensation
         bool recovery = false;
@@ -109,7 +113,7 @@ auto make_provider(const tdls_tests::ArrowProblem<T>& p, CallLog& log) {
         }
         if constexpr (diag)
             for (int i = 0; i < S; ++i)
-                blk.coupling(i) = p.at(s.coupling_row + i, B + k * S + i);
+                blk.coupling(i) = p.at(Shape.coupling_row + i, B + k * S + i);
         else
             for (int r = 0; r < B; ++r)
                 for (int i = 0; i < S; ++i)
@@ -185,7 +189,7 @@ void recomputed_case(const int count, const std::uint64_t seed) {
         int r0  = 0;
         CallLog log0;
         const bool ok0 = Static::template solve_inplace_streamed<in, in, in>(
-            make_provider<diag>(p, log0), A0.data(), st, ws.data(), st, y0.data(), st, r0);
+            make_provider<Shape, diag>(p, log0), A0.data(), st, ws.data(), st, y0.data(), st, r0);
         // the border block in the layout of the configuration
         auto Abb = strided(B * B);
         for (int r = 0; r < B; ++r)
@@ -198,7 +202,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
         int r1          = 0;
         CallLog log1;
         const RO o1 = Static::template solve_inplace_recomputed<NB, in, in, in>(
-            make_provider<diag>(p, log1), Abb.data(), st, wall.data(), st, y1.data(), st, r1);
+            make_provider<Shape, diag>(p, log1), Abb.data(), st, wall.data(), st, y1.data(), st,
+            r1);
         TDLS_CHECK(r1 == r0);
         TDLS_CHECK((o1 == RO::solved) == ok0);
         TDLS_CHECK((o1 == RO::singular) == !ok0);
@@ -233,7 +238,7 @@ void recomputed_case(const int count, const std::uint64_t seed) {
         int r2          = 0;
         CallLog log2;
         const RO o2 = Static::template solve_inplace_recomputed<0, in, in, in>(
-            make_provider<diag>(p, log2), Abb.data(), st, nullptr, 0, y2.data(), st, r2);
+            make_provider<Shape, diag>(p, log2), Abb.data(), st, nullptr, 0, y2.data(), st, r2);
         if (r0 == 0) {
             TDLS_CHECK(o2 == o1);
             TDLS_CHECK(r2 == 0);
@@ -255,9 +260,9 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             auto yd = rhs();
             int rd  = 0;
             CallLog logd;
-            const DO od = Dynamic::solve_inplace_recomputed(Shape, NB, make_provider<diag>(p, logd),
-                                                            Abb.data(), st, piv.data(), st,
-                                                            wd.data(), st, yd.data(), st, rd);
+            const DO od = Dynamic::solve_inplace_recomputed(
+                Shape, NB, make_provider<Shape, diag>(p, logd), Abb.data(), st, piv.data(), st,
+                wd.data(), st, yd.data(), st, rd);
             TDLS_CHECK(static_cast<int>(od) == static_cast<int>(o1));
             TDLS_CHECK(rd == r1);
             TDLS_CHECK(same_bits(yd, y1));
@@ -266,8 +271,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             auto ye = rhs();
             int re  = 0;
             TDLS_CHECK(Dynamic::solve_inplace_recomputed(
-                           Shape, NB + 1, make_provider<diag>(p, logd), Abb.data(), st, piv.data(),
-                           st, wd.data(), st, ye.data(), st, re) == DO::singular);
+                           Shape, NB + 1, make_provider<Shape, diag>(p, logd), Abb.data(), st,
+                           piv.data(), st, wd.data(), st, ye.data(), st, re) == DO::singular);
             TDLS_CHECK(Dynamic::recomputed_workspace_size(Shape, -1) == 0);
         }
 
@@ -295,8 +300,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             int q0   = 0;
             CallLog logt0;
             const SO s0 = Static::template solve_inplace_streamed_or_tangent<ntan, in, in, in>(
-                make_provider<diag>(p, logt0), yes, At.data(), st, wst.data(), st, yt0.data(), st,
-                1, xt0.data(), st, xstride, q0);
+                make_provider<Shape, diag>(p, logt0), yes, At.data(), st, wst.data(), st,
+                yt0.data(), st, 1, xt0.data(), st, xstride, q0);
             // recomputed, converged
             auto yt1         = rhs();
             const auto yt1in = yt1;
@@ -305,8 +310,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             CallLog logt1;
             const RO t1 =
                 Static::template solve_inplace_recomputed_or_tangent<ntan, NB, in, in, in>(
-                    make_provider<diag>(p, logt1), yes, Abb.data(), st, wt.data(), st, yt1.data(),
-                    st, 1, xt1.data(), st, xstride, q1);
+                    make_provider<Shape, diag>(p, logt1), yes, Abb.data(), st, wt.data(), st,
+                    yt1.data(), st, 1, xt1.data(), st, xstride, q1);
             TDLS_CHECK(q1 == q0);
             TDLS_CHECK((t1 == RO::tangent) == (s0 == SO::tangent));
             TDLS_CHECK(same_bits(yt1, yt1in));
@@ -320,8 +325,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             CallLog logt2;
             const RO t2 =
                 Static::template solve_inplace_recomputed_or_tangent<ntan, NB, in, in, in>(
-                    make_provider<diag>(p, logt2), no, Abb.data(), st, wt.data(), st, yt2.data(),
-                    st, 1, xt2.data(), st, xstride, q2);
+                    make_provider<Shape, diag>(p, logt2), no, Abb.data(), st, wt.data(), st,
+                    yt2.data(), st, 1, xt2.data(), st, xstride, q2);
             TDLS_CHECK(t2 == o1);
             TDLS_CHECK(q2 == r1);
             TDLS_CHECK(same_bits(yt2, y1));
@@ -337,8 +342,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             int q3   = 0;
             CallLog logt3;
             const DO t3 = Dynamic::solve_inplace_recomputed_or_tangent(
-                Shape, ntan, NB, make_provider<diag>(p, logt3), yes, Abb.data(), st, piv.data(), st,
-                wdt.data(), st, yt3.data(), st, 1, xt3.data(), st, xstride, q3);
+                Shape, ntan, NB, make_provider<Shape, diag>(p, logt3), yes, Abb.data(), st,
+                piv.data(), st, wdt.data(), st, yt3.data(), st, 1, xt3.data(), st, xstride, q3);
             TDLS_CHECK(static_cast<int>(t3) == static_cast<int>(t1));
             TDLS_CHECK(q3 == q1);
             TDLS_CHECK(same_bits(xt3, xt1));
@@ -348,8 +353,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             int q4   = 0;
             CallLog logt4;
             const DO t4 = Dynamic::solve_inplace_recomputed_or_tangent(
-                Shape, ntan, NB, make_provider<diag>(p, logt4), no, Abb.data(), st, piv.data(), st,
-                wdt.data(), st, yt4.data(), st, 1, xt4.data(), st, xstride, q4);
+                Shape, ntan, NB, make_provider<Shape, diag>(p, logt4), no, Abb.data(), st,
+                piv.data(), st, wdt.data(), st, yt4.data(), st, 1, xt4.data(), st, xstride, q4);
             TDLS_CHECK(static_cast<int>(t4) == static_cast<int>(t2));
             TDLS_CHECK(same_bits(yt4, yt2));
             if (t1 == RO::tangent && q1 > 0) ++floors.tangent_refused;
@@ -362,7 +367,8 @@ void recomputed_case(const int count, const std::uint64_t seed) {
             int r3          = 0;
             CallLog log3;
             const RO o3 = Static::template solve_inplace_recomputed<1, in, in, in>(
-                make_provider<diag>(p, log3), Abb.data(), st, wone.data(), st, y3.data(), st, r3);
+                make_provider<Shape, diag>(p, log3), Abb.data(), st, wone.data(), st, y3.data(), st,
+                r3);
             TDLS_CHECK(o3 == RO::deferred);
             TDLS_CHECK(r3 == 2);
             TDLS_CHECK(same_bits(y3, y3in));

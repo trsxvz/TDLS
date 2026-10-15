@@ -60,7 +60,16 @@ Finer-grained headers exist for the individual pieces
 
 The headers compile as plain C++ under every programming model. Under
 CUDA and HIP the entry points decorate themselves: nothing has to be
-defined. The version is exposed by `TDLS_VERSION_MAJOR`,
+defined. On AMD GPUs, declare the block size of the kernels that call
+the solvers (`__launch_bounds__(128)`, or `--gpu-max-threads-per-block`
+for a whole translation unit). Without it, HIP assumes blocks of 1024
+threads and caps every thread at 128 vector registers, and the
+one-thread solvers spill to scratch memory: 2.8 to 12 KB per thread on
+ArrowheadLUpp kernels with a border of 12 and 30 blocks of 6 (ROCm
+clang, gfx90a and gfx942). Blocks of 128 threads allow 256 vector
+registers and 256 accumulation registers: the float kernels then spill
+at most 1.1 KB, the double ones still 2.8 to 9.9 KB. The version is
+exposed by `TDLS_VERSION_MAJOR`,
 `TDLS_VERSION_MINOR`, `TDLS_VERSION_PATCH`, `TDLS_VERSION_STRING` and
 the comparable `TDLS_VERSION`.
 

@@ -232,6 +232,7 @@ constexpr tdls::ArrowheadLUppConfig<double> mrhs_config(const bool diag, const b
                                                         const bool gather = false,
                                                         const bool place  = false) {
     tdls::ArrowheadLUppConfig<double> c;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.layout         = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
     c.storage        = tdls::ArrowheadStorage::Packed;

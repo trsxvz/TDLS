@@ -338,7 +338,7 @@ defaults.
 | Knob | Default | Role |
 |---|---|---|
 | `rows_per_thread` | 1 | vectors held by each thread, rows of S: columns of A row-major, rows column-major; the main performance axis: a system of dimension N takes `ceil(N / rows_per_thread)` threads; from N on, one thread per system |
-| `row_interchange` | `Logical` | row interchanges, `Logical` (rows never move, as in MAGMA) or `Physical` (rows move between the threads, as in LAPACK); same pivots and operations, different factored formats and workspace sizes |
+| `row_interchange` | `Logical` | row interchanges, `Logical` (rows never move, as in MAGMA) or `Physical` (rows move between the threads, as in LAPACK); same pivots and operations, different factored formats and workspace sizes; `Auto` is rejected: it is the default of the blocks of ArrowheadLUpp only |
 | `relative_pivot_threshold` | 0.1 | the row in place keeps the pivot when it reaches this fraction of the largest magnitude of its column and `singular_floor`; 1 is the partial pivoting of LAPACK; in (0, 1] |
 | `singular_floor` | `numeric_limits<T>::min()` | a pivot below it is singular; positive |
 | `unroll_loops` | `true` | forced unrolling of the loops where offering the choice can noticeably change the performance: those indexing the register rows, whose unrolling keeps them in registers on GPU; the pivot search never carries a pragma; `false` is the choice on CPU; ignored by the runtime solver |

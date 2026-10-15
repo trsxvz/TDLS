@@ -128,70 +128,56 @@
 #include <utility>
 
 #include <tdls/core/macros.hpp>
+#include <tdls/core/target.hpp>
 
-#if defined(__NVCOMPILER)
+#if defined(TDLS_DETAIL_COMPILER_NVCXX)
 #include <nv/target>
 #endif
 
 // The device printf of HIP comes with its runtime header, which a HIP
 // translation unit may include after this one.
-#if defined(__HIP__)
+#if defined(TDLS_DETAIL_COMPILER_HIP_CLANG)
 #include <hip/hip_runtime.h>
 #endif
 
 
 
 /* =========================================================================
-   Side of the compilation pass: the instructions it offers to run the
-   deduced barrier and to stop a kernel or the program.
-   The order matters. clang defines __CUDA_ARCH__ in the OpenMP device
-   pass for AMDGCN up to clang 18, and DPC++ does not define it for NVPTX:
-   the AMDGCN and NVPTX macros are tested first. The NVIDIA builtins
-   serve the device passes outside the CUDA language only, and the AMD
-   ones the device passes of HIP and of the other models: AdaptiveCpp
-   defines __NVPTX__ in the host pass of its CUDA mode too, and the host
-   pass of HIP defines __AMDGCN__, plus __SPIRV__ for amdgcnspirv. Every
-   other SPIR-V device pass, SYCL or OpenMP, follows. The generic mode of
-   AdaptiveCpp compiles host and device code in one pass, recognized by
-   the macro its compiler defines, once no device pass has matched. A
-   pass without a side has no deduced barrier, and TDLS_DETAIL_GROUP_NONE
-   gives the reason.
+   Side of the compilation pass (TDLS_DETAIL_PASS_*, core/target.hpp): the
+   instructions it offers to run the deduced barrier and to stop a kernel
+   or the program. The NVIDIA builtins serve the device passes outside the
+   CUDA language only, and the AMD ones the device passes of HIP and of
+   the other models. A pass without a side has no deduced barrier, and
+   TDLS_DETAIL_GROUP_NONE gives the reason.
    ========================================================================= */
 
-#if defined(__NVCOMPILER)
-#if defined(__NVCOMPILER_STDPAR_OPENACC_GPU)
+#if defined(TDLS_DETAIL_PASS_NVCXX_STDPAR_OPENACC)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE "The OpenACC backend of nvc++ for the parallel algorithms has none."
-#elif defined(_NVHPC_CUDA)
+#elif defined(TDLS_DETAIL_PASS_NVCXX_CUDA)
 /// nvc++ with CUDA: NV_IF_TARGET selects the device or the host side.
 #define TDLS_DETAIL_GROUP_NVCXX
-#elif defined(__NVCOMPILER_OPENMP_GPU) || defined(__NVCOMPILER_OPENACC_GPU)
+#elif defined(TDLS_DETAIL_PASS_NVCXX_OFFLOAD)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE "nvc++ offers it to OpenMP and OpenACC offloading with -cuda."
-#else
-/// The host.
-#define TDLS_DETAIL_GROUP_HOST
-#endif
-#elif defined(__AMDGCN__) && defined(__clang__) &&                                                 \
-    (defined(__HIP_DEVICE_COMPILE__) || !defined(__HIP__))
+#elif defined(TDLS_DETAIL_PASS_AMDGCN)
 /// AMD through the clang builtins.
 #define TDLS_DETAIL_GROUP_AMDGCN
-#elif defined(__CUDA_ARCH__) && (defined(__CUDACC__) || defined(__CUDA__))
+#elif defined(TDLS_DETAIL_PASS_CUDA)
 /// NVIDIA through the CUDA API.
 #define TDLS_DETAIL_GROUP_CUDA
-#elif defined(__NVPTX__) && defined(__clang__) && !defined(__CUDA__)
+#elif defined(TDLS_DETAIL_PASS_NVPTX)
 /// NVIDIA through the clang builtins.
 #define TDLS_DETAIL_GROUP_NVPTX
-#elif !defined(__clang__) && (defined(__nvptx__) || defined(__AMDGCN__) || defined(__amdgcn__))
+#elif defined(TDLS_DETAIL_PASS_GCC_OFFLOAD)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE "GCC offloading has none."
-#elif defined(__SYCL_DEVICE_ONLY__) || ((defined(__SPIR__) || defined(__SPIRV__)) &&               \
-                                        (defined(__HIP_DEVICE_COMPILE__) || !defined(__HIP__)))
+#elif defined(TDLS_DETAIL_PASS_SPIRV)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE                                                                     \
     "On SPIR-V devices, SYCL and OpenMP offloading cannot stop a kernel whose group is "           \
     "incomplete; pass a sub-group, work-group or team barrier."
-#elif defined(__ACPP_ENABLE_LLVM_SSCP_TARGET__) || defined(__HIPSYCL_ENABLE_LLVM_SSCP_TARGET__)
+#elif defined(TDLS_DETAIL_PASS_ACPP_GENERIC)
 /// No deduced barrier in this pass; the reason, appended to the diagnostic.
 #define TDLS_DETAIL_GROUP_NONE                                                                     \
     "The generic mode of AdaptiveCpp has none; its cuda and hip modes do."
@@ -241,7 +227,7 @@
 #define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
 #define TDLS_DETAIL_GROUP_LANES              __device__ TDLS_FORCE_INLINE_GPU
-#elif defined(TDLS_DETAIL_GROUP_AMDGCN) && defined(__HIP__)
+#elif defined(TDLS_DETAIL_GROUP_AMDGCN) && defined(TDLS_DETAIL_COMPILER_HIP_CLANG)
 /// Picks the statement list of the side of the pass.
 #define TDLS_DETAIL_GROUP_SIDE(device, host) TDLS_DETAIL_GROUP_EXPAND device
 /// Qualifiers of the lane functions.
@@ -456,7 +442,7 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 /// \param[in] failure what went wrong
 TDLS_DETAIL_GROUP_LANES void lanes_fail([[maybe_unused]] const unsigned long long mask,
                                         [[maybe_unused]] const LanesFailure failure) noexcept {
-#if !defined(__SYCL_DEVICE_ONLY__)
+#if !defined(TDLS_DETAIL_LANG_SYCL_DEVICE)
     if (__nvvm_read_ptx_sreg_laneid() == __builtin_ctzll(mask)) {
         if (failure == LanesFailure::incomplete)
             printf(TDLS_DETAIL_GROUP_INCOMPLETE);
@@ -527,7 +513,7 @@ TDLS_DETAIL_GROUP_LANES void lanes_sync(const unsigned long long lanes) noexcept
 /// \param[in] failure what went wrong
 TDLS_DETAIL_GROUP_LANES void lanes_fail([[maybe_unused]] const unsigned long long mask,
                                         [[maybe_unused]] const LanesFailure failure) noexcept {
-#if !defined(__SYCL_DEVICE_ONLY__)
+#if !defined(TDLS_DETAIL_LANG_SYCL_DEVICE)
     const unsigned lane = __builtin_amdgcn_mbcnt_hi(~0u, __builtin_amdgcn_mbcnt_lo(~0u, 0u));
     if (lane == static_cast<unsigned>(__builtin_ctzll(mask))) {
         if (failure == LanesFailure::incomplete)

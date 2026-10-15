@@ -13,7 +13,8 @@ of the current step are copied into local arrays: the working set,
 kept in registers. The full matrix can stay in remote memory (shared,
 global or plain host memory), walked with a stride. It can also be a
 caller-local array, through the residency booleans of the compile-time
-solver. Pivoting is logical: a pivot array maps logical rows to
+solver. Pivoting is logical by default (`row_interchange`, see below
+for the physical interchanges): a pivot array maps logical rows to
 physical rows, and rows are physically swapped only inside the
 diagonal tile. Each tile goes back to the physical rows that the pivot
 array gives, an index known at run time only. A caller-local matrix and
@@ -108,8 +109,9 @@ individual knobs; `TiledLUppConfig<double>{}` keeps the defaults.
 
 | Knob | Default | Role |
 |---|---|---|
-| `tile_size` | 3 | extent of the register tiles, the main performance axis; may exceed the dimension; on an RTX 5080, one thread per system inside implicit MFront behaviours (N = 12 to 19, double), tiles of 4 or 5 were the fastest, 3 up to 28 % slower at N = 19 |
+| `tile_size` | 4 | extent of the register tiles, the main performance axis; may exceed the dimension; on an RTX 5080, one thread per system inside implicit MFront behaviours (N = 12 to 19, double), tiles of 4 or 5 were the fastest, 3 up to 28 % slower at N = 19 (3 up to version 0.3.0) |
 | `schedule` | `RightLooking` | elimination schedule, `RightLooking` or `LeftLooking` |
+| `row_interchange` | `Logical` | `Logical`: the rows never move, the tiles go back to the rows the pivot array gives; `Physical`: the whole matrix is one tile and the rows are interchanged as in LAPACK, every index known at compile time once the loops are unrolled, so that on GPU a caller-local matrix, its pivots and its right-hand sides stay in registers (`tile_size` and `schedule` ignored, the pivots and the factorization of `Logical` over one tile, the pivot array holding the interchanges); for small systems, whose matrix fits in the registers of a thread (about N^2 sizeof(T) / 4 <= 200 on NVIDIA GPUs): the block solver of ArrowheadLUpp up to blocks of 10 in double on GPU. Both solvers, bitwise identical. `Auto` is rejected: it is the default of the blocks of ArrowheadLUpp only |
 | `oot_pivot_threshold` | 1e-10 for `double` and `long double`<br>1e-4 for `float` | an in-tile pivot at least this large is accepted without searching below the tile |
 | `oot_first_acceptable` | `true` | the search below the tile stops at the first candidate reaching `oot_pivot_threshold` |
 | `relative_pivot_threshold` | 0.1 | in the diagonal tile only, the row in place keeps the pivot when it reaches this fraction of the best in-tile candidate and `oot_pivot_threshold`; 1 takes the best in-tile candidate; in (0, 1] |

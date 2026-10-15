@@ -1,5 +1,6 @@
 /// \file
-/// \brief Documentation snippet: the blocks eliminated in registers.
+/// \brief Documentation snippet: the blocks eliminated in registers
+/// (block_row_interchange).
 /// \author Tristan Chenaille
 /// \copyright Copyright (C) 2026 CEA. All rights reserved.
 /// This project is publicly released under the BSD 3-Clause License
@@ -18,13 +19,13 @@ int main() {
         y[i] = b[i];
 
     // snippet begin
-    // each block factored by physical row interchanges, every index known at compile time: the
-    // block and its right-hand sides stay in registers on GPU instead of the stack; on GPU, with
-    // passes of 2 columns
+    // each block factored by TiledLUpp with physical row interchanges, every index known at
+    // compile time: the block and its right-hand sides stay in registers on GPU instead of the
+    // stack (what Auto, the default, chooses for blocks that fit; Physical forces it)
     constexpr auto config =
-        tdls::ArrowheadLUppConfig<double>{.coupling        = tdls::ArrowheadCoupling::Diagonal,
-                                          .storage         = tdls::ArrowheadStorage::Packed,
-                                          .register_blocks = true};
+        tdls::ArrowheadLUppConfig<double>{.coupling = tdls::ArrowheadCoupling::Diagonal,
+                                          .storage  = tdls::ArrowheadStorage::Packed,
+                                          .block_row_interchange = tdls::RowInterchange::Physical};
     using Solver = tdls::ArrowheadLUppSolverStatic<double, shape, config>;
 
     double M[Solver::storage_size];

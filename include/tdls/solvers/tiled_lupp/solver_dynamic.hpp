@@ -67,6 +67,7 @@
 
 
 #include <tdls/core/math.hpp>
+#include <tdls/core/target.hpp>
 #include <type_traits>
 
 #include <tdls/solvers/tiled_lupp/config.hpp>
@@ -89,7 +90,7 @@
 //
 // Both suppressions are scoped to this header and to those warnings
 // only, exactly as in solver_static.hpp.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic ignored "-Warray-bounds"
@@ -191,7 +192,13 @@ struct TiledLUppSolverDynamic {
     /// S = A^T under the column-major layout (see the file documentation of
     /// solver_static.hpp).
     static constexpr bool transposed = Config.layout == MatrixLayout::ColMajor;
+    /// \brief Whether the rows are interchanged physically, the whole matrix
+    /// a single tile (see TiledLUppConfig::row_interchange).
+    static constexpr bool physical = Config.row_interchange == RowInterchange::Physical;
 
+    static_assert(Config.row_interchange != RowInterchange::Auto,
+                  "TiledLUppSolverDynamic: row_interchange must be Logical or Physical (Auto is "
+                  "the default of the blocks of ArrowheadLUpp only)");
     static_assert(
         Config.oot_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
         "TiledLUppSolverDynamic: oot_pivot_threshold and singular_floor must be finite (and fit a "
@@ -1061,6 +1068,236 @@ struct TiledLUppSolverDynamic {
     }
 
     /* =====================================================================
+       Physical row interchanges (Config.row_interchange == Physical): the
+       whole matrix is one tile, the rows exchanged as in LAPACK; the
+       operations of TiledLUppSolverStatic in the same order, so that both
+       solvers agree bit for bit.
+       ===================================================================== */
+
+    /// \brief Physical factorization: P S = L U in place, L below the
+    /// diagonal and U above it in the pivoted row order, 1 / pivot on the
+    /// diagonal; piv[j] the row exchanged with row j at step j. With check,
+    /// every multiplier of L is also checked against 1 / u.
+    /// \tparam check bound the multipliers by 1 / u
+    /// \param[in]     n          system dimension
+    /// \param[in,out] A          matrix on entry, its factors on exit
+    /// \param[in]     A_stride   element stride of A
+    /// \param[out]    piv        interchanges
+    /// \param[in]     piv_stride element stride of piv
+    /// \param[in]     u          bound of the check (check only)
+    /// \param[out]    weak       number of columns whose best candidate fell
+    ///                           below oot_pivot_threshold (the out-of-tile
+    ///                           count of Logical over one tile)
+    /// \return 0 when every multiplier passes the check (always without
+    ///         check), 1 when one fails it, 2 on a singular matrix
+    template<bool check>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    physical_factorize_impl(const int n, T* TDLS_RESTRICT A, const int A_stride,
+                            int* TDLS_RESTRICT piv, const int piv_stride,
+                            [[maybe_unused]] const T u, int& weak) noexcept {
+        bool ok       = true;
+        bool singular = false;
+        weak          = 0;
+        for (int j = 0; j < n; ++j) {
+            T best = detail::abs(TDLS_LUPP_DYN_A(j, j));
+            int r  = j;
+            for (int i = j + 1; i < n; ++i) {
+                const T a = detail::abs(TDLS_LUPP_DYN_A(i, j));
+                if (a > best) {
+                    best = a;
+                    r    = i;
+                }
+            }
+            if constexpr (relative_pivot_threshold < T(1)) {
+                const T in_place = detail::abs(TDLS_LUPP_DYN_A(j, j));
+                if (in_place >= relative_pivot_threshold * best && in_place >= oot_pivot_threshold)
+                    r = j;
+            }
+            const bool pivot_ok = best >= singular_floor;
+            singular            = singular || !pivot_ok;
+            weak += best < oot_pivot_threshold ? 1 : 0;
+            TDLS_LUPP_DYN_PIV(j) = r;
+            if (r != j) {
+                for (int c = 0; c < n; ++c) {
+                    const T t             = TDLS_LUPP_DYN_A(j, c);
+                    TDLS_LUPP_DYN_A(j, c) = TDLS_LUPP_DYN_A(r, c);
+                    TDLS_LUPP_DYN_A(r, c) = t;
+                }
+            }
+            const T inv           = pivot_ok ? T(1) / TDLS_LUPP_DYN_A(j, j) : T(0);
+            TDLS_LUPP_DYN_A(j, j) = inv;
+            for (int i = j + 1; i < n; ++i) {
+                const T l             = TDLS_LUPP_DYN_A(i, j) * inv;
+                TDLS_LUPP_DYN_A(i, j) = l;
+                if constexpr (check) ok = ok && u * detail::abs(l) <= T(1);
+                for (int c = j + 1; c < n; ++c)
+                    TDLS_LUPP_DYN_A(i, c) -= l * TDLS_LUPP_DYN_A(j, c);
+            }
+        }
+        return singular ? 2 : ok ? 0 : 1;
+    }
+
+    /// \brief Physical factorization (see physical_factorize_impl).
+    /// \param[in]     n          system dimension
+    /// \param[in,out] A          matrix on entry, its factors on exit
+    /// \param[in]     A_stride   element stride of A
+    /// \param[out]    piv        interchanges
+    /// \param[in]     piv_stride element stride of piv
+    /// \param[out]    weak       number of columns whose best candidate fell
+    ///                           below oot_pivot_threshold
+    /// \return false on a singular matrix
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    physical_factorize(const int n, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                       const int piv_stride, int& weak) noexcept {
+        return physical_factorize_impl<false>(n, A, A_stride, piv, piv_stride, T(0), weak) != 2;
+    }
+
+    /// \brief Physical factorization with its multipliers bounded, the check
+    /// fused into the elimination (the condensation of ArrowheadLUpp under
+    /// RowInterchange::Physical).
+    /// \param[in]     n          system dimension
+    /// \param[in,out] A          matrix on entry, its factors on exit
+    /// \param[in]     A_stride   element stride of A
+    /// \param[out]    piv        interchanges
+    /// \param[in]     piv_stride element stride of piv
+    /// \param[in]     u          the multipliers must not exceed 1 / u
+    /// \return 0 when every multiplier passes the check, 1 when one fails
+    ///         it, 2 on a singular matrix
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    physical_factorize_checked(const int n, T* TDLS_RESTRICT A, const int A_stride,
+                               int* TDLS_RESTRICT piv, const int piv_stride, const T u) noexcept {
+        int weak = 0;
+        return physical_factorize_impl<true>(n, A, A_stride, piv, piv_stride, u, weak);
+    }
+
+    /// \brief Applies the interchanges to w columns of x, in their order
+    /// (P x) or in reverse order (P^T x).
+    /// \param[in]     n           system dimension
+    /// \param[in]     w           number of columns
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     reverse     P^T instead of P
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_permute(const int n, const int w, const int* TDLS_RESTRICT piv, const int piv_stride,
+                     T* TDLS_RESTRICT x, const int rhs_stride, const std::size_t xcol_stride,
+                     const bool reverse) noexcept {
+        for (int t = 0; t < n; ++t) {
+            const int j = reverse ? n - 1 - t : t;
+            const int r = TDLS_LUPP_DYN_PIV(j);
+            if (r != j)
+                for (int c = 0; c < w; ++c) {
+                    const T v              = TDLS_LUPP_DYN_XW(c, j);
+                    TDLS_LUPP_DYN_XW(c, j) = TDLS_LUPP_DYN_XW(c, r);
+                    TDLS_LUPP_DYN_XW(c, r) = v;
+                }
+        }
+    }
+
+    /// \brief First stage of the physical substitution of w columns:
+    /// x := L^-1 P x under the row-major layout, x := U^-T x under the
+    /// column-major one.
+    /// \param[in]     n           system dimension
+    /// \param[in]     w           number of columns
+    /// \param[in]     A           factors of physical_factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_forward(const int n, const int w, const T* TDLS_RESTRICT A, const int A_stride,
+                     const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                     const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        if constexpr (!transposed) {
+            physical_permute(n, w, piv, piv_stride, x, rhs_stride, xcol_stride, false);
+            for (int j = 0; j < n; ++j)
+                for (int i = j + 1; i < n; ++i) {
+                    const T l = TDLS_LUPP_DYN_A(i, j);
+                    for (int c = 0; c < w; ++c)
+                        TDLS_LUPP_DYN_XW(c, i) -= l * TDLS_LUPP_DYN_XW(c, j);
+                }
+        } else {
+            for (int j = 0; j < n; ++j) {
+                for (int c = 0; c < w; ++c)
+                    TDLS_LUPP_DYN_XW(c, j) *= TDLS_LUPP_DYN_A(j, j);
+                for (int q = j + 1; q < n; ++q) {
+                    const T uq = TDLS_LUPP_DYN_A(j, q);
+                    for (int c = 0; c < w; ++c)
+                        TDLS_LUPP_DYN_XW(c, q) -= uq * TDLS_LUPP_DYN_XW(c, j);
+                }
+            }
+        }
+    }
+
+    /// \brief Second stage of the physical substitution of w columns:
+    /// x := U^-1 x under the row-major layout, x := P^T L^-T x under the
+    /// column-major one.
+    /// \param[in]     n           system dimension
+    /// \param[in]     w           number of columns
+    /// \param[in]     A           factors of physical_factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_backward(const int n, const int w, const T* TDLS_RESTRICT A, const int A_stride,
+                      const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                      const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        if constexpr (!transposed) {
+            for (int j = n - 1; j >= 0; --j)
+                for (int c = 0; c < w; ++c) {
+                    T v = TDLS_LUPP_DYN_XW(c, j);
+                    for (int q = j + 1; q < n; ++q)
+                        v -= TDLS_LUPP_DYN_A(j, q) * TDLS_LUPP_DYN_XW(c, q);
+                    TDLS_LUPP_DYN_XW(c, j) = v * TDLS_LUPP_DYN_A(j, j);
+                }
+        } else {
+            for (int j = n - 1; j >= 0; --j)
+                for (int q = j + 1; q < n; ++q) {
+                    const T l = TDLS_LUPP_DYN_A(q, j);
+                    for (int c = 0; c < w; ++c)
+                        TDLS_LUPP_DYN_XW(c, j) -= l * TDLS_LUPP_DYN_XW(c, q);
+                }
+            physical_permute(n, w, piv, piv_stride, x, rhs_stride, xcol_stride, true);
+        }
+    }
+
+    /// \brief Physical substitution of nrhs columns in passes of pass_width
+    /// columns: the first stage, the second, or both.
+    /// \tparam pass_width columns per pass (0: one pass)
+    /// \tparam stages     1 the first stage, 2 the second, 3 both
+    /// \param[in]     n           system dimension
+    /// \param[in]     nrhs        number of columns
+    /// \param[in]     A           factors of physical_factorize
+    /// \param[in]     A_stride    element stride of A
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int pass_width, int stages>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_multirhs(const int n, const int nrhs, const T* TDLS_RESTRICT A, const int A_stride,
+                      const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
+                      const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        const int cpp = (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+        for (int c0 = 0; c0 < nrhs; c0 += cpp) {
+            const int w         = nrhs - c0 < cpp ? nrhs - c0 : cpp;
+            T* TDLS_RESTRICT xp = x + TDLS_STRIDED_WIDE(c0, xcol_stride);
+            if constexpr ((stages & 1) != 0)
+                physical_forward(n, w, A, A_stride, piv, piv_stride, xp, rhs_stride, xcol_stride);
+            if constexpr ((stages & 2) != 0)
+                physical_backward(n, w, A, A_stride, piv, piv_stride, xp, rhs_stride, xcol_stride);
+        }
+    }
+
+    /* =====================================================================
        FACTORIZE - public entry point.
        ===================================================================== */
 
@@ -1068,7 +1305,10 @@ struct TiledLUppSolverDynamic {
     ///
     /// A becomes L\\U (unit lower L below the diagonal, U above including
     /// it, the diagonal holding the pivot RECIPROCALS), under logical row
-    /// permutation piv (piv[i] = physical row holding logical row i).
+    /// permutation piv (piv[i] = physical row holding logical row i). Under
+    /// physical row interchanges (Config.row_interchange), L\\U is stored in
+    /// the pivoted row order and piv[j] is the row exchanged with row j at
+    /// step j.
     /// \tparam oot_diagnostics when false, the out-of-tile diagnostics are
     ///         compiled out entirely; use the overload without the
     ///         out-parameter
@@ -1090,6 +1330,15 @@ struct TiledLUppSolverDynamic {
               const int piv_stride, int& oot_count, T* TDLS_RESTRICT y = nullptr,
               const int rhs_stride = 1) noexcept {
         n = detail::runtime_dimension(n);
+        if constexpr (physical) {
+            int weak      = 0;
+            const bool ok = physical_factorize(n, A, A_stride, piv, piv_stride, weak);
+            if constexpr (oot_diagnostics) oot_count = weak;
+            if (!ok) return false;
+            if constexpr (fuse_rhs)
+                physical_forward(n, 1, A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+            return true;
+        }
 
         if constexpr (oot_diagnostics) oot_count = 0;
 
@@ -1647,6 +1896,12 @@ struct TiledLUppSolverDynamic {
                const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                const int rhs_stride) noexcept {
         n = detail::runtime_dimension(n);
+        if constexpr (physical) {
+            for (int i = 0; i < n; ++i)
+                TDLS_LUPP_DYN_X(i) = TDLS_LUPP_DYN_B(i);
+            physical_multirhs<0, 3>(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            return;
+        }
         if constexpr (transposed) {
             // Column-major layout: b consumed unpermuted, x = P^T w at the end.
             for (int i = 0; i < n; ++i)
@@ -1679,6 +1934,12 @@ struct TiledLUppSolverDynamic {
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
         n = detail::runtime_dimension(n);
+        if constexpr (physical) {
+            for (int i = 0; i < n; ++i)
+                TDLS_LUPP_DYN_X(i) = i == col ? T(1) : T(0);
+            physical_multirhs<0, 3>(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            return;
+        }
         substitute_canonical_multirhs_pass(n, 1, A, A_stride, piv, piv_stride, col, x, rhs_stride,
                                            0);
     }
@@ -1755,6 +2016,14 @@ struct TiledLUppSolverDynamic {
                                   const std::size_t xcol_stride) noexcept {
         n    = detail::runtime_dimension(n);
         nrhs = detail::runtime_dimension(nrhs);
+        if constexpr (physical) {
+            for (int c = 0; c < nrhs; ++c)
+                for (int i = 0; i < n; ++i)
+                    TDLS_LUPP_DYN_XW(c, i) = i == col0 + c ? T(1) : T(0);
+            physical_multirhs<pass_width, 3>(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                             xcol_stride);
+            return;
+        }
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_canonical_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, col0, x,
@@ -1848,6 +2117,14 @@ struct TiledLUppSolverDynamic {
                         const std::size_t xcol_stride) noexcept {
         n    = detail::runtime_dimension(n);
         nrhs = detail::runtime_dimension(nrhs);
+        if constexpr (physical) {
+            for (int c = 0; c < nrhs; ++c)
+                for (int i = 0; i < n; ++i)
+                    TDLS_LUPP_DYN_XW(c, i) = TDLS_LUPP_DYN_BW(c, i);
+            physical_multirhs<pass_width, 3>(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                             xcol_stride);
+            return;
+        }
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, b, x, rhs_stride,
@@ -1883,6 +2160,10 @@ struct TiledLUppSolverDynamic {
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride) noexcept {
         n = detail::runtime_dimension(n);
+        if constexpr (physical) {
+            physical_multirhs<0, 3>(n, 1, A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            return;
+        }
         if constexpr (transposed) {
             // Column-major layout: the sweeps on the unpermuted x, then the
             // inverse cycle rotation (x = P^T w).
@@ -2023,6 +2304,11 @@ struct TiledLUppSolverDynamic {
                                 const std::size_t xcol_stride) noexcept {
         n    = detail::runtime_dimension(n);
         nrhs = detail::runtime_dimension(nrhs);
+        if constexpr (physical) {
+            physical_multirhs<pass_width, 3>(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                             xcol_stride);
+            return;
+        }
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             substitute_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2063,6 +2349,11 @@ struct TiledLUppSolverDynamic {
                              const int rhs_stride, const std::size_t xcol_stride) noexcept {
         n    = detail::runtime_dimension(n);
         nrhs = detail::runtime_dimension(nrhs);
+        if constexpr (physical) {
+            physical_multirhs<pass_width, 1>(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                             xcol_stride);
+            return;
+        }
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             forward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2099,6 +2390,11 @@ struct TiledLUppSolverDynamic {
                               const std::size_t xcol_stride) noexcept {
         n    = detail::runtime_dimension(n);
         nrhs = detail::runtime_dimension(nrhs);
+        if constexpr (physical) {
+            physical_multirhs<pass_width, 2>(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
+                                             xcol_stride);
+            return;
+        }
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         if constexpr (pass_width == 0) {
             backward_inplace_multirhs_pass(n, nrhs, A, A_stride, piv, piv_stride, x, rhs_stride,
@@ -2263,6 +2559,14 @@ struct TiledLUppSolverDynamic {
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& oot_count) noexcept {
         n = detail::runtime_dimension(n);
+        if constexpr (physical) {
+            int weak      = 0;
+            const bool ok = physical_factorize(n, A, A_stride, piv, piv_stride, weak);
+            if constexpr (oot_diagnostics) oot_count = weak;
+            if (!ok) return false;
+            physical_multirhs<0, 3>(n, 1, A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+            return true;
+        }
         if (!factorize<oot_diagnostics, true>(n, A, A_stride, piv, piv_stride, oot_count, y,
                                               rhs_stride))
             return false;
@@ -2382,7 +2686,7 @@ struct TiledLUppSolverDynamic {
 
 } // namespace tdls
 
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 

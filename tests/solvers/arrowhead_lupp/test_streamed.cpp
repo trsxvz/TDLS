@@ -61,6 +61,7 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
             const bool gather = false, const bool in_place = false, const bool unroll = true,
             const bool outline = false) {
     tdls::ArrowheadLUppConfig<double> c;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.storage        = storage;
     c.layout         = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
@@ -74,9 +75,9 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
 
 /// \brief The configuration c with its blocks eliminated in registers.
 /// \param[in] c configuration
-/// \return c with register_blocks set
+/// \return c with the blocks eliminated in registers
 constexpr tdls::ArrowheadLUppConfig<double> registers(tdls::ArrowheadLUppConfig<double> c) {
-    c.register_blocks = true;
+    c.block_row_interchange = tdls::RowInterchange::Physical;
     return c;
 }
 
@@ -401,7 +402,7 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/gather_in_place_unroll") {
                                               false, true, true)>(604600);
 }
 
-TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/register_blocks") {
+TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/registers") {
     using S = ArrowheadStorage;
     both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 0))>(605100);
     both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 2))>(605200);

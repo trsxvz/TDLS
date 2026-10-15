@@ -16,6 +16,7 @@
 #include <cmath>
 
 #include <tdls/core/macros.hpp>
+#include <tdls/core/target.hpp>
 
 
 
@@ -43,7 +44,7 @@ template<typename T>
 #if __has_builtin(__builtin_is_constant_evaluated)
     if (__builtin_is_constant_evaluated()) return x < T(0) ? -x : x;
 #endif
-#elif defined(_MSC_VER) && _MSC_VER >= 1925
+#elif defined(TDLS_DETAIL_COMPILER_MSVC) && _MSC_VER >= 1925
     if (__builtin_is_constant_evaluated()) return x < T(0) ? -x : x;
 #endif
     return std::fabs(x);
@@ -65,7 +66,7 @@ template<typename T>
 /// \param[in] v dimension
 /// \return v
 TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU constexpr int runtime_dimension(int v) noexcept {
-#if defined(__NVCC__) && defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000
+#if defined(TDLS_DETAIL_COMPILER_NVCC) && defined(TDLS_DETAIL_PASS_CUDA) && __CUDA_ARCH__ >= 1000
     if (!__builtin_is_constant_evaluated()) asm volatile("" : "+r"(v));
 #endif
     return v;

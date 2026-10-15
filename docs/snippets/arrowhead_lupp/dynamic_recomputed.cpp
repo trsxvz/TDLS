@@ -19,9 +19,9 @@ int main() {
 
     // snippet begin
     constexpr auto config =
-        tdls::ArrowheadLUppConfig<double>{.coupling        = tdls::ArrowheadCoupling::Diagonal,
-                                          .storage         = tdls::ArrowheadStorage::Packed,
-                                          .register_blocks = true};
+        tdls::ArrowheadLUppConfig<double>{.coupling = tdls::ArrowheadCoupling::Diagonal,
+                                          .storage  = tdls::ArrowheadStorage::Packed,
+                                          .block_row_interchange = tdls::RowInterchange::Physical};
     using Solver = tdls::ArrowheadLUppSolverDynamic<double, config>;
     using RO     = Solver::RecomputedOutcome;
 

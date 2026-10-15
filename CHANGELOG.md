@@ -9,14 +9,44 @@ the API may change between minor versions.
 
 ### Added
 
-- ArrowheadLUpp: `register_blocks`, each diagonal block factored by
-  physical row interchanges, every index known at compile time, instead
-  of by TiledLUpp, whose logical pivots keep the block, its pivots and
-  its right-hand sides on the stack of the thread on GPU. The in-tile
-  pivot rule of TiledLUpp over one tile of the size of the block, the
-  pivot check, the recovery data and the second pass unchanged; the
-  runtime solver runs the same operations, so that both solvers stay
-  bitwise identical. Off by default.
+- TiledLUpp: `row_interchange`, `Logical` (the default) or `Physical`,
+  the second knob, after the tile size and the schedule, as in
+  CooperativeLUpp.
+  Physical makes the whole matrix one tile and interchanges the rows as
+  LAPACK does, through a test of every row index, so that every index
+  is known at compile time once the loops are unrolled: on GPU a
+  caller-local matrix, its pivots and its right-hand sides stay in
+  registers. The pivots and the factorization are those of `Logical`
+  over a single tile; the pivot array then holds the interchanges. For
+  small systems: the matrix must fit in the registers of a thread. Both
+  solvers, bitwise identical to each other.
+- ArrowheadLUpp: `block_row_interchange`, the `row_interchange` of
+  TiledLUpp on the diagonal blocks, `Auto` by default. `Physical`
+  factors each block in registers, the block and its right-hand sides
+  out of the stack of the thread on GPU; the pivot check, the recovery
+  data and the second pass unchanged; the runtime solver makes the same
+  choice and runs the same operations, so that both solvers stay
+  bitwise identical. `Auto` takes `Physical` up to blocks of 14 in
+  float and 10 in double on GPU, 8 in float and 12 in double on CPU,
+  long double as double; `Logical`, in tiles, beyond. Measured over
+  tiles of 3, blocks that keep their rows: 2 to 6 times faster on the
+  recomputed path, 1.1 to 2.9 times streamed, 1 to 1.6 times stored
+  (RTX 5080), 1.5 times on CPU (median).
+- `RowInterchange::Auto`, the default of the blocks of ArrowheadLUpp
+  only: the physical interchanges when the block is small enough to stay
+  in registers on the target of the code, the logical ones otherwise.
+  TiledLUpp and CooperativeLUpp reject it at compile time, their factors
+  being able to cross from the device to the host.
+- `tdls/core/target.hpp`: the one place where TDLS identifies the
+  toolchain and the compilation pass (version tests stay where they
+  serve): the compiler, the language (CUDA, HIP, SYCL), the side
+  of the compilation pass (host, CUDA, NVPTX, AMDGCN, SPIR-V, GCC
+  offloading, nvc++, AdaptiveCpp) and the hardware (CPU or GPU). The
+  portability macros, the group barriers and the defaults that depend
+  on the target read it. `TDLS_TARGET_GPU` (0 or 1) gives the hardware
+  those defaults assume; it guesses the GPU where the pass cannot tell
+  (the generic mode of AdaptiveCpp, SPIR-V), and `-DTDLS_TARGET_GPU=0`
+  overrides the guess.
 - ArrowheadLUpp: `solve_inplace_recomputed` of the compile-time solver,
   the blocks asked for twice, once to condense them and once to recover
   their unknowns, nothing of an accepted block stored: no matrix
@@ -29,6 +59,11 @@ the API may change between minor versions.
   compile-time one, with `recomputed_workspace_size(shape, capacity,
   nrhs)`, which does not grow with the number of blocks, and
   `valid_recomputed`.
+- Documentation: the getting started page asks for the block size of
+  the kernels on AMD GPUs, where HIP otherwise assumes blocks of 1024
+  threads and the one-thread solvers spill to scratch memory;
+  ArrowheadLUpp `block_tile_size` documents the pivoting over the whole
+  block, for blocks that pivot.
 
 ### Fixed
 
@@ -40,7 +75,28 @@ the API may change between minor versions.
   `unroll_loops` knob, the Sphinx page, the test page and the GPU and
   parallel STL examples said otherwise. The `tile_size` and
   `unroll_loops` knobs now give the measurements inside implicit MFront
-  behaviours, and `register_blocks` those on larger blocks.
+  behaviours, and `block_row_interchange` those on larger blocks.
+
+### Changed
+
+- TiledLUpp: `tile_size` defaults to 4 (3 before): tiles of 4 or 5 were
+  the fastest inside implicit MFront behaviours (N = 12 to 19, double,
+  RTX 5080), 3 up to 28 % slower at N = 19. The default configuration of
+  the TFEL adaptors follows. On matrices that pivot, the tiles of 4 may
+  choose other pivots: the solutions then move by rounding errors from
+  those of 0.3.0.
+- ArrowheadLUpp: `block_tile_size` defaults to 4 (3 before): tiles of 4
+  are 1.1 to 1.3 times faster from blocks of 14 (RTX 5080).
+  `block_row_interchange` comes right after it, as `row_interchange` in
+  TiledLUpp and CooperativeLUpp.
+- ArrowheadLUpp: `rhs_pass_width` defaults to -1, a width chosen for the
+  target: passes of 2 on GPU with the blocks in registers, one pass
+  otherwise (0, the former default, still forces one pass).
+- ArrowheadLUpp: by default (`block_row_interchange = Auto`), blocks that
+  fit in registers are eliminated there, with the pivots of one tile of
+  the size of the block: the solutions of small blocks move by rounding
+  errors from those of 0.3.0, and blocks that pivot are refused less
+  often.
 
 ## [0.3.0] - 2026-10-14
 

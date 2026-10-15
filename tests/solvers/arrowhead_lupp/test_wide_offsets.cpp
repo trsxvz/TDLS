@@ -54,9 +54,10 @@ template<bool col>
 void wide_case(const std::uint64_t seed) {
     constexpr auto config = [] {
         tdls::ArrowheadLUppConfig<double> c;
-        c.coupling = tdls::ArrowheadCoupling::Diagonal;
-        c.storage  = tdls::ArrowheadStorage::Packed;
-        c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+        c.block_row_interchange = tdls::RowInterchange::Logical;
+        c.coupling              = tdls::ArrowheadCoupling::Diagonal;
+        c.storage               = tdls::ArrowheadStorage::Packed;
+        c.layout                = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
         return c;
     }();
     using Static       = tdls::ArrowheadLUppSolverStatic<double, shape, config>;
@@ -118,9 +119,10 @@ void wide_columns_case(const std::uint64_t seed) {
     constexpr tdls::ArrowheadShape shape3{4, 3, 2, 1};
     constexpr auto config = [] {
         tdls::ArrowheadLUppConfig<double> c;
-        c.coupling = tdls::ArrowheadCoupling::Diagonal;
-        c.storage  = tdls::ArrowheadStorage::Packed;
-        c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+        c.block_row_interchange = tdls::RowInterchange::Logical;
+        c.coupling              = tdls::ArrowheadCoupling::Diagonal;
+        c.storage               = tdls::ArrowheadStorage::Packed;
+        c.layout                = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
         return c;
     }();
     using Dynamic      = tdls::ArrowheadLUppSolverDynamic<double, config>;
@@ -166,9 +168,10 @@ void wide_rhs_columns_case(const std::uint64_t seed) {
     constexpr tdls::ArrowheadShape shape3{4, 3, 2, 1};
     constexpr auto config = [] {
         tdls::ArrowheadLUppConfig<double> c;
-        c.coupling = tdls::ArrowheadCoupling::Diagonal;
-        c.storage  = tdls::ArrowheadStorage::Packed;
-        c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+        c.block_row_interchange = tdls::RowInterchange::Logical;
+        c.coupling              = tdls::ArrowheadCoupling::Diagonal;
+        c.storage               = tdls::ArrowheadStorage::Packed;
+        c.layout                = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
         return c;
     }();
     using Static       = tdls::ArrowheadLUppSolverStatic<double, shape3, config>;

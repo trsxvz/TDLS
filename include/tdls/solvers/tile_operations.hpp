@@ -28,6 +28,7 @@
 
 
 #include <tdls/core/macros.hpp>
+#include <tdls/core/target.hpp>
 
 
 
@@ -35,7 +36,7 @@
 // through -Wpass-failed. The unrolling requested by TDLS_UNROLL_FORCE is
 // a performance hint: a failed hint does not affect correctness. The
 // suppression is scoped to this header and to that warning only.
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif
@@ -203,7 +204,7 @@ struct TileOperations {
 
 } // namespace tdls
 
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic pop
 #endif
 

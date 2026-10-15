@@ -150,8 +150,43 @@ struct ArrowheadLUppConfig {
     /// refuses 13 to 42 % of them.
     StructuralReal<T> condensation_pivot_threshold = T(0.01);
 
-    /// Tile size of TiledLUpp on the diagonal blocks.
-    int block_tile_size = 3;
+    /// Tile size of TiledLUpp on the diagonal blocks, when they are not
+    /// eliminated in registers (block_row_interchange). Tiles of 4 beat tiles
+    /// of 3 by 1.1 to 1.3 times from blocks of 14 (RTX 5080, float and the
+    /// register budget of double, the three paths). TiledLUpp searches the
+    /// pivot inside the tile first: a tile of the size of the block pivots
+    /// over the whole block, as the physical interchanges do. On blocks that
+    /// pivot, this refuses far fewer blocks (random blocks of 16, dense
+    /// coupling: 0.16 refused per system with tiles of 3, 0.01 with one
+    /// tile) and runs 1.3 to 3 times faster than tiles of 3 at S = 12 and 16
+    /// (RTX 5080, float, the matrix stored).
+    int block_tile_size = 4;
+
+    /// Row interchanges of TiledLUpp on the diagonal blocks
+    /// (TiledLUppConfig::row_interchange). Physical eliminates each block
+    /// in registers: the whole block one tile, the rows interchanged as in
+    /// LAPACK, every index known at compile time once the loops are
+    /// unrolled, the right-hand sides [A_kb | y_k] solved the same way;
+    /// the pivots of one tile of the size of the block
+    /// (block_relative_pivot_threshold, block_oot_pivot_threshold;
+    /// block_tile_size and gather_rhs ignored). Logical eliminates it in
+    /// tiles of block_tile_size, the block on the stack of the thread on
+    /// GPU, only the working tiles in registers. Auto, the default, takes
+    /// Physical when the block is small enough (detail::physical_rows_fit):
+    /// up to blocks of 14 in float and 10 in double on GPU, 8 in float and
+    /// 12 in double on CPU, long double as double. The pivot check, the
+    /// recovery data and the second pass are the same either way, and the
+    /// runtime solver makes the same choice and runs the same operations,
+    /// so that both solvers stay bitwise identical. Measured gains of the
+    /// physical interchanges over tiles of 3, blocks that keep their rows,
+    /// border of 12: 2 to 6 times on the recomputed path, 1.1 to 2.9 times
+    /// streamed, 1 to 1.6 times stored on GPU (RTX 5080, float and the
+    /// register budget of double), 1.5 times (median) on CPU up to these
+    /// sizes. Beyond them the block no longer fits in the registers of a
+    /// thread and the compilers spill it whole: 5 to 14 times slower from
+    /// blocks of 16 in float on GPU; on CPU, the tiled solver vectorizes
+    /// better in float.
+    RowInterchange block_row_interchange = RowInterchange::Auto;
 
     /// Relative threshold of the in-tile pivot choice of TiledLUpp on the
     /// blocks (TiledLUppConfig::relative_pivot_threshold), in (0, 1]. The
@@ -173,22 +208,28 @@ struct ArrowheadLUppConfig {
     int border_tile_size = 3;
 
     /// Right-hand sides [A_kb | y_k] of a block solved per pass, in
-    /// [0, border + 1] for the compile-time solver (the runtime solver
-    /// takes any width from 0, a width above border + nrhs meaning one
-    /// pass); 0 solves all border + 1 at once. One pass is the best on
-    /// CPU. Under the row-major layout, small passes keep fewer values
-    /// alive on GPU: with a border of 12, passes of 2 are 18 to 28 %
-    /// faster, 4 % with a border of 6 (RTX 5080). Under the column-major
-    /// layout they gain nothing: one pass reads the pivot check from the
-    /// forward stage of the solve, several need U and a separate check.
-    /// The two order the operations differently once a block spans
-    /// several tiles: a block whose largest multiplier lies within
-    /// rounding of 1 / condensation_pivot_threshold can pass the check in
-    /// one pass and fail it in several, and the solutions then differ by
-    /// rounding errors. A nonzero width can also give one pass to an entry
-    /// point and several to another, whose right-hand sides add columns;
-    /// with 0, every entry point runs one pass and the same check.
-    int rhs_pass_width = 0;
+    /// [-1, border + 1] for the compile-time solver (the runtime solver
+    /// takes any width from -1, a width above border + nrhs meaning one
+    /// pass); 0 solves all border + 1 at once, -1 (the default) chooses:
+    /// passes of 2 on GPU when the blocks are eliminated in registers, one
+    /// pass otherwise. With the blocks in registers on GPU, passes of 2
+    /// keep fewer values alive: 1.2 to 1.9 times faster than one pass
+    /// under the row-major layout (median, RTX 5080, float and the register
+    /// budget of double); under the column-major layout, from 0.8 times
+    /// (blocks of 10, recomputed) to 15 times (blocks of 14, streamed, where
+    /// one pass spills the block). On CPU one pass is the best (passes of
+    /// 2: 0.8 times its speed). With the blocks eliminated by tiles, under
+    /// the column-major layout, passes gain nothing: one pass reads the
+    /// pivot check from the forward stage of the solve, several need U and
+    /// a separate check. The two order the operations
+    /// differently once a block spans several tiles: a block whose largest
+    /// multiplier lies within rounding of 1 / condensation_pivot_threshold
+    /// can pass the check in one pass and fail it in several, and the
+    /// solutions then differ by rounding errors. A width of 2 or more can
+    /// also give one pass to an entry point and several to another, whose
+    /// right-hand sides add columns; with 0, every entry point runs one
+    /// pass and the same check.
+    int rhs_pass_width = -1;
 
     /// Permutes the right-hand sides of a block by its pivots through a
     /// predicated gather into a second buffer (true) or by cycles in place
@@ -199,32 +240,6 @@ struct ArrowheadLUppConfig {
     /// and passes of 2, but up to +18 % with a border of 6 at 240 phases,
     /// whether the pivots move or not. To measure per shape.
     bool gather_rhs = false;
-
-    /// Eliminates each diagonal block in registers (true) instead of by
-    /// TiledLUpp (false). TiledLUpp keeps its pivots logical: it writes the
-    /// factored block back at the rows its pivot array gives, an index
-    /// known at run time only, so that on GPU the block, its pivots and
-    /// the right-hand sides [A_kb | y_k] of the block live in the local
-    /// memory of the thread, the stack. With this knob, the block is
-    /// factored by physical row interchanges, every index known at compile
-    /// time once the loops are unrolled, and the right-hand sides are
-    /// solved the same way: all of it stays in registers. The pivot rule
-    /// is the in-tile rule of TiledLUpp over a single tile of the size of
-    /// the block (block_relative_pivot_threshold, block_oot_pivot_threshold;
-    /// block_tile_size and gather_rhs are ignored), the layouts and the
-    /// pivot check unchanged; the recovery data and the second pass are
-    /// those of the default path. With block_tile_size at least the block,
-    /// the pivots are those of TiledLUpp and the results agree within
-    /// rounding errors. For small blocks: the loops are unrolled over the
-    /// block, S^3 operations. Measured on an RTX 5080: the recomputed path
-    /// 3.5 times faster with it (polycrystal, blocks of 6, float); on
-    /// diagonally dominant blocks with the dense coupling and the matrix
-    /// stored (border of 12, 8 blocks), 0.8 to 1.2 times the speed of the
-    /// default path up to blocks of 12, 0.54 to 0.95 times from 18. To
-    /// measure per shape. The runtime solver, whose block lives in the
-    /// workspace, runs the same operations in the same order: both solvers
-    /// stay bitwise identical.
-    bool register_blocks = false;
 
     /// Accumulates the Schur complement in place, in the border entries of
     /// A and y (true), or in a local array of the coupled border rows,
@@ -274,6 +289,106 @@ arrowhead_block_config(const ArrowheadLUppConfig<T>& config) noexcept {
     c.unroll_loops             = config.unroll_loops;
     c.layout                   = config.layout;
     return c;
+}
+
+/// \brief TiledLUpp configuration of the diagonal blocks eliminated in
+/// registers: that of arrowhead_block_config with physical row
+/// interchanges (the whole block one tile, every index known at compile
+/// time).
+/// \tparam T scalar type
+/// \param[in] config configuration of the ArrowheadLUpp solver
+/// \return arrowhead_block_config(config), its rows interchanged physically
+template<typename T>
+[[nodiscard]] constexpr TiledLUppConfig<T>
+arrowhead_physical_block_config(const ArrowheadLUppConfig<T>& config) noexcept {
+    TiledLUppConfig<T> c = arrowhead_block_config(config);
+    c.row_interchange    = RowInterchange::Physical;
+    return c;
+}
+
+/// \brief Whether the diagonal blocks of S unknowns are eliminated in
+/// registers (ArrowheadLUppConfig::block_row_interchange, Auto resolved).
+/// \tparam T scalar type
+/// \param[in] config configuration of the ArrowheadLUpp solver
+/// \param[in] S      unknowns of a block
+/// \return true for the physical row interchanges
+template<typename T>
+[[nodiscard]] TDLS_HOST_DEVICE constexpr bool
+arrowhead_register_blocks(const ArrowheadLUppConfig<T>& config, const int S) noexcept {
+    return physical_rows<T>(config.block_row_interchange, S);
+}
+
+/// \brief The width of the passes over [A_kb | y_k]
+/// (ArrowheadLUppConfig::rhs_pass_width), -1 resolved: 2 on GPU with the
+/// blocks in registers, whatever the layout, 0 (one pass) otherwise.
+/// \tparam T scalar type
+/// \param[in] config configuration of the ArrowheadLUpp solver
+/// \param[in] reg    whether the blocks are eliminated in registers
+/// \return the width, 0 for one pass
+template<typename T>
+[[nodiscard]] TDLS_HOST_DEVICE constexpr int
+arrowhead_rhs_pass_width(const ArrowheadLUppConfig<T>& config,
+                         [[maybe_unused]] const bool reg) noexcept {
+    if (config.rhs_pass_width >= 0) return config.rhs_pass_width;
+#if TDLS_TARGET_GPU
+    return reg ? 2 : 0;
+#else
+    return 0;
+#endif
+}
+
+/// \brief Whether the diagonal blocks of S unknowns are eliminated in
+/// registers, decided at run time on the side of the code
+/// (detail::physical_rows_here): the choice of the runtime solver.
+///
+/// The runtime helpers take the fields of the configuration by value: a
+/// configuration given as a template argument and bound to a reference at
+/// run time needs the storage of the template parameter object on the
+/// device, which nvc++ does not emit (the image is then rejected when
+/// loaded).
+/// \tparam T scalar type
+/// \param[in] interchange ArrowheadLUppConfig::block_row_interchange
+/// \param[in] S           unknowns of a block
+/// \return true for the physical row interchanges
+template<typename T>
+[[nodiscard]] TDLS_HOST_DEVICE constexpr bool
+arrowhead_register_blocks_here(const RowInterchange interchange, const int S) noexcept {
+    return physical_rows_here<T>(interchange, S);
+}
+
+/// \brief arrowhead_rhs_pass_width decided at run time on the side of the
+/// code, as arrowhead_register_blocks_here.
+/// \param[in] width ArrowheadLUppConfig::rhs_pass_width
+/// \param[in] reg   whether the blocks are eliminated in registers
+/// \return the width, 0 for one pass
+[[nodiscard]] TDLS_HOST_DEVICE constexpr int
+arrowhead_rhs_pass_width_here(const int width, [[maybe_unused]] const bool reg) noexcept {
+    if (width >= 0) return width;
+#if defined(TDLS_DETAIL_SIDE_DISPATCH)
+    if (!std::is_constant_evaluated()) return on_device_side() && reg ? 2 : 0;
+#endif
+#if TDLS_TARGET_GPU
+    return reg ? 2 : 0;
+#else
+    return 0;
+#endif
+}
+
+/// \brief The configuration with the choices of the given hardware made
+/// explicit: block_row_interchange Physical or Logical, rhs_pass_width
+/// non-negative (the delegation of the side dispatch of nvc++).
+/// \tparam T   scalar type
+/// \tparam gpu the hardware: GPU (true) or CPU (false)
+/// \param[in] config configuration of the ArrowheadLUpp solver
+/// \param[in] S      unknowns of a block
+/// \return the configuration, Auto and -1 resolved
+template<typename T, bool gpu>
+[[nodiscard]] constexpr ArrowheadLUppConfig<T>
+arrowhead_resolved_config(ArrowheadLUppConfig<T> config, const int S) noexcept {
+    const bool reg               = physical_rows_on<T, gpu>(config.block_row_interchange, S);
+    config.block_row_interchange = reg ? RowInterchange::Physical : RowInterchange::Logical;
+    if (config.rhs_pass_width < 0) config.rhs_pass_width = gpu && reg ? 2 : 0;
+    return config;
 }
 
 /// \brief TiledLUpp configuration of the border system of an

@@ -255,6 +255,7 @@
 #include <tdls/core/group.hpp>
 #include <tdls/core/macros.hpp>
 #include <tdls/core/math.hpp>
+#include <tdls/core/target.hpp>
 #include <tdls/solvers/cooperative_lupp/config.hpp>
 
 
@@ -269,7 +270,7 @@
 // -Warray-bounds, exactly as in the TiledLUpp headers; the exercised paths
 // are certified free of out-of-bounds accesses by the constexpr suite.
 // Both suppressions are scoped to this header and to those warnings only.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic ignored "-Warray-bounds"
@@ -281,7 +282,7 @@
 // through -Wpass-failed. The unrolling requested by TDLS_UNROLL_FORCE is
 // a performance hint: a failed hint does not affect correctness. The
 // suppression is scoped to this header and to that warning only.
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif
@@ -294,7 +295,7 @@
 // The lambdas of this header are called on the spot, on the stack of the
 // thread that runs the solver: the report is a false positive. The
 // suppression is scoped to this header and to that warning only.
-#if defined(__NVCOMPILER)
+#if defined(TDLS_DETAIL_COMPILER_NVCXX)
 #pragma diag_push
 #pragma diag_suppress no_device_stack
 #endif
@@ -409,6 +410,10 @@ template<typename T, int N, CooperativeLUppConfig<T> Config = CooperativeLUppCon
 struct CooperativeLUppSolverStatic {
 
     static_assert(N >= 1, "CooperativeLUppSolverStatic: N must be >= 1");
+    static_assert(
+        Config.row_interchange != RowInterchange::Auto,
+        "CooperativeLUppSolverStatic: row_interchange must be Logical or Physical (Auto is the "
+        "default of the blocks of ArrowheadLUpp only)");
     static_assert(Config.rows_per_thread >= 1,
                   "CooperativeLUppSolverStatic: rows_per_thread must be >= 1");
     static_assert(Config.relative_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
@@ -1933,15 +1938,15 @@ struct CooperativeLUppSolverStatic {
 
 } // namespace tdls
 
-#if defined(__NVCOMPILER)
+#if defined(TDLS_DETAIL_COMPILER_NVCXX)
 #pragma diag_pop
 #endif
 
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic pop
 #endif
 

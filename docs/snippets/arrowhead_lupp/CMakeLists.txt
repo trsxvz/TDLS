@@ -38,7 +38,7 @@ foreach(snippet
         config_blocks
         config_pass_width
         config_gather
-        config_register_blocks
+        config_block_row_interchange
         config_schur_in_place
         config_unroll
         config_scalar_types

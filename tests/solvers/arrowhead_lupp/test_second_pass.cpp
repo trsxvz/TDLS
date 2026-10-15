@@ -49,6 +49,7 @@ void check_problem(const tdls_tests::ArrowProblem<double>& p, const bool expect_
                    const int expect_refused) {
     constexpr auto config = [] {
         tdls::ArrowheadLUppConfig<double> c;
+        c.block_row_interchange = tdls::RowInterchange::Logical;
         c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
         c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
         c.storage  = tdls::ArrowheadStorage::Packed;

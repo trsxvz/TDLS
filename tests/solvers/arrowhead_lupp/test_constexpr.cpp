@@ -142,13 +142,14 @@ constexpr tdls::ArrowheadLUppConfig<double>
 cell(const ArrowheadStorage storage, const bool diag, const bool col, const int pass = 0,
      const bool gather = false, const bool in_place = false, const bool unroll = true) {
     tdls::ArrowheadLUppConfig<double> c;
-    c.coupling       = diag ? ArrowheadCoupling::Diagonal : ArrowheadCoupling::Dense;
-    c.storage        = storage;
-    c.layout         = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
-    c.rhs_pass_width = pass;
-    c.gather_rhs     = gather;
-    c.schur_in_place = in_place;
-    c.unroll_loops   = unroll;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
+    c.coupling              = diag ? ArrowheadCoupling::Diagonal : ArrowheadCoupling::Dense;
+    c.storage               = storage;
+    c.layout                = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+    c.rhs_pass_width        = pass;
+    c.gather_rhs            = gather;
+    c.schur_in_place        = in_place;
+    c.unroll_loops          = unroll;
     return c;
 }
 

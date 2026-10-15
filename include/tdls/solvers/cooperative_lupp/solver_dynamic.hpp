@@ -125,6 +125,7 @@
 #include <tdls/core/group.hpp>
 #include <tdls/core/macros.hpp>
 #include <tdls/core/math.hpp>
+#include <tdls/core/target.hpp>
 #include <tdls/solvers/cooperative_lupp/config.hpp>
 
 
@@ -140,7 +141,7 @@
 // free of out-of-bounds accesses by the constexpr suite. Both
 // suppressions are scoped to this header and to those warnings only,
 // exactly as in solver_static.hpp.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic ignored "-Warray-bounds"
@@ -206,6 +207,10 @@ namespace tdls {
 template<typename T, CooperativeLUppConfig<T> Config = CooperativeLUppConfig<T>{}>
 struct CooperativeLUppSolverDynamic {
 
+    static_assert(
+        Config.row_interchange != RowInterchange::Auto,
+        "CooperativeLUppSolverDynamic: row_interchange must be Logical or Physical (Auto is the "
+        "default of the blocks of ArrowheadLUpp only)");
     static_assert(Config.rows_per_thread >= 1,
                   "CooperativeLUppSolverDynamic: rows_per_thread must be >= 1");
     static_assert(Config.relative_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
@@ -1228,7 +1233,7 @@ struct CooperativeLUppSolverDynamic {
 
 } // namespace tdls
 
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 

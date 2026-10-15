@@ -44,6 +44,7 @@ constexpr tdls::ArrowheadLUppConfig<double>
 path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool col, const int pass,
             const bool gather = false, const bool in_place = false, const bool unroll = true) {
     tdls::ArrowheadLUppConfig<double> c;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.storage        = storage;
     c.layout         = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
@@ -56,10 +57,53 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
 
 /// \brief The configuration c with its blocks eliminated in registers.
 /// \param[in] c configuration
-/// \return c with register_blocks set
+/// \return c with the blocks eliminated in registers
 constexpr tdls::ArrowheadLUppConfig<double> registers(tdls::ArrowheadLUppConfig<double> c) {
-    c.register_blocks = true;
+    c.block_row_interchange = tdls::RowInterchange::Physical;
     return c;
+}
+
+/// \brief The configuration c with the defaults that choose: the blocks
+/// eliminated as RowInterchange::Auto decides, the passes as
+/// rhs_pass_width -1 decides.
+/// \param[in] c configuration
+/// \return c with block_row_interchange Auto and rhs_pass_width -1
+constexpr tdls::ArrowheadLUppConfig<double> automatic(tdls::ArrowheadLUppConfig<double> c) {
+    c.block_row_interchange = tdls::RowInterchange::Auto;
+    c.rhs_pass_width        = -1;
+    return c;
+}
+
+/// \brief Compares two compile-time configurations that must run the same
+/// operations on a standard batch: the same verdicts, refused blocks,
+/// solutions and recovery data, bit for bit.
+/// \tparam Shape shape of the matrices
+/// \tparam A     first configuration
+/// \tparam B     second configuration
+/// \param[in] count number of systems
+/// \param[in] seed  generator seed
+template<tdls::ArrowheadShape Shape, tdls::ArrowheadLUppConfig<double> A,
+         tdls::ArrowheadLUppConfig<double> B>
+void same_operations(const int count, const std::uint64_t seed) {
+    using SA            = tdls::ArrowheadLUppSolverStatic<double, Shape, A>;
+    using SB            = tdls::ArrowheadLUppSolverStatic<double, Shape, B>;
+    constexpr bool diag = A.coupling == tdls::ArrowheadCoupling::Diagonal;
+    std::vector<double> wa(SA::workspace_size), wb(SB::workspace_size);
+    for (int s = 0; s < count; ++s) {
+        const auto p = tdls_tests::batch_problem<double>(Shape, diag, s, seed);
+        auto Ma      = tdls_tests::store_arrow<typename SA::storage_map>(p);
+        auto Mb      = Ma;
+        auto ya = p.b, yb = p.b;
+        int ra = 0, rb = 0;
+        const bool oka = SA::template solve_inplace<true, true, true>(Ma.data(), 1, wa.data(), 1,
+                                                                      ya.data(), 1, ra);
+        const bool okb = SB::template solve_inplace<true, true, true>(Mb.data(), 1, wb.data(), 1,
+                                                                      yb.data(), 1, rb);
+        TDLS_CHECK(oka == okb);
+        TDLS_CHECK(ra == rb);
+        TDLS_CHECK(tdls_tests::same_bits(ya, yb));
+        TDLS_CHECK(tdls_tests::same_bits(Ma, Mb));
+    }
 }
 
 /// \brief Compares the two solvers on a standard batch.
@@ -155,7 +199,7 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/gather_in_place_unroll") 
                                          false)>(12, 503600);
 }
 
-TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/register_blocks") {
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/registers") {
     using S = ArrowheadStorage;
     bridge_case<polycrystal, registers(path_config(S::Packed, true, false, 0))>(12, 504100);
     bridge_case<polycrystal, registers(path_config(S::Packed, true, false, 2))>(12, 504200);
@@ -171,6 +215,36 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/register_blocks") {
         12, 505100);
     bridge_case<polycrystal,
                 registers(path_config(S::Packed, true, false, 0, false, false, false))>(12, 505200);
+}
+
+// The choice of RowInterchange::Auto in this pass (a CPU pass):
+// registers up to blocks of 12 in double and long double, 8 in float, tiles
+// beyond.
+static_assert(tdls::detail::physical_rows_fit<double>(12) &&
+              !tdls::detail::physical_rows_fit<double>(13) &&
+              tdls::detail::physical_rows_fit<float>(8) &&
+              !tdls::detail::physical_rows_fit<float>(9) &&
+              tdls::detail::physical_rows_fit<long double>(12) &&
+              !tdls::detail::physical_rows_fit<long double>(13));
+
+constexpr ArrowheadShape block12{12, 12, 4, 0};
+constexpr ArrowheadShape block13{13, 13, 4, 0};
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/auto") {
+    using S = ArrowheadStorage;
+    // Auto runs the operations of the elimination it chooses, and the two
+    // solvers make the same choice: in registers up to blocks of 12 in
+    // double (this pass is a CPU one), by tiles beyond; one pass on CPU.
+    same_operations<polycrystal, automatic(path_config(S::Packed, true, false, 0)),
+                    registers(path_config(S::Packed, true, false, 0))>(12, 505300);
+    same_operations<block12, automatic(path_config(S::Packed, false, false, 0)),
+                    registers(path_config(S::Packed, false, false, 0))>(12, 505400);
+    same_operations<block13, automatic(path_config(S::Packed, false, true, 0)),
+                    path_config(S::Packed, false, true, 0)>(12, 505500);
+    bridge_case<polycrystal, automatic(path_config(S::Packed, true, false, 0))>(12, 505600);
+    bridge_case<block12, automatic(path_config(S::Packed, false, false, 0))>(12, 505700);
+    bridge_case<block13, automatic(path_config(S::Packed, false, true, 0))>(12, 505800);
+    bridge_case<iwan, automatic(path_config(S::Packed, false, false, 0))>(12, 505900);
 }
 
 TDLS_TEST_MAIN

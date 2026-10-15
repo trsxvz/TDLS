@@ -20,7 +20,8 @@ int main() {
     const double expected[4] = {1, 2, 3, 4};
 
     // snippet begin
-    // every knob at its default: tiles of 3, right-looking, default thresholds
+    // every knob at its default: tiles of 4, right-looking, logical row interchanges, default
+    // thresholds
     constexpr tdls::TiledLUppConfig<double> config{};
 
     using Static  = tdls::TiledLUppSolverStatic<double, 4, config>;

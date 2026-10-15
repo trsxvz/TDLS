@@ -17,11 +17,14 @@ int main() {
     const double expected[6] = {1, 2, 3, 4, 5, 6};
 
     // snippet begin
-    // dense couplings, Full storage, row-major, pivot check at 0.01, one pass
+    // dense couplings, Full storage, row-major, pivot check at 0.01; the blocks in registers when
+    // they fit, by tiles of 4 otherwise, the passes chosen for the target
     constexpr tdls::ArrowheadLUppConfig<double> config{};
     static_assert(config.coupling == tdls::ArrowheadCoupling::Dense);
     static_assert(config.storage == tdls::ArrowheadStorage::Full);
-    static_assert(config.rhs_pass_width == 0 && !config.gather_rhs && !config.schur_in_place);
+    static_assert(config.block_row_interchange == tdls::RowInterchange::Auto);
+    static_assert(config.block_tile_size == 4 && config.rhs_pass_width == -1);
+    static_assert(!config.gather_rhs && !config.schur_in_place);
 
     constexpr auto shape = tdls::ArrowheadShape{.border = 2, .block = 2, .blocks = 2};
     using Solver         = tdls::ArrowheadLUppSolverStatic<double, shape, config>;

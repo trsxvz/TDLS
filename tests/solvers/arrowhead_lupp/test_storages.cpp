@@ -43,9 +43,10 @@ using tdls::MatrixLayout;
 constexpr tdls::ArrowheadLUppConfig<double> storage_config(const ArrowheadStorage storage,
                                                            const bool diag, const bool col) {
     tdls::ArrowheadLUppConfig<double> c;
-    c.coupling = diag ? ArrowheadCoupling::Diagonal : ArrowheadCoupling::Dense;
-    c.storage  = storage;
-    c.layout   = col ? MatrixLayout::ColMajor : MatrixLayout::RowMajor;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
+    c.coupling              = diag ? ArrowheadCoupling::Diagonal : ArrowheadCoupling::Dense;
+    c.storage               = storage;
+    c.layout                = col ? MatrixLayout::ColMajor : MatrixLayout::RowMajor;
     return c;
 }
 
@@ -232,7 +233,8 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/storages/valid") {
 TDLS_TEST_CASE("arrowheadlupp/bridge/storages/dynamic_rejects") {
     constexpr auto config = [] {
         tdls::ArrowheadLUppConfig<double> c;
-        c.storage = ArrowheadStorage::Packed;
+        c.block_row_interchange = tdls::RowInterchange::Logical;
+        c.storage               = ArrowheadStorage::Packed;
         return c;
     }();
     using Dynamic = tdls::ArrowheadLUppSolverDynamic<double, config>;

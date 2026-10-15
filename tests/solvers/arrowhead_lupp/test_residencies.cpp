@@ -163,6 +163,7 @@ void residency_case(const int count, const std::uint64_t seed) {
 constexpr tdls::ArrowheadLUppConfig<double> residency_config(const bool diag, const bool col,
                                                              const tdls::ArrowheadStorage storage) {
     tdls::ArrowheadLUppConfig<double> c;
+    c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
     c.storage  = storage;

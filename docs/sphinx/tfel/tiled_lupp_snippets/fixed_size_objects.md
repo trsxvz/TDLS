@@ -133,8 +133,9 @@ $$
 
 `factorize`, `solve` and `solve_inplace` take a trailing `int&`:
 the number of columns whose best in-tile pivot fell below the
-threshold. The three candidates of column 0 inside the tile, in red,
-are tiny; the search below the tile takes row 3, in blue.
+threshold. In tiles of 3, the three candidates of column 0 inside the
+first tile, in red, are tiny; the search below the tile takes row 3, in
+blue.
 
 $$
 A = \left(\begin{array}{ccc|c}

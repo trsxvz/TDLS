@@ -229,8 +229,8 @@ static_assert(!tdls::storage_traits<MockVector>::has_runtime_extents);
 static_assert(tdls::storage_traits<MockRuntimeMatrix>::has_runtime_extents);
 static_assert(tdls::storage_traits<MockRuntimeVector>::has_runtime_extents);
 
-using RawSolver =
-    tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{.tile_size = 3}>;
+// the default configuration, that of the adaptors without a configuration argument
+using RawSolver = tdls::TiledLUppSolverStatic<double, N, tdls::TiledLUppConfig<double>{}>;
 
 } // namespace
 

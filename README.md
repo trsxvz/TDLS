@@ -45,9 +45,14 @@ Here are three snippets, one per family, with every knob spelled out.
 // tdls::TiledLUppConfig<double>{} alone keeps the ready-made defaults.
 constexpr tdls::TiledLUppConfig<double> config{
     // int: size of the tiles used for the LU factorization
-    .tile_size = 3,
+    .tile_size = 4,
     // tdls::Schedule: elimination schedule, RightLooking or LeftLooking
     .schedule = tdls::Schedule::RightLooking,
+    // tdls::RowInterchange: Logical (rows never move, the pivot array maps
+    // positions to rows) or Physical (the whole matrix one tile, rows
+    // exchanged as in LAPACK, so that a small caller-local matrix stays in
+    // registers on GPU)
+    .row_interchange = tdls::RowInterchange::Logical,
     // double (the scalar type T): a pivot at least this large is accepted
     // without searching outside the tile
     .oot_pivot_threshold = 1e-10,
@@ -68,7 +73,7 @@ constexpr tdls::TiledLUppConfig<double> config{
     .layout = tdls::MatrixLayout::RowMajor};
 
 // LU solver for systems of dimension 9: the 9 x 9 matrix is cut
-// into 3 x 3 register tiles. One call: factorize M in place, then
+// into register tiles of 4 rows and columns, the last ones partial. One call: factorize M in place, then
 // overwrite y with the solution; false means a singular matrix. The
 // residency booleans declare every operand caller-local, so the
 // stride arguments (the 1s) are ignored at compile time; with
@@ -143,14 +148,20 @@ constexpr tdls::ArrowheadLUppConfig<double> config{
     // multiplier of its elimination exceeds the inverse; a refused block
     // is eliminated with the border rows in a second pass
     .condensation_pivot_threshold = 0.01,
-    // int, double, double: the TiledLUpp solver of the blocks
-    .block_tile_size                = 3,
+    // int: tile size of TiledLUpp on the blocks eliminated by tiles
+    .block_tile_size = 4,
+    // tdls::RowInterchange of TiledLUpp on the blocks: Auto eliminates
+    // them in registers (Physical) when they fit, up to 10 unknowns in
+    // double on GPU and 12 on CPU, by tiles (Logical) otherwise
+    .block_row_interchange = tdls::RowInterchange::Auto,
+    // double, double: the pivot thresholds of TiledLUpp on the blocks
     .block_relative_pivot_threshold = 0.01,
     .block_oot_pivot_threshold      = 1e-12,
     // int: the TiledLUpp solver of the border system
     .border_tile_size = 3,
-    // int: columns [A_kb | y_k] of a block solved per pass, 0 for all
-    .rhs_pass_width = 0,
+    // int: columns [A_kb | y_k] of a block solved per pass, 0 for all,
+    // -1 chosen for the target (2 on GPU with the blocks in registers)
+    .rhs_pass_width = -1,
     // bool: permute those columns by a gather instead of cycles in place
     .gather_rhs = false,
     // bool: accumulate the Schur complement in the border entries of A and y

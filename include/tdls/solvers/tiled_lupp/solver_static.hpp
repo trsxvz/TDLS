@@ -17,8 +17,8 @@
 /// current step are copied into local arrays, the working set kept in
 /// registers. The full matrix can stay in remote memory (shared, global or
 /// plain host memory), walked with a stride, or be a caller-local array
-/// (the residency booleans). Pivoting is logical: piv[] maps logical row
-/// -> physical row, rows are physically swapped only inside the diagonal
+/// (the residency booleans). Pivoting is logical by default
+/// (Config.row_interchange): piv[] maps logical row -> physical row, rows are physically swapped only inside the diagonal
 /// tile, and each tile goes back to the physical rows that piv gives, an
 /// index known at run time only. A caller-local matrix and its pivots
 /// are thus indexed at run time: on GPU they live in the local memory of
@@ -31,6 +31,15 @@
 /// search extends below the tile (out-of-tile pivoting) and candidate
 /// values are corrected on the fly for the eliminations they have not
 /// received yet.
+///
+/// Under Config.row_interchange = RowInterchange::Physical, the whole
+/// matrix is one tile and the rows are interchanged as in LAPACK, through
+/// a test of every unrolled row index against the pivot row: every index
+/// is known at compile time, so that a caller-local matrix, its pivots and
+/// its right-hand sides stay in registers on GPU, for matrices small enough
+/// to fit there. The pivots and the factorization are those of the logical
+/// scheme over a single tile; the pivot array holds the interchanges, piv[j]
+/// the row exchanged with row j at step j.
 ///
 /// **Layout.** The solver factors S, the stored matrix read row-major:
 /// element (r,c) of S lives at `A[((r)*N+(c))*A_stride]`. S = A under the
@@ -82,6 +91,7 @@
 
 
 #include <tdls/core/math.hpp>
+#include <tdls/core/target.hpp>
 #include <type_traits>
 
 #include <tdls/solvers/tiled_lupp/config.hpp>
@@ -107,7 +117,7 @@
 //
 // Both suppressions are scoped to this header and to those warnings
 // only, exactly as in solver_dynamic.hpp.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #pragma GCC diagnostic ignored "-Warray-bounds"
@@ -119,7 +129,7 @@
 // through -Wpass-failed. The unrolling requested by TDLS_UNROLL_FORCE is
 // a performance hint: a failed hint does not affect correctness. The
 // suppression is scoped to this header and to that warning only.
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif
@@ -169,6 +179,21 @@ namespace tdls {
 /// \brief Entry i of the fused right-hand side of solve_inplace (under the
 /// row-major layout y follows the matrix rows through pivoting).
 #define TDLS_LUPP_Y(i) y[internal_rhs ? unsigned(i) : TDLS_STRIDED(i, rhs_stride)]
+/// \def TDLS_LUPP_FOR
+/// \brief Loop of the physical row interchanges, unrolled under
+/// Config.unroll_loops: the bounds are compile-time constants, the triangle
+/// selected inside the body, so that every index is known at compile time.
+#define TDLS_LUPP_FOR(i, first, last, ...)                                                         \
+    if constexpr (Config.unroll_loops) {                                                           \
+        TDLS_UNROLL_FORCE                                                                          \
+        for (int i = (first); i < (last); ++i) {                                                   \
+            __VA_ARGS__                                                                            \
+        }                                                                                          \
+    } else {                                                                                       \
+        for (int i = (first); i < (last); ++i) {                                                   \
+            __VA_ARGS__                                                                            \
+        }                                                                                          \
+    }
 
 
 
@@ -247,8 +272,14 @@ struct TiledLUppSolverStatic {
     /// column-major layout S = A^T and the solve is S^T x = b (see the file
     /// documentation).
     static constexpr bool transposed = Config.layout == MatrixLayout::ColMajor;
+    /// \brief Whether the rows are interchanged physically, the whole
+    /// matrix a single tile (see TiledLUppConfig::row_interchange).
+    static constexpr bool physical = Config.row_interchange == RowInterchange::Physical;
 
     static_assert(N >= 1, "TiledLUppSolverStatic: N must be >= 1");
+    static_assert(Config.row_interchange != RowInterchange::Auto,
+                  "TiledLUppSolverStatic: row_interchange must be Logical or Physical (Auto is "
+                  "the default of the blocks of ArrowheadLUpp only)");
     static_assert(
         Config.oot_pivot_threshold.is_finite() && Config.singular_floor.is_finite(),
         "TiledLUppSolverStatic: oot_pivot_threshold and singular_floor must be finite (and fit a "
@@ -1300,6 +1331,326 @@ struct TiledLUppSolverStatic {
     }
 
     /* =====================================================================
+       Physical row interchanges (Config.row_interchange == Physical): the
+       whole matrix is one tile, the rows exchanged as in LAPACK. Every
+       loop runs over a full range with the triangle selected inside: nvcc
+       does not unroll a loop whose trip count depends on an outer index,
+       and a run-time index would send a caller-local array to the stack.
+       ===================================================================== */
+
+    /// \brief Interchanges rows j and r > j of the w columns of x (physical
+    /// scheme): a test of every unrolled row index against r.
+    /// \tparam w            number of columns
+    /// \tparam internal_rhs residency of x
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    /// \param[in]     j           first row
+    /// \param[in]     r           second row
+    template<int w, bool internal_rhs>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_interchange_rhs(T* TDLS_RESTRICT x, const int rhs_stride,
+                             [[maybe_unused]] const std::size_t xcol_stride, const int j,
+                             const int r) noexcept {
+        TDLS_LUPP_FOR(
+            i, 0, N, if (i > j && i == r) {
+                TDLS_LUPP_FOR(c, 0, w, const T t = TDLS_LUPP_XW(c, j);
+                              TDLS_LUPP_XW(c, j) = TDLS_LUPP_XW(c, i); TDLS_LUPP_XW(c, i) = t;)
+            })
+    }
+
+    /// \brief Interchanges rows j and r > j of the n columns of X, entry
+    /// (i, c) at i * rs + c * cs, X a caller-local array (physical scheme):
+    /// a test of every unrolled row index against r. Written with the
+    /// strides as arguments, as the former register path of ArrowheadLUpp
+    /// wrote it: through the addressing macros, nvcc dispatches the
+    /// interchanges of several passes through more jump tables, 4 % slower
+    /// on average on an RTX 5080.
+    /// \tparam n number of columns
+    /// \param[in,out] X  the columns
+    /// \param[in]     j  first row
+    /// \param[in]     r  second row
+    /// \param[in]     cs column stride of X
+    /// \param[in]     rs row stride of X
+    template<int n>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_interchange_local(T* TDLS_RESTRICT X, const int j, const int r, const int cs,
+                               const int rs) noexcept {
+        TDLS_LUPP_FOR(
+            i, 0, N, if (i > j && i == r) {
+                TDLS_LUPP_FOR(c, 0, n, const T t = X[j * rs + c * cs];
+                              X[j * rs + c * cs] = X[i * rs + c * cs]; X[i * rs + c * cs] = t;)
+            })
+    }
+
+    /// \brief Applies the interchanges to w columns of x (physical scheme):
+    /// in their order (P x), or in reverse order (P^T x).
+    /// \tparam w            number of columns
+    /// \tparam internal_rhs residency of x
+    /// \tparam internal_piv residency of piv
+    /// \tparam reverse      P^T instead of P
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int w, bool internal_rhs, bool internal_piv, bool reverse>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_permute(const int* TDLS_RESTRICT piv, [[maybe_unused]] const int piv_stride,
+                     T* TDLS_RESTRICT x, const int rhs_stride,
+                     const std::size_t xcol_stride) noexcept {
+        TDLS_LUPP_FOR(
+            t, 0, N, const int j = reverse ? N - 1 - t : t; if (TDLS_LUPP_PIV(j) != j) {
+                if constexpr (internal_rhs)
+                    physical_interchange_local<w>(x, j, TDLS_LUPP_PIV(j), N, 1);
+                else
+                    physical_interchange_rhs<w, internal_rhs>(x, rhs_stride, xcol_stride, j,
+                                                              TDLS_LUPP_PIV(j));
+            })
+    }
+
+    /// \brief Step j of the physical factorization: the pivot of column j
+    /// by the rule of a single tile (threshold pivoting, the singularity
+    /// floor), the interchange of the whole rows, the elimination below the
+    /// pivot. Branch-free over the steps: a column without a candidate above
+    /// singular_floor sets `singular` and the elimination goes on with a
+    /// zero reciprocal, so that the unrolled steps run as straight-line code.
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \tparam check           bound the multipliers by 1 / u
+    /// \param[in,out] A          matrix, factored up to column j
+    /// \param[in]     A_stride   element stride of A (external mode)
+    /// \param[out]    piv        interchanges
+    /// \param[in]     piv_stride element stride of piv (external mode)
+    /// \param[in]     j          column
+    /// \param[in]     u          bound of the check (check only)
+    /// \param[in,out] singular   set when the column has no candidate above
+    ///                           singular_floor
+    /// \param[in,out] weak       incremented when the best candidate of the
+    ///                           column falls below oot_pivot_threshold (the
+    ///                           out-of-tile count of Logical over one tile)
+    /// \return false when a multiplier of the column exceeds 1 / u (check)
+    template<bool internal_piv, bool internal_matrix, bool check>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    physical_step(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                  const int piv_stride, const int j, [[maybe_unused]] const T u, bool& singular,
+                  int& weak) noexcept {
+        T best = detail::abs(TDLS_LUPP_A(j, j));
+        int r  = j;
+        TDLS_LUPP_FOR(
+            i, 0, N, const T a = detail::abs(TDLS_LUPP_A(i, j)); if (i > j && a > best) {
+                best = a;
+                r    = i;
+            })
+        if constexpr (relative_pivot_threshold < T(1)) {
+            const T in_place = detail::abs(TDLS_LUPP_A(j, j));
+            if (in_place >= relative_pivot_threshold * best && in_place >= oot_pivot_threshold)
+                r = j;
+        }
+        const bool pivot_ok = best >= singular_floor;
+        singular            = singular || !pivot_ok;
+        weak += best < oot_pivot_threshold ? 1 : 0;
+        TDLS_LUPP_PIV(j) = r;
+        // Rarely taken on matrices that keep their rows: uniform across a warp.
+        if (r != j) {
+            TDLS_LUPP_FOR(
+                i, 0, N, if (i > j && i == r) {
+                    TDLS_LUPP_FOR(c, 0, N, const T t = TDLS_LUPP_A(j, c);
+                                  TDLS_LUPP_A(j, c) = TDLS_LUPP_A(i, c); TDLS_LUPP_A(i, c) = t;)
+                })
+        }
+        const T inv       = pivot_ok ? T(1) / TDLS_LUPP_A(j, j) : T(0);
+        TDLS_LUPP_A(j, j) = inv;
+        bool ok           = true;
+        TDLS_LUPP_FOR(
+            i, 0, N, if (i > j) {
+                const T l         = TDLS_LUPP_A(i, j) * inv;
+                TDLS_LUPP_A(i, j) = l;
+                if constexpr (check) ok = ok && u * detail::abs(l) <= T(1);
+                TDLS_LUPP_FOR(c, 0, N, if (c > j) TDLS_LUPP_A(i, c) -= l * TDLS_LUPP_A(j, c);)
+            })
+        return ok;
+    }
+
+    /// \brief Physical factorization: P S = L U in place, L below the
+    /// diagonal and U above it in the pivoted row order, 1 / pivot on the
+    /// diagonal; piv[j] the row exchanged with row j at step j.
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in,out] A          matrix on entry, its factors on exit
+    /// \param[in]     A_stride   element stride of A (external mode)
+    /// \param[out]    piv        interchanges
+    /// \param[in]     piv_stride element stride of piv (external mode)
+    /// \param[out]    weak       number of columns whose best candidate fell
+    ///                           below oot_pivot_threshold
+    /// \return false on a singular matrix
+    template<bool internal_piv, bool internal_matrix>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
+    physical_factorize(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                       const int piv_stride, int& weak) noexcept {
+        bool singular = false;
+        weak          = 0;
+        TDLS_LUPP_FOR(j, 0, N,
+                      (void)physical_step<internal_piv, internal_matrix, false>(
+                          A, A_stride, piv, piv_stride, j, T(0), singular, weak);)
+        return !singular;
+    }
+
+    /// \brief Physical factorization with its multipliers bounded, the check
+    /// fused into the elimination (the condensation of ArrowheadLUpp under
+    /// RowInterchange::Physical): as physical_factorize, and
+    /// every multiplier of L checked against 1 / u.
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in,out] A          matrix on entry, its factors on exit
+    /// \param[in]     A_stride   element stride of A (external mode)
+    /// \param[out]    piv        interchanges
+    /// \param[in]     piv_stride element stride of piv (external mode)
+    /// \param[in]     u          the multipliers must not exceed 1 / u
+    /// \return 0 when every multiplier passes the check, 1 when one fails
+    ///         it, 2 on a singular matrix
+    template<bool internal_piv, bool internal_matrix>
+    [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr int
+    physical_factorize_checked(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
+                               const int piv_stride, const T u) noexcept {
+        bool ok = true, singular = false;
+        int weak = 0;
+        TDLS_LUPP_FOR(j, 0, N,
+                      ok = physical_step<internal_piv, internal_matrix, true>(
+                               A, A_stride, piv, piv_stride, j, u, singular, weak) &&
+                           ok;)
+        return singular ? 2 : ok ? 0 : 1;
+    }
+
+    /// \brief First stage of the physical substitution of w columns:
+    /// x := L^-1 P x under the row-major layout (the interchanges in their
+    /// order, then the columns of L), x := U^-T x under the column-major one.
+    /// \tparam w               number of columns
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]     A           factors of physical_factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int w, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_forward(const T* TDLS_RESTRICT A, const int A_stride,
+                     [[maybe_unused]] const int* TDLS_RESTRICT piv,
+                     [[maybe_unused]] const int piv_stride, T* TDLS_RESTRICT x,
+                     const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        if constexpr (!transposed) {
+            physical_permute<w, internal_rhs, internal_piv, false>(piv, piv_stride, x, rhs_stride,
+                                                                   xcol_stride);
+            TDLS_LUPP_FOR(j, 0, N,
+                          TDLS_LUPP_FOR(
+                              i, 0, N, if (i > j) {
+                                  const T l = TDLS_LUPP_A(i, j);
+                                  TDLS_LUPP_FOR(c, 0, w,
+                                                TDLS_LUPP_XW(c, i) -= l * TDLS_LUPP_XW(c, j);)
+                              }))
+        } else {
+            TDLS_LUPP_FOR(
+                j, 0, N,
+                TDLS_LUPP_FOR(c, 0, w, TDLS_LUPP_XW(c, j) *= TDLS_LUPP_A(j, j);) TDLS_LUPP_FOR(
+                    q, 0, N, if (q > j) {
+                        const T uq = TDLS_LUPP_A(j, q);
+                        TDLS_LUPP_FOR(c, 0, w, TDLS_LUPP_XW(c, q) -= uq * TDLS_LUPP_XW(c, j);)
+                    }))
+        }
+    }
+
+    /// \brief Second stage of the physical substitution of w columns:
+    /// x := U^-1 x under the row-major layout, x := P^T L^-T x under the
+    /// column-major one (the rows of L^T, then the interchanges in reverse
+    /// order).
+    /// \tparam w               number of columns
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]     A           factors of physical_factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int w, bool internal_rhs, bool internal_piv, bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_backward(const T* TDLS_RESTRICT A, const int A_stride,
+                      [[maybe_unused]] const int* TDLS_RESTRICT piv,
+                      [[maybe_unused]] const int piv_stride, T* TDLS_RESTRICT x,
+                      const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        if constexpr (!transposed) {
+            TDLS_LUPP_FOR(
+                t, 0, N, const int j = N - 1 - t; TDLS_LUPP_FOR(
+                    c, 0, w, T v = TDLS_LUPP_XW(c, j);
+                    TDLS_LUPP_FOR(q, 0, N, if (q > j) v -= TDLS_LUPP_A(j, q) * TDLS_LUPP_XW(c, q);)
+                        TDLS_LUPP_XW(c, j) = v * TDLS_LUPP_A(j, j);))
+        } else {
+            TDLS_LUPP_FOR(t, 0, N, const int j = N - 1 - t; TDLS_LUPP_FOR(
+                              q, 0, N, if (q > j) {
+                                  const T l = TDLS_LUPP_A(q, j);
+                                  TDLS_LUPP_FOR(c, 0, w,
+                                                TDLS_LUPP_XW(c, j) -= l * TDLS_LUPP_XW(c, q);)
+                              }))
+            physical_permute<w, internal_rhs, internal_piv, true>(piv, piv_stride, x, rhs_stride,
+                                                                  xcol_stride);
+        }
+    }
+
+    /// \brief Physical substitution of nrhs columns in passes of
+    /// pass_width columns: the first stage, the second, or both.
+    /// \tparam nrhs            number of columns
+    /// \tparam pass_width      columns per pass (0: one pass)
+    /// \tparam stages          1 the first stage, 2 the second, 3 both
+    /// \tparam internal_rhs    residency of x
+    /// \tparam internal_piv    residency of piv
+    /// \tparam internal_matrix residency of A
+    /// \param[in]     A           factors of physical_factorize
+    /// \param[in]     A_stride    element stride of A (external mode)
+    /// \param[in]     piv         interchanges
+    /// \param[in]     piv_stride  element stride of piv (external mode)
+    /// \param[in,out] x           the columns
+    /// \param[in]     rhs_stride  element stride of x (external mode)
+    /// \param[in]     xcol_stride element stride between columns of x
+    template<int nrhs, int pass_width, int stages, bool internal_rhs, bool internal_piv,
+             bool internal_matrix>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
+    physical_multirhs(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
+                      const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride,
+                      const std::size_t xcol_stride) noexcept {
+        constexpr int cpp    = (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+        constexpr int passes = nrhs / cpp;
+        constexpr int tail   = nrhs % cpp;
+        for (int p = 0; p < passes; ++p) {
+            const int c0 = p * cpp;
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+            if constexpr ((stages & 1) != 0)
+                physical_forward<cpp, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x + off, rhs_stride, xcol_stride);
+            if constexpr ((stages & 2) != 0)
+                physical_backward<cpp, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x + off, rhs_stride, xcol_stride);
+        }
+        if constexpr (tail > 0) {
+            constexpr int c0 = nrhs - tail;
+            const std::size_t off =
+                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+            if constexpr ((stages & 1) != 0)
+                physical_forward<tail, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x + off, rhs_stride, xcol_stride);
+            if constexpr ((stages & 2) != 0)
+                physical_backward<tail, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x + off, rhs_stride, xcol_stride);
+        }
+    }
+
+    /* =====================================================================
        FACTORIZE - public entry point.
        ===================================================================== */
 
@@ -1307,7 +1658,10 @@ struct TiledLUppSolverStatic {
     ///
     /// A becomes L\\U (unit lower L below the diagonal, U above including
     /// it, the diagonal holding the pivot RECIPROCALS), under logical row
-    /// permutation piv (piv[i] = physical row holding logical row i).
+    /// permutation piv (piv[i] = physical row holding logical row i). Under
+    /// physical row interchanges (Config.row_interchange), L\\U is stored in
+    /// the pivoted row order and piv[j] is the row exchanged with row j at
+    /// step j.
     ///
     /// \tparam internal_piv true: piv is a caller-local int[N], stride
     ///         ignored; false: piv is remote, indexed with piv_stride
@@ -1335,6 +1689,17 @@ struct TiledLUppSolverStatic {
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
               int& oot_count, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) noexcept {
+        if constexpr (physical) {
+            int weak      = 0;
+            const bool ok = physical_factorize<internal_piv, internal_matrix>(A, A_stride, piv,
+                                                                              piv_stride, weak);
+            if constexpr (oot_diagnostics) oot_count = weak;
+            if (!ok) return false;
+            if constexpr (fuse_rhs)
+                physical_forward<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+            return true;
+        }
 
         if constexpr (oot_diagnostics) oot_count = 0;
 
@@ -2179,6 +2544,12 @@ struct TiledLUppSolverStatic {
     substitute(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                const int rhs_stride) noexcept {
+        if constexpr (physical) {
+            TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_X(i) = TDLS_LUPP_B(i);)
+            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            return;
+        }
         if constexpr (transposed) {
             // Column-major layout: b is consumed unpermuted, the solution is
             // permuted at the end (x = P^T w).
@@ -2254,6 +2625,12 @@ struct TiledLUppSolverStatic {
     substitute_canonical(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                          const int piv_stride, const int col, T* TDLS_RESTRICT x,
                          const int rhs_stride) noexcept {
+        if constexpr (physical) {
+            TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_X(i) = i == col ? T(1) : T(0);)
+            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            return;
+        }
         substitute_canonical_multirhs_pass<1, internal_rhs, internal_piv, internal_matrix>(
             A, A_stride, piv, piv_stride, col, x, rhs_stride, 0);
     }
@@ -2360,6 +2737,13 @@ struct TiledLUppSolverStatic {
                                   const int* TDLS_RESTRICT piv, const int piv_stride,
                                   const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
                                   const std::size_t xcol_stride) noexcept {
+        if constexpr (physical) {
+            TDLS_LUPP_FOR(c, 0, nrhs,
+                          TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_XW(c, i) = i == col0 + c ? T(1) : T(0);))
+            physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            return;
+        }
         static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         constexpr int columns_per_pass =
@@ -2515,6 +2899,13 @@ struct TiledLUppSolverStatic {
     substitute_multirhs(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                         const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                         const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        if constexpr (physical) {
+            TDLS_LUPP_FOR(c, 0, nrhs,
+                          TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_XW(c, i) = TDLS_LUPP_BW(c, i);))
+            physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            return;
+        }
         static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         constexpr int columns_per_pass =
@@ -2558,6 +2949,11 @@ struct TiledLUppSolverStatic {
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                        const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
+        if constexpr (physical) {
+            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            return;
+        }
         if constexpr (transposed) {
             // Column-major layout: the sweeps on the unpermuted x, then the
             // inverse cycle rotation (x = P^T w).
@@ -2871,6 +3267,11 @@ struct TiledLUppSolverStatic {
                                 const int* TDLS_RESTRICT piv, const int piv_stride,
                                 T* TDLS_RESTRICT x, const int rhs_stride,
                                 const std::size_t xcol_stride) noexcept {
+        if constexpr (physical) {
+            physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            return;
+        }
         static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         constexpr int columns_per_pass =
@@ -2918,6 +3319,11 @@ struct TiledLUppSolverStatic {
     forward_inplace_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
                              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                              const int rhs_stride, const std::size_t xcol_stride) noexcept {
+        if constexpr (physical) {
+            physical_multirhs<nrhs, pass_width, 1, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            return;
+        }
         static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         constexpr int columns_per_pass =
@@ -2963,6 +3369,11 @@ struct TiledLUppSolverStatic {
                               const int* TDLS_RESTRICT piv, const int piv_stride,
                               T* TDLS_RESTRICT x, const int rhs_stride,
                               const std::size_t xcol_stride) noexcept {
+        if constexpr (physical) {
+            physical_multirhs<nrhs, pass_width, 2, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+            return;
+        }
         static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
         static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
         constexpr int columns_per_pass =
@@ -3150,6 +3561,16 @@ struct TiledLUppSolverStatic {
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& oot_count) noexcept {
+        if constexpr (physical) {
+            int weak      = 0;
+            const bool ok = physical_factorize<internal_piv, internal_matrix>(A, A_stride, piv,
+                                                                              piv_stride, weak);
+            if constexpr (oot_diagnostics) oot_count = weak;
+            if (!ok) return false;
+            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+            return true;
+        }
         if (!factorize<internal_piv, internal_matrix, oot_diagnostics, true, internal_rhs>(
                 A, A_stride, piv, piv_stride, oot_count, y, rhs_stride))
             return false;
@@ -3287,16 +3708,17 @@ struct TiledLUppSolverStatic {
 #undef TDLS_LUPP_XW
 #undef TDLS_LUPP_BW
 #undef TDLS_LUPP_Y
+#undef TDLS_LUPP_FOR
 
 
 
 } // namespace tdls
 
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_GCC)
 #pragma GCC diagnostic pop
 #endif
 
-#if defined(__clang__)
+#if defined(TDLS_DETAIL_COMPILER_CLANG)
 #pragma clang diagnostic pop
 #endif
 
