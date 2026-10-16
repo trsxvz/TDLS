@@ -104,6 +104,24 @@ the API may change between minor versions.
   parallel STL examples said otherwise. The `tile_size` and
   `unroll_loops` knobs now give the measurements inside implicit MFront
   behaviours, and `block_row_interchange` those on larger blocks.
+- nvc++ 25.11 from -O2 on: wrong solutions, crashes and an internal
+  compiler error, now worked around in the code that nvc++ generates
+  only. The other compilers see the same code as before, the device
+  pass of nvcc included. nvc++ fused loops that depend on each other, on
+  the strength of the `__restrict__` of the pointers that the solvers
+  pass to one another: TiledLUpp with physical row interchanges and
+  ArrowheadLUpp returned wrong solutions. `TDLS_RESTRICT` is now empty
+  under nvc++, which also ends the internal error. nvc++ also derived
+  the addresses of some loops from a negative index that the loop never
+  forms, extended with zeros as `TDLS_STRIDED` extends its index: the
+  runtime solvers read 2^32 strides beyond their operands and crashed.
+  The index is now extended with its sign under nvc++, which makes every
+  address right. At -O3, the device code of nvc++ read the local memory
+  out of bounds in the recomputed solve of ArrowheadLUpp with the dense
+  coupling. The two loops of that solve now share one block under
+  nvc++. Measured with nvc++: the same speed through -stdpar=gpu on an
+  RTX 5080, 0 to 5 % slower on one CPU core than the former code, which
+  was wrong.
 
 ### Changed
 

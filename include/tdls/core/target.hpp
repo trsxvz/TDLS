@@ -28,6 +28,9 @@
 ///     attributes (GCC, clang and their derivatives);
 ///   - TDLS_DETAIL_COMPILER_NVCC: nvcc;
 ///   - TDLS_DETAIL_COMPILER_NVCXX: nvc++;
+///   - TDLS_DETAIL_CODEGEN_NVCXX: code that nvc++ generates, under nvc++
+///     and in the host pass of nvcc over nvc++, not in its device pass (the
+///     workarounds of nvc++ in core/macros.hpp);
 ///   - TDLS_DETAIL_COMPILER_HIP_CLANG: the clang of HIP (hipcc,
 ///     amdclang++, clang -x hip), the compiler of the HIP language on AMD.
 ///
@@ -106,6 +109,10 @@
 #if defined(__NVCOMPILER)
 /// nvc++.
 #define TDLS_DETAIL_COMPILER_NVCXX
+#if !(defined(__NVCC__) && defined(__CUDA_ARCH__))
+/// Code that nvc++ generates: not the device pass of nvcc.
+#define TDLS_DETAIL_CODEGEN_NVCXX
+#endif
 #endif
 #if defined(__HIP__)
 /// The clang of HIP.

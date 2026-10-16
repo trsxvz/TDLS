@@ -150,11 +150,26 @@
 
 
 /// \def TDLS_RESTRICT
-/// \brief Non-aliasing pointer qualifier (`__restrict__`; `__restrict` on MSVC).
+/// \brief Non-aliasing pointer qualifier (`__restrict__`; `__restrict` on MSVC;
+/// nothing in the code that nvc++ generates).
+///
+/// From -O2 on, nvc++ 25.11 fuses loops that depend on each other. It draws
+/// that right from the qualifier of the pointers that the solvers pass to
+/// one another, once inlined. Its host code then returns wrong solutions:
+/// the physical row interchanges of TiledLUpp, the blocks of ArrowheadLUpp
+/// eliminated in registers, ArrowheadLUpp in its stored and streamed
+/// solves. It also stops on an internal error on some TiledLUpp
+/// configurations. Without the qualifier, its code is right. Measured on
+/// the stored solve of ArrowheadLUpp: the same speed through -stdpar=gpu on
+/// an RTX 5080 and through -stdpar=multicore on 12 CPU threads, 0 to 5 %
+/// slower on one CPU core. The device pass of nvcc keeps the qualifier,
+/// whatever its host compiler.
 
 #ifndef TDLS_RESTRICT
 #if defined(TDLS_DETAIL_COMPILER_MSVC)
 #define TDLS_RESTRICT __restrict
+#elif defined(TDLS_DETAIL_CODEGEN_NVCXX)
+#define TDLS_RESTRICT
 #else
 #define TDLS_RESTRICT __restrict__
 #endif
@@ -172,10 +187,25 @@
 /// GPU, where a 32-bit product would wrap around silently. Measured
 /// against the 32-bit product: same results bit for bit, no perceptible
 /// cost (RTX 5080, CPU).
+///
+/// In the code that nvc++ generates, i is extended with its sign rather
+/// than with zeros. From
+/// -O2 on, nvc++ 25.11 derives the addresses of some loops from an index
+/// that the loop never forms, a negative one, extended as this macro
+/// extends i. Extended with zeros, every address of such a loop lies 2^32
+/// strides beyond the right one: the runtime solvers of TiledLUpp and
+/// ArrowheadLUpp read outside their operands and fault. Extended with its
+/// sign, every address is right. Both extensions give the same offset for
+/// every index the solvers form.
 
 #ifndef TDLS_STRIDED
+#if defined(TDLS_DETAIL_CODEGEN_NVCXX)
+#define TDLS_STRIDED(i, s)                                                                         \
+    (static_cast<std::size_t>(static_cast<std::ptrdiff_t>(i)) * static_cast<unsigned>(s))
+#else
 #define TDLS_STRIDED(i, s)                                                                         \
     (static_cast<std::size_t>(static_cast<unsigned>(i)) * static_cast<unsigned>(s))
+#endif
 #endif
 
 
@@ -187,10 +217,15 @@
 /// The stride between the columns of a multi right-hand-side block: a
 /// column of a batch in SoA lies the dimension times the number of
 /// systems away from the previous one, a product that may exceed 2^31
-/// where the strides of the entries do not.
+/// where the strides of the entries do not. In the code that nvc++
+/// generates, i is extended with its sign, as in TDLS_STRIDED.
 
 #ifndef TDLS_STRIDED_WIDE
+#if defined(TDLS_DETAIL_CODEGEN_NVCXX)
+#define TDLS_STRIDED_WIDE(i, s) (static_cast<std::size_t>(static_cast<std::ptrdiff_t>(i)) * (s))
+#else
 #define TDLS_STRIDED_WIDE(i, s) (static_cast<std::size_t>(static_cast<unsigned>(i)) * (s))
+#endif
 #endif
 
 

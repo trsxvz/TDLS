@@ -217,8 +217,9 @@ namespace detail {
 /// run in place. Only a save is copied (D_k, and [A_kb | y_k] when the
 /// column-major check reads the forward stage), to store a refused
 /// block as given. Entries in logical order whatever the
-/// layout and the storage. The arrays come uninitialized: the caller
-/// writes every entry, zeros included, by assignment.
+/// layout and the storage. The arrays come uninitialized, or holding
+/// another block: the caller writes every entry, zeros included, by
+/// assignment.
 /// \tparam T    scalar type
 /// \tparam S    unknowns of a block
 /// \tparam B    border unknowns
@@ -1335,8 +1336,19 @@ struct ArrowheadLUppSolverStatic {
         TDLS_ARROW_LUPP_FOR(e, 0, words, refused[e] = 0u;)
         int count     = 0;
         refused_count = 0;
+#if defined(TDLS_DETAIL_CODEGEN_NVCXX)
+        // One block for the condensation and the recovery, safe since the
+        // provider writes every entry of the block. With one block per loop,
+        // nvc++ 25.11 at -O3 generates device code that reads the local
+        // memory out of bounds with the dense coupling.
+        RecomputedBlock shared_blk;
+#endif
         for (int k = 0; k < NB; ++k) {
+#if defined(TDLS_DETAIL_CODEGEN_NVCXX)
+            RecomputedBlock& blk = shared_blk;
+#else
             RecomputedBlock blk;
+#endif
             blk.recovery = false;
             provider(k, blk);
             // A save of the block, to keep it as given if it is refused: D_k,
@@ -1425,7 +1437,11 @@ struct ArrowheadLUppSolverStatic {
         // refused ones from the store; then the border.
         for (int k = NB - 1; k >= 0; --k) {
             if ((refused[k >> 5] >> (k & 31)) & 1u) continue;
+#if defined(TDLS_DETAIL_CODEGEN_NVCXX)
+            RecomputedBlock& blk = shared_blk;
+#else
             RecomputedBlock blk;
+#endif
             blk.recovery = true;
             provider(k, blk);
             T xk[S];
