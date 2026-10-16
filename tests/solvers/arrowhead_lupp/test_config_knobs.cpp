@@ -14,7 +14,12 @@
 /// systems whose pivot checks stay clear of the threshold (under the
 /// column-major layout, a pass width can move a block across it: see
 /// ArrowheadLUppConfig::rhs_pass_width). schur_in_place leaves the Schur
-/// complement in the border entries of A, so only the solutions compare. The thresholds change the pivots on
+/// complement in the border entries of A, so only the solutions compare.
+/// The condensation MinTraffic keeps the arithmetic too where it does not
+/// act (the diagonal coupling, the column-major layout); under the
+/// row-major layout with the dense coupling it refuses the same blocks,
+/// keeps the backward error at the level of the reference, and leaves the
+/// accepted blocks as stored in A. The thresholds change the pivots on
 /// purpose, and are checked against the reference LU: the refusals grow
 /// with condensation_pivot_threshold, 0 refusing only the singular
 /// blocks, and every threshold of the pivot check and of the blocks
@@ -123,6 +128,20 @@ constexpr ArrowheadLUppConfig<double> without_unroll(ArrowheadLUppConfig<double>
     c.unroll_loops = false;
     return c;
 }
+/// \brief The configuration with the condensation MinTraffic.
+/// \param[in] c configuration
+/// \return the configuration
+constexpr ArrowheadLUppConfig<double> min_traffic(ArrowheadLUppConfig<double> c) {
+    c.condensation = tdls::ArrowheadCondensation::MinTraffic;
+    return c;
+}
+/// \brief The configuration with the blocks eliminated in registers.
+/// \param[in] c configuration
+/// \return the configuration
+constexpr ArrowheadLUppConfig<double> registers(ArrowheadLUppConfig<double> c) {
+    c.block_row_interchange = tdls::RowInterchange::Physical;
+    return c;
+}
 /// \brief The configuration with a condensation threshold.
 /// \param[in] c configuration
 /// \param[in] u condensation_pivot_threshold
@@ -181,9 +200,70 @@ int refusals(const int count, const std::uint64_t seed, double& be) {
     return refused;
 }
 
+/// \brief MinTraffic against MinFlops under the row-major layout with the
+/// dense coupling, where they condense differently: the same verdicts and
+/// counts of refused blocks (the pivot check is the same), both backward
+/// errors at the level of the reference, and the knob at work in A: the
+/// blocks that MinTraffic leaves as stored and MinFlops does not are
+/// exactly the accepted ones, where MinFlops writes U (a refused block
+/// receives H_k in both, which may equal D_k: a singular block of one
+/// unknown).
+/// \tparam Shape shape
+/// \tparam Base  base configuration (MinFlops, row-major, dense coupling)
+/// \param[in] count number of systems
+/// \param[in] seed  generator seed
+template<ArrowheadShape Shape, ArrowheadLUppConfig<double> Base>
+void condensation_case(const int count, const std::uint64_t seed) {
+    constexpr auto Variant = min_traffic(Base);
+    using Flops            = tdls::ArrowheadLUppSolverStatic<double, Shape, Base>;
+    using Traffic          = tdls::ArrowheadLUppSolverStatic<double, Shape, Variant>;
+    using Map              = typename Flops::storage_map;
+    static_assert(Base.condensation == tdls::ArrowheadCondensation::MinFlops &&
+                  Base.layout == tdls::MatrixLayout::RowMajor &&
+                  Base.coupling == tdls::ArrowheadCoupling::Dense);
+    std::vector<double> wf(Flops::workspace_size), wt(Traffic::workspace_size);
+    int refused = 0, kept = 0;
+    double be = 0.0;
+    for (int s = 0; s < count; ++s) {
+        const auto p   = tdls_tests::batch_problem<double>(Shape, false, s, seed);
+        const auto M0  = tdls_tests::store_arrow<Map>(p);
+        auto Mf        = M0;
+        auto Mt        = M0;
+        auto xf        = p.b;
+        auto xt        = p.b;
+        int rf         = 0;
+        int rt         = 0;
+        const bool okf = Flops::template solve_inplace<true, true, true>(Mf.data(), 1, wf.data(), 1,
+                                                                         xf.data(), 1, rf);
+        const bool okt = Traffic::template solve_inplace<true, true, true>(Mt.data(), 1, wt.data(),
+                                                                           1, xt.data(), 1, rt);
+        TDLS_CHECK(okf && okt);
+        TDLS_CHECK(rf == rt);
+        refused += rt;
+        be = std::max(be, tdls_tests::backward_error(p.A.data(), xf.data(), p.b.data(), p.n()));
+        be = std::max(be, tdls_tests::backward_error(p.A.data(), xt.data(), p.b.data(), p.n()));
+        for (int k = 0; k < Shape.blocks; ++k) {
+            bool same_f = true, same_t = true;
+            for (int i = 0; i < Shape.block; ++i) {
+                for (int j = 0; j < Shape.block; ++j) {
+                    const auto e = static_cast<std::size_t>(Map::d(Shape, k, i, j));
+                    same_f       = same_f && Mf[e] == M0[e];
+                    same_t       = same_t && Mt[e] == M0[e];
+                }
+            }
+            kept += same_t && !same_f ? 1 : 0;
+        }
+    }
+    TDLS_CHECK_LE(be, 1e-12);
+    TDLS_CHECK(kept == count * Shape.blocks - refused);
+    // Floor: the injected blocks are refused, so that the second pass runs.
+    TDLS_CHECK(refused >= 2 * (count / 3));
+}
+
 constexpr ArrowheadShape polycrystal{12, 6, 10, 6};
 constexpr ArrowheadShape dense_shape{8, 6, 10, 0};
 constexpr ArrowheadShape thin{3, 6, 8, 0};
+constexpr ArrowheadShape iwan{6, 1, 24, 0};
 
 } // namespace
 
@@ -214,6 +294,30 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/config_knobs/schur_in_place") {
 TDLS_TEST_CASE("arrowheadlupp/bridge/config_knobs/unroll_loops") {
     same_case<polycrystal, base(true, false), without_unroll(base(true, false))>(9, 903100);
     same_case<dense_shape, base(false, true), without_unroll(base(false, true))>(9, 903200);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/config_knobs/condensation") {
+    // Where the knob does not act, the same operations.
+    same_case<polycrystal, base(true, false), min_traffic(base(true, false))>(9, 906100);
+    same_case<polycrystal, base(true, true), min_traffic(base(true, true))>(9, 906200);
+    same_case<dense_shape, base(false, true), min_traffic(base(false, true))>(9, 906300);
+    same_case<dense_shape, with_pass(base(false, true), 3),
+              min_traffic(with_pass(base(false, true), 3))>(9, 906400);
+    same_case<polycrystal, registers(base(true, false)), min_traffic(registers(base(true, false)))>(
+        9, 906500);
+    same_case<dense_shape, registers(base(false, true)), min_traffic(registers(base(false, true)))>(
+        9, 906600);
+    // Under the row-major layout with the dense coupling, every path.
+    condensation_case<dense_shape, base(false, false)>(12, 906700);
+    condensation_case<dense_shape, with_pass(base(false, false), 3)>(12, 906800);
+    condensation_case<dense_shape, with_gather(base(false, false))>(12, 906900);
+    condensation_case<dense_shape, with_in_place(base(false, false))>(12, 907000);
+    condensation_case<dense_shape, without_unroll(base(false, false))>(12, 907100);
+    condensation_case<dense_shape, registers(base(false, false))>(12, 907200);
+    condensation_case<dense_shape, registers(with_pass(base(false, false), 2))>(12, 907300);
+    condensation_case<thin, base(false, false)>(12, 907400);
+    condensation_case<iwan, base(false, false)>(12, 907500);
+    condensation_case<iwan, registers(base(false, false))>(12, 907600);
 }
 
 TDLS_TEST_CASE("arrowheadlupp/bridge/config_knobs/condensation_pivot_threshold") {

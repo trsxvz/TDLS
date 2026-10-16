@@ -18,6 +18,8 @@
 /// the others bitwise). Every batch mixes dominant and random blocks,
 /// singular blocks and pivot-poor ones, which the pivot check refuses and
 /// the second pass eliminates, and one structurally singular matrix. The
+/// condensation MinTraffic, which differs from the default under the
+/// row-major layout with the dense coupling only, is anchored there. The
 /// verdict of every case is the normwise backward error of both solvers,
 /// the exact agreement of the singularity verdicts, and a floor of
 /// refused blocks, so that the second pass is never vacuous.
@@ -39,10 +41,12 @@ namespace {
 /// \param[in] diag      diagonal coupling
 /// \param[in] col       column-major layout
 /// \param[in] registers blocks eliminated in registers (RowInterchange::Physical)
+/// \param[in] traffic   condensation MinTraffic
 /// \return the configuration
 template<typename T>
 constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col,
-                                                   const bool registers = false) {
+                                                   const bool registers = false,
+                                                   const bool traffic   = false) {
     tdls::ArrowheadLUppConfig<T> c;
     // tiles of 3, so that blocks of 4 are cut into tiles of 3 and 1
     c.block_tile_size = 3;
@@ -51,6 +55,8 @@ constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool c
     c.layout          = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
     c.block_row_interchange =
         registers ? tdls::RowInterchange::Physical : tdls::RowInterchange::Logical;
+    c.condensation =
+        traffic ? tdls::ArrowheadCondensation::MinTraffic : tdls::ArrowheadCondensation::MinFlops;
     return c;
 }
 
@@ -59,17 +65,19 @@ constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool c
 /// others with injected singular or pivot-poor blocks; identical
 /// singularity verdicts, both backward errors under the tolerance, and
 /// at least one refused block per injected system.
-/// \tparam T      scalar type
-/// \tparam Shape  shape of the matrices
-/// \tparam diag   diagonal coupling (and pattern)
-/// \tparam col    column-major layout
-/// \tparam reg    blocks eliminated in registers (RowInterchange::Physical)
+/// \tparam T       scalar type
+/// \tparam Shape   shape of the matrices
+/// \tparam diag    diagonal coupling (and pattern)
+/// \tparam col     column-major layout
+/// \tparam reg     blocks eliminated in registers (RowInterchange::Physical)
+/// \tparam traffic condensation MinTraffic
 /// \param[in] count     number of systems
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, tdls::ArrowheadShape Shape, bool diag, bool col, bool reg = false>
+template<typename T, tdls::ArrowheadShape Shape, bool diag, bool col, bool reg = false,
+         bool traffic = false>
 void anchor_case(const int count, const double tolerance, const std::uint64_t seed) {
-    constexpr auto config = cell_config<T>(diag, col, reg);
+    constexpr auto config = cell_config<T>(diag, col, reg, traffic);
     using Solver          = tdls::ArrowheadLUppSolverStatic<T, Shape, config>;
     constexpr int n       = Shape.n();
 
@@ -201,5 +209,31 @@ TDLS_ARROW_ANCHOR_REGISTERS(double, 1, 1, 12, 0, 60, 1e-12, 300100, 300110)
 TDLS_ARROW_ANCHOR_REGISTERS(double, 8, 6, 10, 2, 60, 1e-12, 300400, 300410)
 TDLS_ARROW_ANCHOR_REGISTERS(double, 12, 6, 30, 6, 30, 1e-12, 300800, 300800)
 TDLS_ARROW_ANCHOR_REGISTERS(float, 6, 6, 30, 0, 30, 1e-5, 310100, 310100)
+
+/// Emits the two anchor cases of one (type, shape) cell under the
+/// condensation MinTraffic, the row-major layout and the dense coupling:
+/// the blocks eliminated by tiles and in registers. The seeds are those of
+/// the default cells of the same shape.
+#define TDLS_ARROW_ANCHOR_MIN_TRAFFIC(T, B, S, NB, COUNT, TOL, SEED)                               \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/static/min_traffic/" #T "/B=" #B ",S=" #S ",NB=" #NB      \
+                   ",tiles") {                                                                     \
+        anchor_case<T, tdls::ArrowheadShape{B, S, NB, 0}, false, false, false, true>(COUNT, TOL,   \
+                                                                                     SEED);        \
+    }                                                                                              \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/static/min_traffic/" #T "/B=" #B ",S=" #S ",NB=" #NB      \
+                   ",registers") {                                                                 \
+        anchor_case<T, tdls::ArrowheadShape{B, S, NB, 0}, false, false, true, true>(COUNT, TOL,    \
+                                                                                    SEED);         \
+    }
+
+// MinTraffic: the dense cells of the grid.
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 1, 1, 12, 60, 1e-12, 300100) // the Iwan shape
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 3, 6, 8, 60, 1e-12, 300300)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 8, 6, 10, 60, 1e-12, 300400)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 6, 12, 5, 60, 1e-12, 300500)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 12, 4, 9, 60, 1e-12, 300600)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 6, 6, 30, 30, 1e-12, 300700)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(float, 1, 1, 12, 60, 1e-5, 310200)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(long double, 8, 6, 10, 60, 1e-12, 320200)
 
 TDLS_TEST_MAIN

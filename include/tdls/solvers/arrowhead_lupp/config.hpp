@@ -81,6 +81,28 @@ enum class ArrowheadCoupling {
 
 
 
+/// \brief Condensation of an accepted block: what its Schur update and its
+/// recovery data spare, flops or memory traffic
+/// (ArrowheadLUppConfig::condensation).
+///
+/// The two differ under the row-major layout with the dense coupling only.
+/// The other paths run the whole solve W_k = D_k^-1 [A_kb | y_k] either
+/// way: under the diagonal coupling it already costs fewer flops than the
+/// update by the multipliers, and under the column-major layout it is the
+/// only path.
+enum class ArrowheadCondensation {
+    MinFlops,  ///< the forward stage V_k = L^-1 P [A_kb | y_k] alone, the Schur
+               ///< complement updated by M V_k with the border multipliers
+               ///< M = A_bk U^-1 of the pivot check; V_k in place of A_kb and
+               ///< y_k, U in the upper triangle of D_k, and the backward stage,
+               ///< on one column, in the recovery
+    MinTraffic ///< the whole solve W_k = D_k^-1 [A_kb | y_k], the Schur complement
+               ///< updated by A_bk W_k; W_k in place of A_kb and y_k, D_k left
+               ///< as stored: U is neither written nor read again
+};
+
+
+
 /// \brief Shape of an arrowhead matrix: a template argument of the
 /// compile-time solver, a function argument of the runtime one.
 ///
@@ -149,6 +171,26 @@ struct ArrowheadLUppConfig {
     /// that takes the second pass (+16 % at 240 phases, RTX 5080). 0.3
     /// refuses 13 to 42 % of them.
     StructuralReal<T> condensation_pivot_threshold = T(0.01);
+
+    /// Condensation of an accepted block, see ArrowheadCondensation; it
+    /// acts under the row-major layout with the dense coupling only.
+    /// MinFlops, the default, solves the forward stage alone and stores U
+    /// in D_k for the recovery. MinTraffic runs the whole solve: the
+    /// backward stage on B more columns, about S^2 B / 2 more
+    /// multiply-adds per block, but U is neither written by the
+    /// condensation nor read by the recovery. Measured with MinTraffic
+    /// against MinFlops on an RTX 5080, in float and with the register
+    /// budget of double: streamed, 1.46 to 2.2 times faster with blocks of
+    /// 6, 1.06 to 1.5 times with blocks of 12, the same speed with blocks of
+    /// 24;
+    /// stored, 1.1 to 1.6 times faster with the systems one after the other
+    /// (AoS), but 0.72 to 0.77 times in float with the systems interleaved
+    /// (SoA) and blocks of 12. In double, streamed: 1.37 to 1.73 times in
+    /// AoS, 1.53 times in SoA with blocks of 12, but 0.83 times in SoA with
+    /// blocks of 6. On CPU no trend (0.5 to 1.5 times, slower on small
+    /// blocks in float). The pivot check is the same, so both refuse the
+    /// same blocks; the solutions differ by rounding errors.
+    ArrowheadCondensation condensation = ArrowheadCondensation::MinFlops;
 
     /// Tile size of TiledLUpp on the diagonal blocks, when they are not
     /// eliminated in registers (block_row_interchange). Tiles of 4 beat tiles
@@ -234,11 +276,11 @@ struct ArrowheadLUppConfig {
     /// Permutes the right-hand sides of a block by its pivots through a
     /// predicated gather into a second buffer (true) or by cycles in place
     /// (false); used where the condensation runs the whole solve
-    /// (row-major with the diagonal coupling, column-major in several
-    /// passes). It changes the register allocation more than the cost of
-    /// the permutation: on the RTX 5080, -15 to -20 % with a border of 12
-    /// and passes of 2, but up to +18 % with a border of 6 at 240 phases,
-    /// whether the pivots move or not. To measure per shape.
+    /// (row-major with the diagonal coupling or with MinTraffic,
+    /// column-major in several passes). It changes the register allocation
+    /// more than the cost of the permutation: on the RTX 5080, -15 to -20 %
+    /// with a border of 12 and passes of 2, but up to +18 % with a border of
+    /// 6 at 240 phases, whether the pivots move or not. To measure per shape.
     bool gather_rhs = false;
 
     /// Accumulates the Schur complement in place, in the border entries of

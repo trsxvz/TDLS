@@ -19,6 +19,8 @@
 /// the others bitwise). Every batch mixes dominant and random blocks,
 /// singular blocks and pivot-poor ones, which the pivot check refuses and
 /// the second pass eliminates, and one structurally singular matrix. The
+/// condensation MinTraffic, which differs from the default under the
+/// row-major layout with the dense coupling only, is anchored there. The
 /// verdict of every case is the normwise backward error of both solvers,
 /// the exact agreement of the singularity verdicts, and a floor of
 /// refused blocks, so that the second pass is never vacuous.
@@ -37,11 +39,13 @@ namespace {
 
 /// \brief Configuration of one cell: Packed storage, a coupling, a layout.
 /// \tparam T scalar type
-/// \param[in] diag   diagonal coupling
-/// \param[in] col    column-major layout
+/// \param[in] diag    diagonal coupling
+/// \param[in] col     column-major layout
+/// \param[in] traffic condensation MinTraffic
 /// \return the configuration
 template<typename T>
-constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col) {
+constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool col,
+                                                   const bool traffic = false) {
     tdls::ArrowheadLUppConfig<T> c;
     // tiles of 3, so that blocks of 4 are cut into tiles of 3 and 1
     c.block_tile_size       = 3;
@@ -49,6 +53,8 @@ constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool c
     c.coupling = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
     c.storage  = tdls::ArrowheadStorage::Packed;
     c.layout   = col ? tdls::MatrixLayout::ColMajor : tdls::MatrixLayout::RowMajor;
+    c.condensation =
+        traffic ? tdls::ArrowheadCondensation::MinTraffic : tdls::ArrowheadCondensation::MinFlops;
     return c;
 }
 
@@ -57,17 +63,18 @@ constexpr tdls::ArrowheadLUppConfig<T> cell_config(const bool diag, const bool c
 /// others with injected singular or pivot-poor blocks; identical
 /// singularity verdicts, both backward errors under the tolerance, and
 /// at least one refused block per injected system.
-/// \tparam T    scalar type
-/// \tparam diag diagonal coupling (and pattern)
-/// \tparam col  column-major layout
+/// \tparam T       scalar type
+/// \tparam diag    diagonal coupling (and pattern)
+/// \tparam col     column-major layout
+/// \tparam traffic condensation MinTraffic
 /// \param[in] shape     shape of the matrices
 /// \param[in] count     number of systems
 /// \param[in] tolerance backward-error bound
 /// \param[in] seed      generator seed
-template<typename T, bool diag, bool col>
+template<typename T, bool diag, bool col, bool traffic = false>
 void anchor_case(const tdls::ArrowheadShape shape, const int count, const double tolerance,
                  const std::uint64_t seed) {
-    constexpr auto config = cell_config<T>(diag, col);
+    constexpr auto config = cell_config<T>(diag, col, traffic);
     using Solver          = tdls::ArrowheadLUppSolverDynamic<T, config>;
     const int n           = shape.n();
     TDLS_CHECK(Solver::storage_map::valid(shape));
@@ -165,5 +172,18 @@ TDLS_ARROW_ANCHOR_DIAGONAL(float, 6, 6, 30, 0, 30, 1e-5, 410100)
 TDLS_ARROW_ANCHOR_DENSE(float, 1, 1, 12, 60, 1e-5, 410200)
 TDLS_ARROW_ANCHOR_DIAGONAL(long double, 12, 6, 30, 6, 30, 1e-12, 420100)
 TDLS_ARROW_ANCHOR_DENSE(long double, 8, 6, 10, 60, 1e-12, 420200)
+
+/// Emits the anchor case of one (type, shape) cell under the condensation
+/// MinTraffic, the row-major layout and the dense coupling, with the seed
+/// of the default cell of the same shape.
+#define TDLS_ARROW_ANCHOR_MIN_TRAFFIC(T, B, S, NB, COUNT, TOL, SEED)                               \
+    TDLS_TEST_CASE("arrowheadlupp/oracle/dynamic/min_traffic/" #T "/B=" #B ",S=" #S ",NB=" #NB) {  \
+        anchor_case<T, false, false, true>(tdls::ArrowheadShape{B, S, NB, 0}, COUNT, TOL, SEED);   \
+    }
+
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 1, 1, 12, 60, 1e-12, 400100) // the Iwan shape
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 8, 6, 10, 60, 1e-12, 400400)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(double, 12, 4, 9, 60, 1e-12, 400600)
+TDLS_ARROW_ANCHOR_MIN_TRAFFIC(float, 1, 1, 12, 60, 1e-5, 410200)
 
 TDLS_TEST_MAIN

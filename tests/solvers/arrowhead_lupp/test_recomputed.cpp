@@ -13,7 +13,9 @@
 /// stores only the refused blocks, at most `capacity` of them. On the
 /// standard batch (dominant and random blocks, singular and pivot-poor
 /// ones, so that blocks are refused) and one structurally singular matrix,
-/// for both eliminations of the blocks (tiles and registers):
+/// for both eliminations of the blocks (tiles and registers) and both
+/// condensations (MinFlops and MinTraffic, which differ under the row-major
+/// layout with the dense coupling):
 ///   - with a store of every block: solved exactly when the streamed solve
 ///     succeeds, the same refused blocks, the border rows of the solution
 ///     bit for bit, the rows of the blocks within rounding errors;
@@ -68,6 +70,14 @@ constexpr tdls::ArrowheadLUppConfig<double> path_config(const tdls::ArrowheadSto
     c.rhs_pass_width = pass;
     c.block_row_interchange =
         registers ? tdls::RowInterchange::Physical : tdls::RowInterchange::Logical;
+    return c;
+}
+
+/// \brief The configuration c with the condensation MinTraffic.
+/// \param[in] c configuration
+/// \return c with the condensation MinTraffic
+constexpr tdls::ArrowheadLUppConfig<double> min_traffic(tdls::ArrowheadLUppConfig<double> c) {
+    c.condensation = tdls::ArrowheadCondensation::MinTraffic;
     return c;
 }
 
@@ -425,6 +435,20 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/recomputed/registers") {
     both_residencies<iwan, path_config(S::Packed, false, false, 0, true)>(701700);
     both_residencies<thin_border, path_config(S::Packed, false, true, 0, true)>(701800);
     both_residencies<big_block, path_config(S::Packed, false, false, 0, true)>(701900);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/recomputed/condensation") {
+    using S = ArrowheadStorage;
+    both_residencies<uneven_dense, min_traffic(path_config(S::Full, false, false, 0, false))>(
+        702100);
+    both_residencies<uneven_dense, min_traffic(path_config(S::Packed, false, false, 3, false))>(
+        702200);
+    both_residencies<uneven_dense, min_traffic(path_config(S::Full, false, false, 0, true))>(
+        702300);
+    both_residencies<uneven_dense, min_traffic(path_config(S::Packed, false, false, 2, true))>(
+        702400);
+    both_residencies<iwan, min_traffic(path_config(S::Packed, false, false, 0, false))>(702500);
+    both_residencies<big_block, min_traffic(path_config(S::Packed, false, false, 0, true))>(702600);
 }
 
 TDLS_TEST_MAIN

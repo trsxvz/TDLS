@@ -9,6 +9,20 @@ the API may change between minor versions.
 
 ### Added
 
+- ArrowheadLUpp: `condensation`, `MinFlops` (the default, unchanged
+  behaviour) or `MinTraffic` (`ArrowheadCondensation`), the condensation of
+  an accepted block under the row-major layout with the dense coupling.
+  `MinFlops` solves the forward stage alone, updates the Schur
+  complement by the border multipliers of the pivot check and stores U
+  for the recovery; `MinTraffic` runs the whole solve, as the diagonal
+  coupling does: more flops, but U neither written nor read again. The
+  other paths run the whole solve either way. Measured with `MinTraffic`
+  on an RTX 5080: 1.46 to 2.2 times faster streamed with blocks of 6,
+  1.1 to 1.6 times stored with the systems one after the other (AoS),
+  but 0.72 to 0.77 times in float with the systems interleaved (SoA)
+  and blocks of 12; no trend on CPU. The same blocks are refused; the
+  solutions differ by rounding errors. Both solvers, bitwise identical
+  to each other.
 - TiledLUpp: `row_interchange`, `Logical` (the default) or `Physical`,
   the second knob, after the tile size and the schedule, as in
   CooperativeLUpp.

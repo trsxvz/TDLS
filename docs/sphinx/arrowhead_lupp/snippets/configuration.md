@@ -70,6 +70,34 @@ $$
 :dedent: 4
 ```
 
+## The condensation
+
+`MinTraffic` runs the whole solve of each accepted block instead of the
+forward stage alone: more flops, but $U$ is neither stored in A nor read
+again by the recovery. The knob acts under the row-major layout with the
+dense coupling, on the matrix of the dense couplings
+({doc}`storages`).
+
+$$
+A = \left(\begin{array}{cc|cc|cc}
+6 & 1 & 1 & 1 & 2 & 0 \\
+1 & 7 & 0 & 1 & 1 & 1 \\ \hline
+1 & 0 & 5 & 1 & 0 & 0 \\
+0 & 2 & 1 & 4 & 0 & 0 \\ \hline
+2 & 1 & 0 & 0 & 6 & 2 \\
+0 & 1 & 0 & 0 & 1 & 5 \\
+\end{array}\right), \quad
+b = \begin{pmatrix} 25 \\ 30 \\ 20 \\ 23 \\ 46 \\ 37 \end{pmatrix}, \quad
+x = \begin{pmatrix} 1 \\ 2 \\ 3 \\ 4 \\ 5 \\ 6 \end{pmatrix}
+$$
+
+```{literalinclude} ../../../snippets/arrowhead_lupp/config_condensation.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## The TiledLUpp solvers of the blocks and of the border
 
 Their tile sizes and the two thresholds of the blocks, eliminated by

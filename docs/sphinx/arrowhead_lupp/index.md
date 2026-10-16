@@ -83,8 +83,9 @@ temporaries there.
 **The recovery.** The border system solved, the blocks are recovered,
 the last one first. The condensation left their recovery data in place
 of $A_{kb}$ and $y_k$. A refused block also leaves data in place of
-$D_k$. Under the row-major layout with the dense coupling, every block
-does: its $U$ goes in the upper triangle of $D_k$.
+$D_k$. Under the row-major layout with the dense coupling and the
+condensation `MinFlops`, the default, every block does: its $U$ goes in
+the upper triangle of $D_k$.
 
 The solver reads the entries of the pattern only: the zeros outside the
 blocks are never read and need not be stored (see the storages below).
@@ -108,9 +109,13 @@ knob: the choice costs nothing at run time.
   $V_k = L^{-1} P [A_{kb} \mid y_k]$: the forward stage of the solve
   alone, `forward_inplace_multirhs` of TiledLUpp, since $M$ comes from
   the check. The backward stage, on one column, moves to the recovery.
-  Under the diagonal coupling, the whole solve
-  $W_k = D_k^{-1} [A_{kb} \mid y_k]$ costs less, folded through the few
-  coupling entries.
+  This is the condensation `MinFlops`, the default. `MinTraffic` runs
+  the whole solve $W_k = D_k^{-1} [A_{kb} \mid y_k]$ instead and updates
+  the Schur complement by $A_{bk} W_k$: the backward stage on $B$ more
+  columns, but $U$ neither written by the condensation nor read by the
+  recovery (see `condensation` below). Under the diagonal coupling, the
+  whole solve costs less, folded through the few coupling entries: both
+  condensations run it.
 - Column-major layout (`ColMajor`). TiledLUpp factors $D_k^T$, its
   column-major mode. The forward stage $U^{-T} [A_{kb} \mid y_k]$ of the
   solve then holds the border multipliers of the check, which costs
@@ -360,7 +365,7 @@ gets its own register allocation.
 
 ## Configuration
 
-`ArrowheadLUppConfig<T>` is an aggregate of fourteen knobs, passed to the
+`ArrowheadLUppConfig<T>` is an aggregate of fifteen knobs, passed to the
 solvers as a constexpr value. Designated initializers override
 individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 
@@ -370,13 +375,14 @@ individual knobs; `ArrowheadLUppConfig<double>{}` keeps the defaults.
 | `storage` | `Full` | storage of the matrix, `Full`, `Packed`, `Csr` or `Bsr` |
 | `layout` | `RowMajor` | order of the storage, `RowMajor` or `ColMajor`; picks the condensation path (see above) |
 | `condensation_pivot_threshold` | 0.01 | a block passes when no multiplier of its elimination exceeds the inverse; 0 refuses only the singular blocks and those whose multipliers are not finite; in [0, 1] |
+| `condensation` | `MinFlops` | condensation of an accepted block under the row-major layout with the dense coupling (`ArrowheadCondensation`; the other paths run the whole solve either way): `MinFlops` solves the forward stage alone, updates the Schur complement by the border multipliers of the check and stores $U$ in $D_k$ for the recovery; `MinTraffic` runs the whole solve, about $S^2 B / 2$ more multiply-adds per block, but $U$ is neither written nor read again. Measured with `MinTraffic` on an RTX 5080 (float, and float capped at the register budget of double): streamed, 1.46 to 2.2 times faster with blocks of 6, 1.06 to 1.5 times with blocks of 12, the same speed with blocks of 24; stored, 1.1 to 1.6 times faster with the systems one after the other (AoS), but 0.72 to 0.77 times in float with the systems interleaved (SoA) and blocks of 12. In double, streamed: 1.37 to 1.73 times in AoS, 1.53 times in SoA with blocks of 12, but 0.83 times in SoA with blocks of 6. No trend on CPU (0.5 to 1.5 times, slower on small blocks in float). The same blocks are refused; the solutions differ by rounding errors |
 | `block_tile_size` | 4 | tile size of TiledLUpp on the blocks eliminated by tiles; tiles of 4 beat tiles of 3 by 1.1 to 1.3 times from blocks of 14 (RTX 5080); a tile of the size of the block pivots over the whole block, as `Physical` does: on blocks that pivot, far fewer refused blocks (random blocks of 16, dense coupling: 0.16 per system with tiles of 3, 0.01 with one tile) and 1.3 to 3 times faster than tiles of 3 at blocks of 12 and 16 (RTX 5080, float, the matrix stored) |
 | `block_row_interchange` | `Auto` | row interchanges of TiledLUpp on the blocks (`row_interchange` of TiledLUpp): `Physical` eliminates each block in registers, the whole block one tile, every index known at compile time, the right-hand sides solved the same way (the pivots of one tile of the size of the block, `block_tile_size` and `gather_rhs` ignored); `Logical` eliminates it in tiles of `block_tile_size`, the block on the stack of the thread on GPU; `Auto` takes `Physical` when the block is small enough: up to blocks of 14 in float and 10 in double on GPU, 8 in float and 12 in double on CPU, long double as double. The pivot check, the recovery data and the second pass are the same either way, and the runtime solver makes the same choice, so that both stay bitwise identical. Measured gains of `Physical` over tiles of 3, blocks that keep their rows, border of 12: on an RTX 5080, 2 to 6 times on the recomputed path, 1.1 to 2.9 times streamed, 1 to 1.6 times stored (float, and float capped at 128 registers for the budget of double); on 6 CPU cores, 1.5 times (median). Beyond these sizes the block no longer fits and the compilers spill it whole: 5 to 14 times slower from blocks of 16 in float on GPU |
 | `block_relative_pivot_threshold` | 0.01 | `relative_pivot_threshold` of TiledLUpp on the blocks: a row stays in place while its pivot reaches this fraction of the best in-tile candidate and `block_oot_pivot_threshold`, so that the pivot arrays stay alike across a warp and its reads stay coalesced |
 | `block_oot_pivot_threshold` | 1e-12 for `double` and `long double`<br>1e-6 for `float` | `oot_pivot_threshold` of TiledLUpp on the blocks, two orders below its default |
 | `border_tile_size` | 3 | tile size of TiledLUpp on the border system |
 | `rhs_pass_width` | -1 | columns $[A_{kb} \mid y_k]$ solved per pass, in [-1, border + 1] for the compile-time solver (the runtime solver takes any width from -1, one pass above border + nrhs); 0 solves them all at once; -1 chooses: passes of 2 on GPU when the blocks are eliminated in registers (1.2 to 1.9 times faster than one pass under the row-major layout, median, RTX 5080; under the column-major layout, one pass spills blocks of 14 on the streamed path, 15 times slower), one pass otherwise (the best on CPU); under the column-major layout, a width can move a block across the threshold of the pivot check, the results then differing by rounding errors |
-| `gather_rhs` | `false` | permutes the rows of the columns $[A_{kb} \mid y_k]$ of a block by its pivots, through a gather into a second buffer instead of cycles in place; used only where the condensation runs the whole solve (row-major with the diagonal coupling, column-major in several passes); changes the register allocation, to measure per shape on GPU |
+| `gather_rhs` | `false` | permutes the rows of the columns $[A_{kb} \mid y_k]$ of a block by its pivots, through a gather into a second buffer instead of cycles in place; used only where the condensation runs the whole solve (row-major with the diagonal coupling or with `MinTraffic`, column-major in several passes); changes the register allocation, to measure per shape on GPU |
 | `schur_in_place` | `false` | accumulates the Schur complement in the border entries of A and y instead of a local array; fewer registers, more memory traffic |
 | `unroll_loops` | `true` | forced unrolling of the loops over the entries of a block and of the border, passed on to the TiledLUpp solvers; ignored by the runtime solver |
 | `streamed_out_of_line` | `false` | keeps the streamed entry points of the compile-time solver out of line on GPU (CUDA, HIP, SYCL), where the inliner may merge them into a large caller and allocate its registers worse; 19 % faster on a polycrystal of 240 grains (RTX 5080), to measure per provider; ignored elsewhere and by the runtime solver |

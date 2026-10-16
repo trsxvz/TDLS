@@ -18,8 +18,8 @@
 /// of the condensation: the four storages, both couplings and layouts,
 /// passes of several widths (the forward-stage check of the column-major
 /// layout in one pass, the separate check otherwise), the gather of the
-/// right-hand sides, the Schur complement accumulated in place, and the
-/// unroll policy off.
+/// right-hand sides, the Schur complement accumulated in place, the
+/// unroll policy off, and the condensation MinTraffic.
 
 #include <cstdint>
 #include <vector>
@@ -60,6 +60,14 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
 /// \return c with the blocks eliminated in registers
 constexpr tdls::ArrowheadLUppConfig<double> registers(tdls::ArrowheadLUppConfig<double> c) {
     c.block_row_interchange = tdls::RowInterchange::Physical;
+    return c;
+}
+
+/// \brief The configuration c with the condensation MinTraffic.
+/// \param[in] c configuration
+/// \return c with the condensation MinTraffic
+constexpr tdls::ArrowheadLUppConfig<double> min_traffic(tdls::ArrowheadLUppConfig<double> c) {
+    c.condensation = tdls::ArrowheadCondensation::MinTraffic;
     return c;
 }
 
@@ -215,6 +223,31 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/registers") {
         12, 505100);
     bridge_case<polycrystal,
                 registers(path_config(S::Packed, true, false, 0, false, false, false))>(12, 505200);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/static_vs_dynamic/condensation") {
+    using S = ArrowheadStorage;
+    // MinTraffic acts under the row-major layout with the dense coupling.
+    bridge_case<uneven_dense, min_traffic(path_config(S::Packed, false, false, 0))>(12, 506100);
+    bridge_case<uneven_dense, min_traffic(path_config(S::Full, false, false, 0))>(12, 506200);
+    bridge_case<uneven_dense, min_traffic(path_config(S::Csr, false, false, 3))>(12, 506300);
+    bridge_case<uneven_dense, min_traffic(path_config(S::Packed, false, false, 2, true))>(12,
+                                                                                          506400);
+    bridge_case<uneven_dense, min_traffic(path_config(S::Packed, false, false, 0, false, true))>(
+        12, 506500);
+    bridge_case<uneven_dense, min_traffic(path_config(S::Packed, false, false, 0, false, false,
+                                                      false))>(12, 506600);
+    bridge_case<uneven_dense, min_traffic(registers(path_config(S::Packed, false, false, 0)))>(
+        12, 506700);
+    bridge_case<uneven_dense, min_traffic(registers(path_config(S::Packed, false, false, 3)))>(
+        12, 506800);
+    bridge_case<iwan, min_traffic(path_config(S::Packed, false, false, 0))>(12, 506900);
+    bridge_case<thin_border, min_traffic(path_config(S::Packed, false, false, 0))>(12, 507000);
+    // Elsewhere it changes nothing.
+    same_operations<polycrystal, min_traffic(path_config(S::Packed, true, false, 0)),
+                    path_config(S::Packed, true, false, 0)>(12, 507100);
+    same_operations<uneven_dense, min_traffic(path_config(S::Packed, false, true, 0)),
+                    path_config(S::Packed, false, true, 0)>(12, 507200);
 }
 
 // The choice of RowInterchange::Auto in this pass (a CPU pass):

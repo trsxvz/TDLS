@@ -55,13 +55,15 @@
 ///     multipliers of the check; the backward stage completes
 ///     W_k = D_k^-1 [A_kb | y_k], stored in place of A_kb and y_k; the
 ///     Schur complement receives -A_bk W_k; x_k = W_k(:, B) - W_k(:, 0:B) xb;
-///   - row-major, diagonal coupling (and column-major in several passes):
-///     the same with the whole solve, the check computing M = Cb U^-1
-///     apart;
-///   - row-major, dense coupling: V_k = L^-1 P [A_kb | y_k], the forward
-///     stage alone, is stored in place of A_kb and y_k, U in the upper
-///     triangle of D_k; the Schur complement receives -M V_k (M from the
-///     check: A_bk D_k^-1 = M L^-1 P); x_k = U^-1 (V_k(:, B) - V_k(:, 0:B) xb).
+///   - row-major, diagonal coupling, or dense coupling under
+///     ArrowheadCondensation::MinTraffic (and column-major in several
+///     passes): the same with the whole solve, the check computing
+///     M = Cb U^-1 apart;
+///   - row-major, dense coupling under ArrowheadCondensation::MinFlops,
+///     the default: V_k = L^-1 P [A_kb | y_k], the forward stage alone, is
+///     stored in place of A_kb and y_k, U in the upper triangle of D_k; the
+///     Schur complement receives -M V_k (M from the check: A_bk D_k^-1 =
+///     M L^-1 P); x_k = U^-1 (V_k(:, B) - V_k(:, 0:B) xb).
 ///
 /// A refused block costs the second pass, never a failure: the solver
 /// succeeds whenever the full matrix is invertible, rounding aside. Like
@@ -72,7 +74,8 @@
 ///
 /// On exit y holds the solution. A holds the recovery data in place of
 /// A_kb, and in place of D_k for the refused blocks and, under the
-/// row-major layout with the dense coupling, for the accepted ones too;
+/// row-major layout with the dense coupling and MinFlops, for the accepted
+/// ones too;
 /// with schur_in_place, the coupled border rows of A hold the Schur
 /// complement of the accepted blocks. The other entries are only read.
 /// The canonical solves recover nothing and store no recovery data: they
@@ -403,18 +406,20 @@ struct ArrowheadLUppSolverStatic {
     template<int ny>
     static constexpr bool forward_check_for = !reg && col && pass_width_for<ny> == B + ny;
     /// Whether the condensation stores the recovery data of the accepted
-    /// blocks (in place of A_kb and y_k, and U in D_k under the row-major
-    /// layout with the dense coupling): not without right-hand side in the
+    /// blocks (in place of A_kb and y_k, and U in D_k under
+    /// multiplier_update): not without right-hand side in the
     /// blocks (ny = 0), the canonical solve, which recovers nothing.
     template<int ny>
     static constexpr bool stores_recovery_for = ny > 0;
-    /// Row-major with the dense coupling: the Schur complement is updated
+    /// Row-major with the dense coupling, under the condensation MinFlops
+    /// (ArrowheadLUppConfig::condensation): the Schur complement is updated
     /// by M V, M = Cb U^-1 from the pivot check and V = L^-1 P [A_kb | y_k]
     /// the forward stage of the solve; the backward stage, on one column,
     /// moves to the recovery. Under the diagonal coupling M V costs more
     /// than the sparse A_bk W, and storing U costs traffic: the whole solve
-    /// is kept.
-    static constexpr bool multiplier_update = !col && !diag;
+    /// is kept, as under MinTraffic.
+    static constexpr bool multiplier_update =
+        !col && !diag && Config.condensation == ArrowheadCondensation::MinFlops;
     /// Schur complement accumulated in the border entries of A and y
     /// (ArrowheadLUppConfig::schur_in_place).
     static constexpr bool in_place = Config.schur_in_place;
@@ -2098,9 +2103,9 @@ struct ArrowheadLUppSolverStatic {
     }
 
     /// \brief Border multipliers M = Cb U^-1 of block k, checked against
-    /// 1 / condensation_pivot_threshold; kept in Mb (R x S) under the
-    /// row-major layout with the dense coupling, where the Schur update
-    /// uses them (a 36-entry array kept for nothing costs 10 % on CPU
+    /// 1 / condensation_pivot_threshold; kept in Mb (R x S) under
+    /// multiplier_update, where the Schur update uses them, one row at a
+    /// time otherwise (a 36-entry array kept for nothing costs 10 % on CPU
     /// under clang).
     /// \tparam internal_matrix residency of A
     /// \tparam Streamed        none on the stored path; streamed, the block
@@ -2110,7 +2115,7 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]  k        block
     /// \param[in]  U        U of the block in logical row order
     /// \param[in]  acoef    couplings of the block (diagonal coupling)
-    /// \param[out] Mb       the multipliers (row-major, dense coupling)
+    /// \param[out] Mb       the multipliers (multiplier_update)
     /// \param[in]  blk      streamed: the block
     /// \return true when no multiplier exceeds the bound
     template<bool internal_matrix, typename... Streamed>
@@ -2133,7 +2138,7 @@ struct ArrowheadLUppSolverStatic {
             TDLS_ARROW_LUPP_FOR(i, 0, S, T m[S];
                                 TDLS_ARROW_LUPP_FOR(j, 0, S, m[j] = j == i ? acoef[i] : T(0);) ok =
                                     multipliers_pass(m, i, U, u) && ok;)
-        } else {
+        } else if constexpr (multiplier_update) {
             TDLS_ARROW_LUPP_FOR(r, 0, B,
                                 TDLS_ARROW_LUPP_FOR(j, 0, S,
                                                     if constexpr (streamed) Mb[r * S + j] =
@@ -2141,6 +2146,14 @@ struct ArrowheadLUppSolverStatic {
                                                     else Mb[r * S + j] = TDLS_ARROW_LUPP_A(
                                                         storage_map::abk(shape_value(), k, r, j));)
                                     ok = multipliers_pass(Mb + r * S, 0, U, u) && ok;)
+        } else {
+            // MinTraffic: each row checked, then dropped.
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, B, T m[S];
+                TDLS_ARROW_LUPP_FOR(
+                    j, 0, S, if constexpr (streamed) m[j] = streamed_arg(blk...)->Abk[r * S + j];
+                    else m[j] = TDLS_ARROW_LUPP_A(storage_map::abk(shape_value(), k, r, j));) ok =
+                    multipliers_pass(m, 0, U, u) && ok;)
         }
         return ok;
     }
@@ -2204,7 +2217,7 @@ struct ArrowheadLUppSolverStatic {
 
     /// \brief Stores U of block k, in logical row order, in the upper
     /// triangle of D_k (its diagonal holds 1 / pivot): the recovery data
-    /// of the row-major layout with the dense coupling.
+    /// of multiplier_update.
     /// \tparam internal_matrix residency of A
     /// \param[out] A        matrix in its storage
     /// \param[in]  A_stride element stride of A
@@ -2253,13 +2266,14 @@ struct ArrowheadLUppSolverStatic {
     /// \brief Solves w columns in place in registers with the factors of
     /// register_factor, column c at c * S: W := D_k^-1 W, or the forward
     /// stage alone, L^-1 P W, under the row-major layout with the dense
-    /// coupling (multiplier_update). Under the column-major layout F = D_k^T
+    /// coupling and MinFlops (multiplier_update). Under the column-major
+    /// layout F = D_k^T
     /// and P F = L U, so D_k = U^T L^T P: U^-T, then L^-T, then the
     /// interchanges in reverse order. The two stages of PhysicalBlockSolver.
     /// \tparam w        number of columns
     /// \tparam backward whether the row-major solve runs its backward stage
     ///                  (always, but for the forward stage alone of the
-    ///                  condensation with the dense coupling)
+    ///                  condensation under multiplier_update)
     /// \param[in]     F factors
     /// \param[in]     p interchanges
     /// \param[in,out] W columns
@@ -2313,8 +2327,8 @@ struct ArrowheadLUppSolverStatic {
     }
 
     /// \brief Columns c0 .. c0 + w of [A_kb | Y_k] (column B + m is column m
-    /// of the right-hand sides): solved (V_k under the row-major layout with
-    /// the dense coupling, W_k otherwise), stored in place unless ny = 0
+    /// of the right-hand sides): solved (V_k under multiplier_update, W_k
+    /// otherwise), stored in place unless ny = 0
     /// (stores_recovery_for), folded into the accumulated rows. The columns
     /// go in passes of pass_width_for<ny> so that only one slice is alive
     /// at a time. When solved, Wsolved already holds all of W_k (one pass).
@@ -2337,8 +2351,7 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     Dl          factored block
     /// \param[in]     pl          its pivots
     /// \param[in]     acoef       couplings of the block (diagonal coupling)
-    /// \param[in]     Mb          border multipliers (row-major, dense
-    ///                            coupling)
+    /// \param[in]     Mb          border multipliers (multiplier_update)
     /// \param[in,out] Sacc        accumulated rows of the Schur complement
     /// \param[in,out] racc        accumulated rows of its right-hand sides
     /// \param[in]     Wsolved     the solved columns when solved

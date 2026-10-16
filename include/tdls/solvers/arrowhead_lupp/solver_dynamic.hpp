@@ -116,9 +116,12 @@ struct ArrowheadLUppSolverDynamic {
   private:
     static constexpr bool col  = Config.layout == MatrixLayout::ColMajor;
     static constexpr bool diag = Config.coupling == ArrowheadCoupling::Diagonal;
-    /// Same paths as the compile-time solver, see solver_static.hpp.
-    static constexpr bool multiplier_update = !col && !diag;
-    static constexpr bool in_place          = Config.schur_in_place;
+    /// Same paths as the compile-time solver, see solver_static.hpp: the
+    /// update by the border multipliers under the row-major layout with
+    /// the dense coupling and ArrowheadCondensation::MinFlops.
+    static constexpr bool multiplier_update =
+        !col && !diag && Config.condensation == ArrowheadCondensation::MinFlops;
+    static constexpr bool in_place = Config.schur_in_place;
 
     static_assert(Config.condensation_pivot_threshold.is_finite() &&
                       T(Config.condensation_pivot_threshold) >= T(0) &&
@@ -1779,7 +1782,8 @@ struct ArrowheadLUppSolverDynamic {
 
     /// \brief Border multipliers M = Cb U^-1 of block k, checked against
     /// 1 / condensation_pivot_threshold; kept in the workspace (R x S)
-    /// under the row-major layout with the dense coupling.
+    /// under the row-major layout with the dense coupling, where the Schur
+    /// update reads them under multiplier_update.
     /// \param[in]     shape       shape of the matrix
     /// \param[in]     z           its sizes
     /// \param[in]     o           the offsets of the workspace
@@ -1864,8 +1868,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \brief Solves the w columns at o.W in place with the factors of
     /// physical_factor, the operations of
     /// ArrowheadLUppSolverStatic::register_solve in the same order: W :=
-    /// D_k^-1 W, or L^-1 P W alone under the row-major layout with the
-    /// dense coupling; under the column-major layout, U^-T, then L^-T,
+    /// D_k^-1 W, or L^-1 P W alone under multiplier_update; under the
+    /// column-major layout, U^-T, then L^-T,
     /// then the interchanges in reverse order.
     /// \param[in]     z           sizes of the shape
     /// \param[in]     o           the offsets of the workspace (Dl, W)
@@ -1876,8 +1880,8 @@ struct ArrowheadLUppSolverDynamic {
     /// \param[in]     w           number of columns
     /// \param[in]     backward    whether the row-major solve runs its
     ///                            backward stage (always, but for the forward
-    ///                            stage alone of the condensation with the
-    ///                            dense coupling)
+    ///                            stage alone of the condensation under
+    ///                            multiplier_update)
     TDLS_HOST_DEVICE static constexpr void
     physical_solve(const Sizes& z, const Offsets& o, T* TDLS_RESTRICT work, const int work_stride,
                    const int* TDLS_RESTRICT piv, const int piv_stride, const int w,

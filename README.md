@@ -148,6 +148,10 @@ constexpr tdls::ArrowheadLUppConfig<double> config{
     // multiplier of its elimination exceeds the inverse; a refused block
     // is eliminated with the border rows in a second pass
     .condensation_pivot_threshold = 0.01,
+    // tdls::ArrowheadCondensation of an accepted block under the row-major
+    // layout with the dense coupling: MinFlops (the forward stage, U stored
+    // for the recovery) or MinTraffic (the whole solve, U never stored)
+    .condensation = tdls::ArrowheadCondensation::MinFlops,
     // int: tile size of TiledLUpp on the blocks eliminated by tiles
     .block_tile_size = 4,
     // tdls::RowInterchange of TiledLUpp on the blocks: Auto eliminates

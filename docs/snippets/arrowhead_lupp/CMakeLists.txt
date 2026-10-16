@@ -35,6 +35,7 @@ foreach(snippet
         config_defaults
         config_layout
         config_condensation_threshold
+        config_condensation
         config_blocks
         config_pass_width
         config_gather

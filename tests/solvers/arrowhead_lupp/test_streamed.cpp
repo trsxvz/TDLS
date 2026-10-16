@@ -27,7 +27,8 @@
 /// of an entry the provider did not write would show. The paths cover the
 /// four storages, both couplings and layouts, passes of several widths,
 /// the gather of the right-hand sides, the Schur complement accumulated in
-/// place, the unroll policy off, and the external residency (strided).
+/// place, the unroll policy off, the condensation MinTraffic, and the
+/// external residency (strided).
 ///
 /// The streamed and stored paths are distinct code: a compiler contracting
 /// multiplications and additions across statements could fuse them
@@ -70,6 +71,14 @@ path_config(const tdls::ArrowheadStorage storage, const bool diag, const bool co
     c.schur_in_place = in_place;
     c.unroll_loops   = unroll;
     c.streamed_out_of_line = outline;
+    return c;
+}
+
+/// \brief The configuration c with the condensation MinTraffic.
+/// \param[in] c configuration
+/// \return c with the condensation MinTraffic
+constexpr tdls::ArrowheadLUppConfig<double> min_traffic(tdls::ArrowheadLUppConfig<double> c) {
+    c.condensation = tdls::ArrowheadCondensation::MinTraffic;
     return c;
 }
 
@@ -421,6 +430,25 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/registers") {
                                                         false))>(606300);
     both_residencies<polycrystal, registers(path_config(S::Packed, true, false, 0, false, false,
                                                         true, true))>(606400);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/streamed/condensation") {
+    // MinTraffic acts under the row-major layout with the dense coupling.
+    using S = ArrowheadStorage;
+    both_residencies<uneven_dense, min_traffic(path_config(S::Packed, false, false, 0))>(607100);
+    both_residencies<uneven_dense, min_traffic(path_config(S::Full, false, false, 3))>(607200);
+    both_residencies<uneven_dense, min_traffic(path_config(S::Csr, false, false, 0, true))>(607300);
+    both_residencies<uneven_dense,
+                     min_traffic(path_config(S::Packed, false, false, 0, false, true))>(607400);
+    both_residencies<uneven_dense, min_traffic(registers(path_config(S::Packed, false, false, 0)))>(
+        607500);
+    both_residencies<uneven_dense, min_traffic(registers(path_config(S::Packed, false, false, 2)))>(
+        607600);
+    both_residencies<iwan, min_traffic(path_config(S::Full, false, false, 0))>(607700);
+    both_residencies<thin_border, min_traffic(path_config(S::Packed, false, false, 0))>(607800);
+    both_residencies<big_block, min_traffic(path_config(S::Packed, false, false, 0))>(607900);
+    both_residencies<big_block, min_traffic(registers(path_config(S::Packed, false, false, 0)))>(
+        608000);
 }
 
 TDLS_TEST_MAIN

@@ -13,7 +13,8 @@
 /// they leave. Both solvers, internal and strided right-hand sides (the
 /// gaps between the strided entries untouched), the standard batch
 /// (refused blocks included), passes of rhs_pass_width columns, the
-/// gather and the Schur complement in place. solve_border_canonical_multirhs
+/// gather, the Schur complement in place and the condensation MinTraffic.
+/// solve_border_canonical_multirhs
 /// must return the border rows of solve_inplace on the unit columns of
 /// the border, equal in value (a zero may differ in sign: the canonical
 /// path starts from exact zeros where solve_inplace subtracts zero
@@ -225,12 +226,12 @@ void multirhs_case(const int count, const std::uint64_t seed) {
 /// \param[in] col    column-major layout
 /// \param[in] width  rhs_pass_width
 /// \param[in] gather gather_rhs
-/// \param[in] place  schur_in_place
+/// \param[in] place   schur_in_place
+/// \param[in] traffic condensation MinTraffic
 /// \return the configuration
-constexpr tdls::ArrowheadLUppConfig<double> mrhs_config(const bool diag, const bool col,
-                                                        const int width   = 0,
-                                                        const bool gather = false,
-                                                        const bool place  = false) {
+constexpr tdls::ArrowheadLUppConfig<double>
+mrhs_config(const bool diag, const bool col, const int width = 0, const bool gather = false,
+            const bool place = false, const bool traffic = false) {
     tdls::ArrowheadLUppConfig<double> c;
     c.block_row_interchange = tdls::RowInterchange::Logical;
     c.coupling       = diag ? tdls::ArrowheadCoupling::Diagonal : tdls::ArrowheadCoupling::Dense;
@@ -239,6 +240,8 @@ constexpr tdls::ArrowheadLUppConfig<double> mrhs_config(const bool diag, const b
     c.rhs_pass_width = width;
     c.gather_rhs     = gather;
     c.schur_in_place = place;
+    c.condensation =
+        traffic ? tdls::ArrowheadCondensation::MinTraffic : tdls::ArrowheadCondensation::MinFlops;
     return c;
 }
 
@@ -270,6 +273,16 @@ TDLS_TEST_CASE("arrowheadlupp/bridge/multirhs/knobs") {
     multirhs_case<polycrystal, mrhs_config(true, false, 0, false, true), 6>(9, 1301300);
     multirhs_case<dense_shape, mrhs_config(false, false, 3, false, true), 5>(9, 1301400);
     multirhs_case<dense_shape, mrhs_config(false, true, 0, true), 5>(9, 1301500);
+}
+
+TDLS_TEST_CASE("arrowheadlupp/bridge/multirhs/min_traffic") {
+    // MinTraffic acts under the row-major layout with the dense coupling.
+    multirhs_case<dense_shape, mrhs_config(false, false, 0, false, false, true), 1>(9, 1301600);
+    multirhs_case<dense_shape, mrhs_config(false, false, 0, false, false, true), 5>(9, 1301700);
+    multirhs_case<dense_shape, mrhs_config(false, false, 3, false, false, true), 5>(9, 1301800);
+    multirhs_case<dense_shape, mrhs_config(false, false, 0, true, false, true), 5>(9, 1301900);
+    multirhs_case<dense_shape, mrhs_config(false, false, 0, false, true, true), 5>(9, 1302000);
+    multirhs_case<iwan, mrhs_config(false, false, 0, false, false, true), 6>(9, 1302100);
 }
 
 TDLS_TEST_MAIN
