@@ -151,7 +151,10 @@ call.
 
 One call solves one system. Every operand is a raw pointer pre-offset
 by the caller plus one runtime element stride: the solvers never see a
-global thread index or a batch layout. A CooperativeLUpp call is made
+global thread index or a batch layout. The compile-time solvers also take
+each stride as a template argument, `tdls::dynamic_stride` by default; a
+stride known at compile time, 1 in AoS for instance, is given there and
+the function argument is then ignored. A CooperativeLUpp call is made
 by every thread of a group, and only sees the rank of the thread in
 its group. The same (pointer, stride) pair covers the three batch
 layouts. The table gives it for system b of a batch of B systems. g is

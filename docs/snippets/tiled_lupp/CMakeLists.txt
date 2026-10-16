@@ -50,7 +50,8 @@ foreach(snippet
         batch_residencies
         batch_aos
         batch_soa
-        batch_aosoa)
+        batch_aosoa
+        batch_static_strides)
     tdls_add_snippet(tiledlupp ${snippet})
 endforeach()
 

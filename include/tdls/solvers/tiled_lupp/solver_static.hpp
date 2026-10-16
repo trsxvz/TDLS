@@ -59,8 +59,10 @@
 ///
 /// **Addressing convention (backend-agnostic, no accessor objects).**
 /// The solver never sees a thread index: callers pre-offset every remote
-/// pointer with the lane/system index and pass a runtime stride. The
-/// pivot array and the right-hand sides follow the same convention.
+/// pointer with the lane/system index and pass a runtime stride, or a
+/// stride known at compile time as a template argument (see
+/// tdls::dynamic_stride). The pivot array and the right-hand sides follow
+/// the same convention.
 /// The flat element index (for the matrix, N*N) must stay below 2^31;
 /// element offsets, index times stride, are computed in 64-bit
 /// arithmetic. Each of the three arrays has an *internal* residency mode
@@ -1679,82 +1681,103 @@ struct TiledLUppSolverStatic {
     ///         substitution of y into the factorization
     /// \tparam internal_rhs residency of the fused y (meaningful with
     ///         fuse_rhs only)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of the fused y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[out]    oot_count  number of columns whose best in-tile
     ///                pivot fell below oot_pivot_threshold
     /// \param[in,out] y          fused right-hand side (fuse_rhs only)
     /// \param[in]     rhs_stride element stride of y (external mode)
     /// \return false on a singular matrix.
     template<bool internal_piv, bool internal_matrix, bool oot_diagnostics = true,
-             bool fuse_rhs = false, bool internal_rhs = true>
+             bool fuse_rhs = false, bool internal_rhs = true, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
               int& oot_count, T* TDLS_RESTRICT y = nullptr, const int rhs_stride = 1) noexcept {
-        if constexpr (physical) {
-            int weak      = 0;
-            const bool ok = physical_factorize<internal_piv, internal_matrix>(A, A_stride, piv,
-                                                                              piv_stride, weak);
-            if constexpr (oot_diagnostics) oot_count = weak;
-            if (!ok) return false;
-            if constexpr (fuse_rhs)
-                physical_forward<1, internal_rhs, internal_piv, internal_matrix>(
-                    A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return factorize<internal_piv, internal_matrix, oot_diagnostics, fuse_rhs,
+                             internal_rhs>(A, detail::stride_or<A_static_stride>(A_stride), piv,
+                                           detail::stride_or<piv_static_stride>(piv_stride),
+                                           oot_count, y,
+                                           detail::stride_or<rhs_static_stride>(rhs_stride));
+        } else {
+            if constexpr (physical) {
+                int weak      = 0;
+                const bool ok = physical_factorize<internal_piv, internal_matrix>(A, A_stride, piv,
+                                                                                  piv_stride, weak);
+                if constexpr (oot_diagnostics) oot_count = weak;
+                if (!ok) return false;
+                if constexpr (fuse_rhs)
+                    physical_forward<1, internal_rhs, internal_piv, internal_matrix>(
+                        A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+                return true;
+            }
+
+            if constexpr (oot_diagnostics) oot_count = 0;
+
+            if constexpr (Config.unroll_loops) {
+                TDLS_UNROLL_FORCE
+                for (int i = 0; i < N; ++i)
+                    TDLS_LUPP_PIV(i) = i;
+            } else {
+                for (int i = 0; i < N; ++i)
+                    TDLS_LUPP_PIV(i) = i;
+            }
+
+            if constexpr (schedule == Schedule::RightLooking) {
+                for (int k = 0; k < full_tiles; ++k)
+                    if (!rl_step<tile_size, internal_piv, internal_matrix, oot_diagnostics,
+                                 fuse_rhs, internal_rhs>(A, A_stride, piv, piv_stride, k, oot_count,
+                                                         y, rhs_stride))
+                        return false;
+                if constexpr (last_tile_tail > 0)
+                    if (!rl_step<last_tile_tail, internal_piv, internal_matrix, oot_diagnostics,
+                                 fuse_rhs, internal_rhs>(A, A_stride, piv, piv_stride, full_tiles,
+                                                         oot_count, y, rhs_stride))
+                        return false;
+            } else {
+                for (int k = 0; k < full_tiles; ++k)
+                    if (!ll_step<tile_size, internal_piv, internal_matrix, oot_diagnostics,
+                                 fuse_rhs, internal_rhs>(A, A_stride, piv, piv_stride, k, oot_count,
+                                                         y, rhs_stride))
+                        return false;
+                if constexpr (last_tile_tail > 0)
+                    if (!ll_step<last_tile_tail, internal_piv, internal_matrix, oot_diagnostics,
+                                 fuse_rhs, internal_rhs>(A, A_stride, piv, piv_stride, full_tiles,
+                                                         oot_count, y, rhs_stride))
+                        return false;
+            }
+
             return true;
         }
-
-        if constexpr (oot_diagnostics) oot_count = 0;
-
-        if constexpr (Config.unroll_loops) {
-            TDLS_UNROLL_FORCE
-            for (int i = 0; i < N; ++i)
-                TDLS_LUPP_PIV(i) = i;
-        } else {
-            for (int i = 0; i < N; ++i)
-                TDLS_LUPP_PIV(i) = i;
-        }
-
-        if constexpr (schedule == Schedule::RightLooking) {
-            for (int k = 0; k < full_tiles; ++k)
-                if (!rl_step<tile_size, internal_piv, internal_matrix, oot_diagnostics, fuse_rhs,
-                             internal_rhs>(A, A_stride, piv, piv_stride, k, oot_count, y,
-                                           rhs_stride))
-                    return false;
-            if constexpr (last_tile_tail > 0)
-                if (!rl_step<last_tile_tail, internal_piv, internal_matrix, oot_diagnostics,
-                             fuse_rhs, internal_rhs>(A, A_stride, piv, piv_stride, full_tiles,
-                                                     oot_count, y, rhs_stride))
-                    return false;
-        } else {
-            for (int k = 0; k < full_tiles; ++k)
-                if (!ll_step<tile_size, internal_piv, internal_matrix, oot_diagnostics, fuse_rhs,
-                             internal_rhs>(A, A_stride, piv, piv_stride, k, oot_count, y,
-                                           rhs_stride))
-                    return false;
-            if constexpr (last_tile_tail > 0)
-                if (!ll_step<last_tile_tail, internal_piv, internal_matrix, oot_diagnostics,
-                             fuse_rhs, internal_rhs>(A, A_stride, piv, piv_stride, full_tiles,
-                                                     oot_count, y, rhs_stride))
-                    return false;
-        }
-
-        return true;
     }
 
     /// \brief Diagnostics-free factorize overload: no out-of-tile
     /// out-parameter at all.
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
     /// \param[in,out] A          matrix, pre-offset by the caller
     /// \param[in]     A_stride   element stride of A (external mode)
     /// \param[out]    piv        permutation storage (always caller-provided)
     /// \param[in]     piv_stride element stride of piv (external mode)
     /// \return false on a singular matrix.
-    template<bool internal_piv, bool internal_matrix>
+    template<bool internal_piv, bool internal_matrix, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride) noexcept {
         int unused = 0;
-        return factorize<internal_piv, internal_matrix, false>(A, A_stride, piv, piv_stride,
-                                                               unused);
+        return factorize<internal_piv, internal_matrix, false, false, true, A_static_stride,
+                         piv_static_stride>(A, A_stride, piv, piv_stride, unused);
     }
 
     /* =====================================================================
@@ -2532,6 +2555,12 @@ struct TiledLUppSolverStatic {
     ///         ignored; false: remote, indexed with rhs_stride
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]  A          factored matrix produced by factorize
     /// \param[in]  A_stride   element stride of A (external mode)
     /// \param[in]  piv        permutation produced by factorize
@@ -2539,68 +2568,78 @@ struct TiledLUppSolverStatic {
     /// \param[in]  b          right-hand side, in original (unpermuted) order
     /// \param[out] x          solution
     /// \param[in]  rhs_stride element stride of b and x (external mode)
-    template<bool internal_rhs, bool internal_piv, bool internal_matrix>
+    template<bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                const int rhs_stride) noexcept {
-        if constexpr (physical) {
-            TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_X(i) = TDLS_LUPP_B(i);)
-            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
-            return;
-        }
-        if constexpr (transposed) {
-            // Column-major layout: b is consumed unpermuted, the solution is
-            // permuted at the end (x = P^T w).
-            if constexpr (Config.unroll_loops) {
-                TDLS_UNROLL_FORCE
-                for (int i = 0; i < N; ++i)
-                    TDLS_LUPP_X(i) = TDLS_LUPP_B(i);
-            } else {
-                for (int i = 0; i < N; ++i)
-                    TDLS_LUPP_X(i) = TDLS_LUPP_B(i);
-            }
-            transposed_fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
-            unpermute<1, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride, 0);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute<internal_rhs, internal_piv, internal_matrix>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), b, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride));
         } else {
-            if constexpr (internal_rhs) {
-                // Predicated gather: b[piv[i]] would index the internal b with
-                // a runtime value and demote it to local memory. The equality
-                // sweep keeps every index compile-time (measured: local memory
-                // eliminated, identical values).
-                if constexpr (Config.unroll_loops) {
-                    TDLS_UNROLL_FORCE
-                    for (int i = 0; i < N; ++i) {
-                        const int p = TDLS_LUPP_PIV(i);
-                        T v         = T(0);
-                        TDLS_UNROLL_FORCE
-                        for (int j = 0; j < N; ++j)
-                            if (p == j) v = b[j];
-                        TDLS_LUPP_X(i) = v;
-                    }
-                } else {
-                    for (int i = 0; i < N; ++i) {
-                        const int p = TDLS_LUPP_PIV(i);
-                        T v         = T(0);
-                        for (int j = 0; j < N; ++j)
-                            if (p == j) v = b[j];
-                        TDLS_LUPP_X(i) = v;
-                    }
-                }
-            } else {
-                if constexpr (Config.unroll_loops) {
-                    TDLS_UNROLL_FORCE
-                    for (int i = 0; i < N; ++i)
-                        TDLS_LUPP_X(i) = TDLS_LUPP_B(TDLS_LUPP_PIV(i));
-                } else {
-                    for (int i = 0; i < N; ++i)
-                        TDLS_LUPP_X(i) = TDLS_LUPP_B(TDLS_LUPP_PIV(i));
-                }
+            if constexpr (physical) {
+                TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_X(i) = TDLS_LUPP_B(i);)
+                physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+                return;
             }
-            fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, x,
-                                                                    rhs_stride, 0);
+            if constexpr (transposed) {
+                // Column-major layout: b is consumed unpermuted, the solution is
+                // permuted at the end (x = P^T w).
+                if constexpr (Config.unroll_loops) {
+                    TDLS_UNROLL_FORCE
+                    for (int i = 0; i < N; ++i)
+                        TDLS_LUPP_X(i) = TDLS_LUPP_B(i);
+                } else {
+                    for (int i = 0; i < N; ++i)
+                        TDLS_LUPP_X(i) = TDLS_LUPP_B(i);
+                }
+                transposed_fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+                unpermute<1, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride, 0);
+            } else {
+                if constexpr (internal_rhs) {
+                    // Predicated gather: b[piv[i]] would index the internal b with
+                    // a runtime value and demote it to local memory. The equality
+                    // sweep keeps every index compile-time (measured: local memory
+                    // eliminated, identical values).
+                    if constexpr (Config.unroll_loops) {
+                        TDLS_UNROLL_FORCE
+                        for (int i = 0; i < N; ++i) {
+                            const int p = TDLS_LUPP_PIV(i);
+                            T v         = T(0);
+                            TDLS_UNROLL_FORCE
+                            for (int j = 0; j < N; ++j)
+                                if (p == j) v = b[j];
+                            TDLS_LUPP_X(i) = v;
+                        }
+                    } else {
+                        for (int i = 0; i < N; ++i) {
+                            const int p = TDLS_LUPP_PIV(i);
+                            T v         = T(0);
+                            for (int j = 0; j < N; ++j)
+                                if (p == j) v = b[j];
+                            TDLS_LUPP_X(i) = v;
+                        }
+                    }
+                } else {
+                    if constexpr (Config.unroll_loops) {
+                        TDLS_UNROLL_FORCE
+                        for (int i = 0; i < N; ++i)
+                            TDLS_LUPP_X(i) = TDLS_LUPP_B(TDLS_LUPP_PIV(i));
+                    } else {
+                        for (int i = 0; i < N; ++i)
+                            TDLS_LUPP_X(i) = TDLS_LUPP_B(TDLS_LUPP_PIV(i));
+                    }
+                }
+                fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+            }
         }
     }
 
@@ -2613,6 +2652,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_rhs residency of x
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]  A          factored matrix produced by factorize
     /// \param[in]  A_stride   element stride of A (external mode)
     /// \param[in]  piv        permutation produced by factorize
@@ -2620,19 +2665,29 @@ struct TiledLUppSolverStatic {
     /// \param[in]  col        index of the canonical column e_col
     /// \param[out] x          solution
     /// \param[in]  rhs_stride element stride of x (external mode)
-    template<bool internal_rhs, bool internal_piv, bool internal_matrix>
+    template<bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                          const int piv_stride, const int col, T* TDLS_RESTRICT x,
                          const int rhs_stride) noexcept {
-        if constexpr (physical) {
-            TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_X(i) = i == col ? T(1) : T(0);)
-            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
-            return;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_canonical<internal_rhs, internal_piv, internal_matrix>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), col, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride));
+        } else {
+            if constexpr (physical) {
+                TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_X(i) = i == col ? T(1) : T(0);)
+                physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+                return;
+            }
+            substitute_canonical_multirhs_pass<1, internal_rhs, internal_piv, internal_matrix>(
+                A, A_stride, piv, piv_stride, col, x, rhs_stride, 0);
         }
-        substitute_canonical_multirhs_pass<1, internal_rhs, internal_piv, internal_matrix>(
-            A, A_stride, piv, piv_stride, col, x, rhs_stride, 0);
     }
 
     /// \brief One pass of the canonical multi right-hand-side
@@ -2721,6 +2776,12 @@ struct TiledLUppSolverStatic {
     /// \tparam pass_width      columns solved together per pass; the default
     ///         0, or any value >= nrhs, means one single pass of nrhs
     ///         columns
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]  A           factored matrix produced by factorize
     /// \param[in]  A_stride    element stride of A (external mode)
     /// \param[in]  piv         permutation produced by factorize
@@ -2731,37 +2792,48 @@ struct TiledLUppSolverStatic {
     /// \param[in]  xcol_stride element stride between columns of x
     ///             (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
                                   const int* TDLS_RESTRICT piv, const int piv_stride,
                                   const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
                                   const std::size_t xcol_stride) noexcept {
-        if constexpr (physical) {
-            TDLS_LUPP_FOR(c, 0, nrhs,
-                          TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_XW(c, i) = i == col0 + c ? T(1) : T(0);))
-            physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
-            return;
-        }
-        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
-        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
-        constexpr int columns_per_pass =
-            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            substitute_canonical_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
-                                               internal_matrix>(
-                A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
-        }
-        if constexpr (nrhs % columns_per_pass > 0) {
-            constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            substitute_canonical_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
-                                               internal_matrix>(
-                A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_canonical_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                                 pass_width>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), col0, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride);
+        } else {
+            if constexpr (physical) {
+                TDLS_LUPP_FOR(
+                    c, 0, nrhs,
+                    TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_XW(c, i) = i == col0 + c ? T(1) : T(0);))
+                physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+                return;
+            }
+            static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+            static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+            constexpr int columns_per_pass =
+                (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+            for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                substitute_canonical_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                                   internal_matrix>(
+                    A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
+            }
+            if constexpr (nrhs % columns_per_pass > 0) {
+                constexpr int c0 = nrhs - nrhs % columns_per_pass;
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                substitute_canonical_multirhs_pass<nrhs % columns_per_pass, internal_rhs,
+                                                   internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, col0 + c0, x + off, rhs_stride, xcol_stride);
+            }
         }
     }
 
@@ -2883,6 +2955,12 @@ struct TiledLUppSolverStatic {
     /// \tparam pass_width      columns solved together per pass; the default
     ///         0, or any value >= nrhs, means one single pass of nrhs
     ///         columns
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]  A           factored matrix produced by factorize
     /// \param[in]  A_stride    element stride of A (external mode)
     /// \param[in]  piv         permutation produced by factorize
@@ -2894,35 +2972,46 @@ struct TiledLUppSolverStatic {
     /// \param[in]  xcol_stride element stride between columns of b and x
     ///             (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_multirhs(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                         const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                         const int rhs_stride, const std::size_t xcol_stride) noexcept {
-        if constexpr (physical) {
-            TDLS_LUPP_FOR(c, 0, nrhs,
-                          TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_XW(c, i) = TDLS_LUPP_BW(c, i);))
-            physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
-            return;
-        }
-        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
-        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
-        constexpr int columns_per_pass =
-            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            substitute_multirhs_pass<columns_per_pass, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, b + off, x + off, rhs_stride, xcol_stride);
-        }
-        if constexpr (nrhs % columns_per_pass > 0) {
-            constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            substitute_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
-                                     internal_matrix>(A, A_stride, piv, piv_stride, b + off,
-                                                      x + off, rhs_stride, xcol_stride);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                       pass_width>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), b, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride);
+        } else {
+            if constexpr (physical) {
+                TDLS_LUPP_FOR(c, 0, nrhs,
+                              TDLS_LUPP_FOR(i, 0, N, TDLS_LUPP_XW(c, i) = TDLS_LUPP_BW(c, i);))
+                physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+                return;
+            }
+            static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+            static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+            constexpr int columns_per_pass =
+                (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+            for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                substitute_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                         internal_matrix>(A, A_stride, piv, piv_stride, b + off,
+                                                          x + off, rhs_stride, xcol_stride);
+            }
+            if constexpr (nrhs % columns_per_pass > 0) {
+                constexpr int c0 = nrhs - nrhs % columns_per_pass;
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                substitute_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
+                                         internal_matrix>(A, A_stride, piv, piv_stride, b + off,
+                                                          x + off, rhs_stride, xcol_stride);
+            }
         }
     }
 
@@ -2939,88 +3028,104 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_rhs residency of x
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]     A          factored matrix produced by factorize
     /// \param[in]     A_stride   element stride of A (external mode)
     /// \param[in]     piv        permutation produced by factorize
     /// \param[in]     piv_stride element stride of piv (external mode)
     /// \param[in,out] x          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of x (external mode)
-    template<bool internal_rhs, bool internal_piv, bool internal_matrix>
+    template<bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace(const T* TDLS_RESTRICT A, const int A_stride, const int* TDLS_RESTRICT piv,
                        const int piv_stride, T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
-        if constexpr (physical) {
-            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
-            return;
-        }
-        if constexpr (transposed) {
-            // Column-major layout: the sweeps on the unpermuted x, then the
-            // inverse cycle rotation (x = P^T w).
-            transposed_fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, 0);
-            unpermute_cycles<1, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride, 0);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_inplace<internal_rhs, internal_piv, internal_matrix>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), x,
+                detail::stride_or<rhs_static_stride>(rhs_stride));
         } else {
-            if constexpr (N <= 64) {
-                // Bitmask cycle decomposition: one visited bit per row, the
-                // whole state in a single 32- or 64-bit register.
-                using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
-                mask_t visited = mask_t(0);
-                if constexpr (Config.unroll_loops) {
-                    TDLS_UNROLL_FORCE
-                    for (int s = 0; s < N; ++s) {
-                        if ((visited >> s) & mask_t(1)) continue;
-                        const T tmp = TDLS_LUPP_X(s);
-                        int cur     = s;
-                        int nxt     = TDLS_LUPP_PIV(cur);
-                        while (nxt != s) {
-                            TDLS_LUPP_X(cur) = TDLS_LUPP_X(nxt);
+            if constexpr (physical) {
+                physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+                return;
+            }
+            if constexpr (transposed) {
+                // Column-major layout: the sweeps on the unpermuted x, then the
+                // inverse cycle rotation (x = P^T w).
+                transposed_fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
+                unpermute_cycles<1, internal_rhs, internal_piv>(piv, piv_stride, x, rhs_stride, 0);
+            } else {
+                if constexpr (N <= 64) {
+                    // Bitmask cycle decomposition: one visited bit per row, the
+                    // whole state in a single 32- or 64-bit register.
+                    using mask_t   = std::conditional_t<(N <= 32), unsigned, unsigned long long>;
+                    mask_t visited = mask_t(0);
+                    if constexpr (Config.unroll_loops) {
+                        TDLS_UNROLL_FORCE
+                        for (int s = 0; s < N; ++s) {
+                            if ((visited >> s) & mask_t(1)) continue;
+                            const T tmp = TDLS_LUPP_X(s);
+                            int cur     = s;
+                            int nxt     = TDLS_LUPP_PIV(cur);
+                            while (nxt != s) {
+                                TDLS_LUPP_X(cur) = TDLS_LUPP_X(nxt);
+                                visited |= mask_t(1) << cur;
+                                cur = nxt;
+                                nxt = TDLS_LUPP_PIV(cur);
+                            }
+                            TDLS_LUPP_X(cur) = tmp;
                             visited |= mask_t(1) << cur;
-                            cur = nxt;
-                            nxt = TDLS_LUPP_PIV(cur);
                         }
-                        TDLS_LUPP_X(cur) = tmp;
-                        visited |= mask_t(1) << cur;
+                    } else {
+                        for (int s = 0; s < N; ++s) {
+                            if ((visited >> s) & mask_t(1)) continue;
+                            const T tmp = TDLS_LUPP_X(s);
+                            int cur     = s;
+                            int nxt     = TDLS_LUPP_PIV(cur);
+                            while (nxt != s) {
+                                TDLS_LUPP_X(cur) = TDLS_LUPP_X(nxt);
+                                visited |= mask_t(1) << cur;
+                                cur = nxt;
+                                nxt = TDLS_LUPP_PIV(cur);
+                            }
+                            TDLS_LUPP_X(cur) = tmp;
+                            visited |= mask_t(1) << cur;
+                        }
                     }
                 } else {
+                    // Cycle-leader scan (no visited storage): a cycle is rotated
+                    // only when reached from its smallest index, detected by
+                    // walking the orbit. Values and order match the mask path.
                     for (int s = 0; s < N; ++s) {
-                        if ((visited >> s) & mask_t(1)) continue;
+                        int probe = TDLS_LUPP_PIV(s);
+                        while (probe > s)
+                            probe = TDLS_LUPP_PIV(probe);
+                        if (probe != s) continue;
+
                         const T tmp = TDLS_LUPP_X(s);
                         int cur     = s;
                         int nxt     = TDLS_LUPP_PIV(cur);
                         while (nxt != s) {
                             TDLS_LUPP_X(cur) = TDLS_LUPP_X(nxt);
-                            visited |= mask_t(1) << cur;
-                            cur = nxt;
-                            nxt = TDLS_LUPP_PIV(cur);
+                            cur              = nxt;
+                            nxt              = TDLS_LUPP_PIV(cur);
                         }
                         TDLS_LUPP_X(cur) = tmp;
-                        visited |= mask_t(1) << cur;
                     }
                 }
-            } else {
-                // Cycle-leader scan (no visited storage): a cycle is rotated
-                // only when reached from its smallest index, detected by
-                // walking the orbit. Values and order match the mask path.
-                for (int s = 0; s < N; ++s) {
-                    int probe = TDLS_LUPP_PIV(s);
-                    while (probe > s)
-                        probe = TDLS_LUPP_PIV(probe);
-                    if (probe != s) continue;
-
-                    const T tmp = TDLS_LUPP_X(s);
-                    int cur     = s;
-                    int nxt     = TDLS_LUPP_PIV(cur);
-                    while (nxt != s) {
-                        TDLS_LUPP_X(cur) = TDLS_LUPP_X(nxt);
-                        cur              = nxt;
-                        nxt              = TDLS_LUPP_PIV(cur);
-                    }
-                    TDLS_LUPP_X(cur) = tmp;
-                }
+                fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, 0);
             }
-            fwd_bwd<1, internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, x,
-                                                                    rhs_stride, 0);
         }
     }
 
@@ -3251,6 +3356,12 @@ struct TiledLUppSolverStatic {
     /// \tparam pass_width      columns solved together per pass; the default
     ///         0, or any value >= nrhs, means one single pass of nrhs
     ///         columns
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]     A           factored matrix produced by factorize
     /// \param[in]     A_stride    element stride of A (external mode)
     /// \param[in]     piv         permutation produced by factorize
@@ -3261,35 +3372,45 @@ struct TiledLUppSolverStatic {
     /// \param[in]     xcol_stride element stride between columns of x
     ///                (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
                                 const int* TDLS_RESTRICT piv, const int piv_stride,
                                 T* TDLS_RESTRICT x, const int rhs_stride,
                                 const std::size_t xcol_stride) noexcept {
-        if constexpr (physical) {
-            physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
-            return;
-        }
-        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
-        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
-        constexpr int columns_per_pass =
-            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            substitute_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
-                                             internal_matrix>(A, A_stride, piv, piv_stride, x + off,
-                                                              rhs_stride, xcol_stride);
-        }
-        if constexpr (nrhs % columns_per_pass > 0) {
-            constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            substitute_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
-                                             internal_matrix>(A, A_stride, piv, piv_stride, x + off,
-                                                              rhs_stride, xcol_stride);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                               pass_width>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride);
+        } else {
+            if constexpr (physical) {
+                physical_multirhs<nrhs, pass_width, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+                return;
+            }
+            static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+            static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+            constexpr int columns_per_pass =
+                (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+            for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                substitute_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                                 internal_matrix>(A, A_stride, piv, piv_stride,
+                                                                  x + off, rhs_stride, xcol_stride);
+            }
+            if constexpr (nrhs % columns_per_pass > 0) {
+                constexpr int c0 = nrhs - nrhs % columns_per_pass;
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                substitute_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs,
+                                                 internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x + off, rhs_stride, xcol_stride);
+            }
         }
     }
 
@@ -3304,6 +3425,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
     /// \tparam pass_width      columns per pass, as in substitute_inplace_multirhs
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]     A           factored matrix produced by factorize
     /// \param[in]     A_stride    element stride of A (external mode)
     /// \param[in]     piv         permutation produced by factorize
@@ -3314,34 +3441,44 @@ struct TiledLUppSolverStatic {
     /// \param[in]     xcol_stride element stride between columns of x
     ///                (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     forward_inplace_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
                              const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                              const int rhs_stride, const std::size_t xcol_stride) noexcept {
-        if constexpr (physical) {
-            physical_multirhs<nrhs, pass_width, 1, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
-            return;
-        }
-        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
-        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
-        constexpr int columns_per_pass =
-            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            forward_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
-                                          internal_matrix>(A, A_stride, piv, piv_stride, x + off,
-                                                           rhs_stride, xcol_stride);
-        }
-        if constexpr (nrhs % columns_per_pass > 0) {
-            constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            forward_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
-                                          internal_matrix>(A, A_stride, piv, piv_stride, x + off,
-                                                           rhs_stride, xcol_stride);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return forward_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                            pass_width>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride);
+        } else {
+            if constexpr (physical) {
+                physical_multirhs<nrhs, pass_width, 1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+                return;
+            }
+            static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+            static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+            constexpr int columns_per_pass =
+                (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+            for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                forward_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                              internal_matrix>(A, A_stride, piv, piv_stride,
+                                                               x + off, rhs_stride, xcol_stride);
+            }
+            if constexpr (nrhs % columns_per_pass > 0) {
+                constexpr int c0 = nrhs - nrhs % columns_per_pass;
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                forward_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
+                                              internal_matrix>(A, A_stride, piv, piv_stride,
+                                                               x + off, rhs_stride, xcol_stride);
+            }
         }
     }
 
@@ -3353,6 +3490,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
     /// \tparam pass_width      columns per pass, as in substitute_inplace_multirhs
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in]     A           factored matrix produced by factorize
     /// \param[in]     A_stride    element stride of A (external mode)
     /// \param[in]     piv         permutation produced by factorize
@@ -3363,35 +3506,45 @@ struct TiledLUppSolverStatic {
     /// \param[in]     xcol_stride element stride between columns of x
     ///                (external mode)
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     backward_inplace_multirhs(const T* TDLS_RESTRICT A, const int A_stride,
                               const int* TDLS_RESTRICT piv, const int piv_stride,
                               T* TDLS_RESTRICT x, const int rhs_stride,
                               const std::size_t xcol_stride) noexcept {
-        if constexpr (physical) {
-            physical_multirhs<nrhs, pass_width, 2, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
-            return;
-        }
-        static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
-        static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
-        constexpr int columns_per_pass =
-            (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
-        for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            backward_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
-                                           internal_matrix>(A, A_stride, piv, piv_stride, x + off,
-                                                            rhs_stride, xcol_stride);
-        }
-        if constexpr (nrhs % columns_per_pass > 0) {
-            constexpr int c0 = nrhs - nrhs % columns_per_pass;
-            const std::size_t off =
-                internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
-            backward_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
-                                           internal_matrix>(A, A_stride, piv, piv_stride, x + off,
-                                                            rhs_stride, xcol_stride);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return backward_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                             pass_width>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride);
+        } else {
+            if constexpr (physical) {
+                physical_multirhs<nrhs, pass_width, 2, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, x, rhs_stride, xcol_stride);
+                return;
+            }
+            static_assert(nrhs >= 1, "tdls: nrhs must be at least 1");
+            static_assert(pass_width >= 0, "tdls: pass_width must not be negative");
+            constexpr int columns_per_pass =
+                (pass_width <= 0 || pass_width >= nrhs) ? nrhs : pass_width;
+            for (int c0 = 0; c0 + columns_per_pass <= nrhs; c0 += columns_per_pass) {
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                backward_inplace_multirhs_pass<columns_per_pass, internal_rhs, internal_piv,
+                                               internal_matrix>(A, A_stride, piv, piv_stride,
+                                                                x + off, rhs_stride, xcol_stride);
+            }
+            if constexpr (nrhs % columns_per_pass > 0) {
+                constexpr int c0 = nrhs - nrhs % columns_per_pass;
+                const std::size_t off =
+                    internal_rhs ? unsigned(c0) * unsigned(N) : TDLS_STRIDED_WIDE(c0, xcol_stride);
+                backward_inplace_multirhs_pass<nrhs % columns_per_pass, internal_rhs, internal_piv,
+                                               internal_matrix>(A, A_stride, piv, piv_stride,
+                                                                x + off, rhs_stride, xcol_stride);
+            }
         }
     }
 
@@ -3404,6 +3557,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
     /// \tparam oot_diagnostics     compile the out-of-tile counter in or out
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization (usable for
     ///                further substitute* calls)
@@ -3417,17 +3576,26 @@ struct TiledLUppSolverStatic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix.
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             bool oot_diagnostics = true>
+             bool oot_diagnostics = true, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
           const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           int& oot_count) noexcept {
-        if (!factorize<internal_piv, internal_matrix, oot_diagnostics>(A, A_stride, piv, piv_stride,
-                                                                       oot_count))
-            return false;
-        substitute<internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, b, x,
-                                                                rhs_stride);
-        return true;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return solve<internal_rhs, internal_piv, internal_matrix, oot_diagnostics>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), b, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), oot_count);
+        } else {
+            if (!factorize<internal_piv, internal_matrix, oot_diagnostics>(A, A_stride, piv,
+                                                                           piv_stride, oot_count))
+                return false;
+            substitute<internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride, b,
+                                                                    x, rhs_stride);
+            return true;
+        }
     }
 
     /// \brief Diagnostics-free solve overload: no out-of-tile
@@ -3435,6 +3603,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_rhs residency of b and x
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride   element stride of A (external mode)
@@ -3444,13 +3618,16 @@ struct TiledLUppSolverStatic {
     /// \param[out]    x          solution
     /// \param[in]     rhs_stride element stride of b and x (external mode)
     /// \return false on a singular matrix.
-    template<bool internal_rhs, bool internal_piv, bool internal_matrix>
+    template<bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv, const int piv_stride,
           const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
         int unused = 0;
-        return solve<internal_rhs, internal_piv, internal_matrix, false>(
-            A, A_stride, piv, piv_stride, b, x, rhs_stride, unused);
+        return solve<internal_rhs, internal_piv, internal_matrix, false, A_static_stride,
+                     piv_static_stride, rhs_static_stride>(A, A_stride, piv, piv_stride, b, x,
+                                                           rhs_stride, unused);
     }
 
     /// \brief factorize + substitute_multirhs in one call.
@@ -3462,6 +3639,12 @@ struct TiledLUppSolverStatic {
     ///         the default 0, or any value >= nrhs, means one single
     ///         pass
     /// \tparam oot_diagnostics     compile the out-of-tile counter in or out
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization (usable for
     ///                further substitute* calls)
@@ -3479,17 +3662,27 @@ struct TiledLUppSolverStatic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix.
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0, bool oot_diagnostics = true>
+             int pass_width = 0, bool oot_diagnostics = true, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_multirhs(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                    const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                    const int rhs_stride, const std::size_t xcol_stride, int& oot_count) noexcept {
-        if (!factorize<internal_piv, internal_matrix, oot_diagnostics>(A, A_stride, piv, piv_stride,
-                                                                       oot_count))
-            return false;
-        substitute_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width>(
-            A, A_stride, piv, piv_stride, b, x, rhs_stride, xcol_stride);
-        return true;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return solve_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width,
+                                  oot_diagnostics>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), b, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride, oot_count);
+        } else {
+            if (!factorize<internal_piv, internal_matrix, oot_diagnostics>(A, A_stride, piv,
+                                                                           piv_stride, oot_count))
+                return false;
+            substitute_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width>(
+                A, A_stride, piv, piv_stride, b, x, rhs_stride, xcol_stride);
+            return true;
+        }
     }
 
     /// \brief Diagnostics-free solve_multirhs overload: no out-of-tile
@@ -3501,6 +3694,12 @@ struct TiledLUppSolverStatic {
     /// \tparam pass_width      columns solved together per substitution pass;
     ///         the default 0, or any value >= nrhs, means one single
     ///         pass
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride    element stride of A (external mode)
@@ -3515,13 +3714,15 @@ struct TiledLUppSolverStatic {
     ///                x (external mode)
     /// \return false on a singular matrix.
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_multirhs(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                    const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                    const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int unused = 0;
-        return solve_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width, false>(
+        return solve_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width, false,
+                              A_static_stride, piv_static_stride, rhs_static_stride>(
             A, A_stride, piv, piv_stride, b, x, rhs_stride, xcol_stride, unused);
     }
 
@@ -3545,6 +3746,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
     /// \tparam oot_diagnostics     compile the out-of-tile counter in or out
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride   element stride of A (external mode)
@@ -3556,36 +3763,45 @@ struct TiledLUppSolverStatic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix (y left partially updated).
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             bool oot_diagnostics = true>
+             bool oot_diagnostics = true, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& oot_count) noexcept {
-        if constexpr (physical) {
-            int weak      = 0;
-            const bool ok = physical_factorize<internal_piv, internal_matrix>(A, A_stride, piv,
-                                                                              piv_stride, weak);
-            if constexpr (oot_diagnostics) oot_count = weak;
-            if (!ok) return false;
-            physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return solve_inplace<internal_rhs, internal_piv, internal_matrix, oot_diagnostics>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), y,
+                detail::stride_or<rhs_static_stride>(rhs_stride), oot_count);
+        } else {
+            if constexpr (physical) {
+                int weak      = 0;
+                const bool ok = physical_factorize<internal_piv, internal_matrix>(A, A_stride, piv,
+                                                                                  piv_stride, weak);
+                if constexpr (oot_diagnostics) oot_count = weak;
+                if (!ok) return false;
+                physical_multirhs<1, 0, 3, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+                return true;
+            }
+            if (!factorize<internal_piv, internal_matrix, oot_diagnostics, true, internal_rhs>(
+                    A, A_stride, piv, piv_stride, oot_count, y, rhs_stride))
+                return false;
+
+            // Backward pass only: the forward one happened inside factorize.
+            if constexpr (transposed) {
+                // Column-major layout: L^T w = z, then x = P^T w.
+                transposed_bwd_only<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+                unpermute<1, internal_rhs, internal_piv>(piv, piv_stride, y, rhs_stride, 0);
+            } else {
+                bwd_only<1, internal_rhs, internal_piv, internal_matrix>(
+                    A, A_stride, piv, piv_stride, y, rhs_stride, 0);
+            }
             return true;
         }
-        if (!factorize<internal_piv, internal_matrix, oot_diagnostics, true, internal_rhs>(
-                A, A_stride, piv, piv_stride, oot_count, y, rhs_stride))
-            return false;
-
-        // Backward pass only: the forward one happened inside factorize.
-        if constexpr (transposed) {
-            // Column-major layout: L^T w = z, then x = P^T w.
-            transposed_bwd_only<1, internal_rhs, internal_piv, internal_matrix>(
-                A, A_stride, piv, piv_stride, y, rhs_stride, 0);
-            unpermute<1, internal_rhs, internal_piv>(piv, piv_stride, y, rhs_stride, 0);
-        } else {
-            bwd_only<1, internal_rhs, internal_piv, internal_matrix>(A, A_stride, piv, piv_stride,
-                                                                     y, rhs_stride, 0);
-        }
-        return true;
     }
 
     /// \brief Diagnostics-free solve_inplace overload: no out-of-tile
@@ -3593,6 +3809,12 @@ struct TiledLUppSolverStatic {
     /// \tparam internal_rhs residency of y
     /// \tparam internal_piv residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A          on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride   element stride of A (external mode)
@@ -3601,13 +3823,16 @@ struct TiledLUppSolverStatic {
     /// \param[in,out] y          right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride element stride of y (external mode)
     /// \return false on a singular matrix (y left partially updated).
-    template<bool internal_rhs, bool internal_piv, bool internal_matrix>
+    template<bool internal_rhs, bool internal_piv, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride) noexcept {
         int unused = 0;
-        return solve_inplace<internal_rhs, internal_piv, internal_matrix, false>(
-            A, A_stride, piv, piv_stride, y, rhs_stride, unused);
+        return solve_inplace<internal_rhs, internal_piv, internal_matrix, false, A_static_stride,
+                             piv_static_stride, rhs_static_stride>(A, A_stride, piv, piv_stride, y,
+                                                                   rhs_stride, unused);
     }
 
     /// \brief factorize + substitute_inplace_multirhs in one call: y holds
@@ -3625,6 +3850,12 @@ struct TiledLUppSolverStatic {
     ///         the default 0, or any value >= nrhs, means one single
     ///         pass
     /// \tparam oot_diagnostics     compile the out-of-tile counter in or out
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride    element stride of A (external mode)
@@ -3640,17 +3871,28 @@ struct TiledLUppSolverStatic {
     ///                pivot fell below oot_pivot_threshold
     /// \return false on a singular matrix (y left untouched).
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0, bool oot_diagnostics = true>
+             int pass_width = 0, bool oot_diagnostics = true, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace_multirhs(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                            const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                            const std::size_t xcol_stride, int& oot_count) noexcept {
-        if (!factorize<internal_piv, internal_matrix, oot_diagnostics>(A, A_stride, piv, piv_stride,
-                                                                       oot_count))
-            return false;
-        substitute_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width>(
-            A, A_stride, piv, piv_stride, y, rhs_stride, xcol_stride);
-        return true;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return solve_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                          pass_width, oot_diagnostics>(
+                A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), y,
+                detail::stride_or<rhs_static_stride>(rhs_stride), xcol_stride, oot_count);
+        } else {
+            if (!factorize<internal_piv, internal_matrix, oot_diagnostics>(A, A_stride, piv,
+                                                                           piv_stride, oot_count))
+                return false;
+            substitute_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix,
+                                        pass_width>(A, A_stride, piv, piv_stride, y, rhs_stride,
+                                                    xcol_stride);
+            return true;
+        }
     }
 
     /// \brief Diagnostics-free solve_inplace_multirhs overload: no
@@ -3662,6 +3904,12 @@ struct TiledLUppSolverStatic {
     /// \tparam pass_width      columns solved together per substitution pass;
     ///         the default 0, or any value >= nrhs, means one single
     ///         pass
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           on entry the matrix (pre-offset by the
     ///                caller), on exit its factorization
     /// \param[in]     A_stride    element stride of A (external mode)
@@ -3675,15 +3923,16 @@ struct TiledLUppSolverStatic {
     ///                (external mode)
     /// \return false on a singular matrix (y left untouched).
     template<int nrhs, bool internal_rhs, bool internal_piv, bool internal_matrix,
-             int pass_width = 0>
+             int pass_width = 0, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace_multirhs(T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                            const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                            const std::size_t xcol_stride) noexcept {
         int unused = 0;
         return solve_inplace_multirhs<nrhs, internal_rhs, internal_piv, internal_matrix, pass_width,
-                                      false>(A, A_stride, piv, piv_stride, y, rhs_stride,
-                                             xcol_stride, unused);
+                                      false, A_static_stride, piv_static_stride, rhs_static_stride>(
+            A, A_stride, piv, piv_stride, y, rhs_stride, xcol_stride, unused);
     }
 
     /* =====================================================================

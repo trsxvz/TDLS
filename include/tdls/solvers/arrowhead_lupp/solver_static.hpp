@@ -84,7 +84,8 @@
 /// comes out unchanged and serves the next columns.
 ///
 /// The caller pre-offsets every remote pointer with the system index and
-/// passes a runtime stride, as for the other families; the
+/// passes a runtime stride, as for the other families, or a stride known
+/// at compile time as a template argument (see tdls::dynamic_stride); the
 /// `internal_rhs` / `internal_work` / `internal_matrix` template booleans
 /// declare a caller-local array instead (stride ignored). The workspace
 /// holds the front of the second pass: it is touched only when blocks are
@@ -524,6 +525,12 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    y is a caller-local array (stride ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \param[in]     provider      the source of the blocks
     /// \param[in,out] A             storage: A_bb on entry; recovery data on exit
@@ -535,16 +542,20 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     rhs_stride    element stride of y
     /// \param[out]    refused_count number of refused blocks
     /// \return false when the matrix is singular
-    template<bool internal_rhs, bool internal_work, bool internal_matrix, typename Provider>
+    template<bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Provider>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_streamed(Provider&& provider, T* TDLS_RESTRICT A, const int A_stride,
                            T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
                            const int rhs_stride, int& refused_count) noexcept {
         if constexpr (Config.streamed_out_of_line)
-            return solve_core_out_of_line<1, false, internal_rhs, internal_work, internal_matrix>(
+            return solve_core_out_of_line<1, false, internal_rhs, internal_work, internal_matrix,
+                                          A_static_stride, work_static_stride, rhs_static_stride>(
                 A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
         else
-            return solve_core<1, false, internal_rhs, internal_work, internal_matrix>(
+            return solve_core<1, false, internal_rhs, internal_work, internal_matrix,
+                              A_static_stride, work_static_stride, rhs_static_stride>(
                 A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count, &provider);
     }
 
@@ -571,6 +582,14 @@ struct ArrowheadLUppSolverStatic {
     ///                         from m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
+    /// \tparam x_static_stride compile-time stride of x, used instead of
+    ///         x_stride; tdls::dynamic_stride (the default) reads x_stride
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \tparam Converged       callable () returning bool
     /// \tparam outlined        internal: set by the out-of-line call of
@@ -596,6 +615,8 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of refused blocks
     /// \return solved, tangent, or singular when the matrix is singular
     template<int ntan, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, int x_static_stride = dynamic_stride,
              typename Provider, typename Converged, bool outlined = false>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr StreamedOutcome
     solve_inplace_streamed_or_tangent(Provider&& provider, Converged&& converged,
@@ -606,103 +627,24 @@ struct ArrowheadLUppSolverStatic {
                                       int& refused_count) noexcept {
         static_assert(ntan >= 1 && ntan <= Shape.border,
                       "ArrowheadLUppSolverStatic: ntan must be in [1, border]");
-        TDLS_ARROW_LUPP_SIDED(
-            template solve_inplace_streamed_or_tangent<
-                ntan, internal_rhs, internal_work, internal_matrix, Provider, Converged, outlined>(
-                std::forward<Provider>(provider), std::forward<Converged>(converged), A, A_stride,
-                work, work_stride, y, rhs_stride, col0, x, x_stride, xcol_stride, refused_count))
+        TDLS_ARROW_LUPP_SIDED(template solve_inplace_streamed_or_tangent<
+                              ntan, internal_rhs, internal_work, internal_matrix, A_static_stride,
+                              work_static_stride, rhs_static_stride, x_static_stride, Provider,
+                              Converged, outlined>(
+            std::forward<Provider>(provider), std::forward<Converged>(converged), A, A_stride, work,
+            work_stride, y, rhs_stride, col0, x, x_stride, xcol_stride, refused_count))
         if constexpr (Config.streamed_out_of_line && !outlined)
-            return streamed_or_tangent_out_of_line<ntan, internal_rhs, internal_work,
-                                                   internal_matrix>(
+            return streamed_or_tangent_out_of_line<
+                ntan, internal_rhs, internal_work, internal_matrix, A_static_stride,
+                work_static_stride, rhs_static_stride, x_static_stride>(
                 provider, converged, A, A_stride, work, work_stride, y, rhs_stride, col0, x,
                 x_stride, xcol_stride, refused_count);
-        constexpr int ny                     = 1;
-        [[maybe_unused]] constexpr int ycols = 1;
-        T Sacc[in_place ? 1 : R * B];
-        T racc[in_place ? 1 : R];
-        if constexpr (in_place) {
-            Sacc[0] = T(0);
-            racc[0] = T(0);
-        } else {
-            TDLS_ARROW_LUPP_FOR(
-                r, 0, R,
-                TDLS_ARROW_LUPP_FOR(c, 0, B,
-                                    Sacc[r * B + c] = TDLS_ARROW_LUPP_A(
-                                        storage_map::abb(shape_value(), R0 + r, c));) racc[r] =
-                    TDLS_ARROW_LUPP_YW(0, R0 + r);)
-        }
-        constexpr int words = (NB + 31) / 32;
-        unsigned refused[words];
-        TDLS_ARROW_LUPP_FOR(e, 0, words, refused[e] = 0u;)
-        refused_count = 0;
-        for (int k = 0; k < NB; ++k) {
-            StreamedBlock blk;
-            provider(k, blk);
-            if (!condense_or_store_streamed<ny, internal_rhs, internal_matrix>(
-                    A, A_stride, y, rhs_stride, 0, k, Sacc, racc, blk)) {
-                refused[k >> 5] |= 1u << (k & 31);
-                ++refused_count;
-            }
-        }
-        T Sbb[B * B];
-        int pb[B];
-        // The rows as stored and the accumulated rows in separate loops, as
-        // in solve_core.
-        constexpr int acc0 = in_place ? B : R0;
-        constexpr int acc1 = in_place ? B : R0 + R;
-        TDLS_ARROW_LUPP_FOR(r, 0, acc0,
-                            TDLS_ARROW_LUPP_FOR(c, 0, B,
-                                                Sbb[r * B + c] = TDLS_ARROW_LUPP_A(
-                                                    storage_map::abb(shape_value(), r, c));))
-        TDLS_ARROW_LUPP_FOR(r, acc0, acc1,
-                            TDLS_ARROW_LUPP_FOR(c, 0, B, Sbb[r * B + c] = Sacc[(r - R0) * B + c];))
-        TDLS_ARROW_LUPP_FOR(r, acc1, B,
-                            TDLS_ARROW_LUPP_FOR(c, 0, B,
-                                                Sbb[r * B + c] = TDLS_ARROW_LUPP_A(
-                                                    storage_map::abb(shape_value(), r, c));))
-        if (converged()) {
-            T rt[B * ntan];
-            TDLS_ARROW_LUPP_FOR(
-                m, 0, ntan,
-                TDLS_ARROW_LUPP_FOR(r, 0, B, rt[m * B + r] = r == col0 + m ? T(1) : T(0);))
-            // the refused blocks, stored as is, by the second pass of the
-            // canonical solve, which writes neither x nor y
-            if (refused_count > 0 &&
-                !second_pass<ntan, true, internal_rhs, internal_work, internal_matrix>(
-                    A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rt,
-                    BlockSolver::singular_floor))
-                return StreamedOutcome::singular;
-            bool ok;
-            if constexpr (ntan == 1)
-                ok = BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rt, 1);
-            else
-                ok = BorderSolver::template solve_inplace_multirhs<ntan, true, true, true>(
-                    Sbb, 1, pb, 1, rt, 1, B);
-            if (!ok) return StreamedOutcome::singular;
-            TDLS_ARROW_LUPP_FOR(
-                m, 0, ntan,
-                TDLS_ARROW_LUPP_FOR(r, 0, B,
-                                    x[internal_rhs ? unsigned(m * B + r)
-                                                   : TDLS_STRIDED(r, x_stride) +
-                                                         TDLS_STRIDED_WIDE(m, xcol_stride)] =
-                                        rt[m * B + r];))
-            return StreamedOutcome::tangent;
-        }
-        T rb[B];
-        TDLS_ARROW_LUPP_FOR(r, 0, acc0, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
-        TDLS_ARROW_LUPP_FOR(r, acc0, acc1, rb[r] = racc[r - R0];)
-        TDLS_ARROW_LUPP_FOR(r, acc1, B, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
-        if (refused_count > 0 &&
-            !second_pass<1, false, internal_rhs, internal_work, internal_matrix>(
-                A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rb,
-                BlockSolver::singular_floor))
-            return StreamedOutcome::singular;
-        if (!BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rb, 1))
-            return StreamedOutcome::singular;
-        TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_YW(0, r) = rb[r];)
-        recover<1, internal_rhs, internal_work, internal_matrix>(A, A_stride, work, work_stride, y,
-                                                                 rhs_stride, 0, refused, rb);
-        return StreamedOutcome::solved;
+        else
+            return streamed_or_tangent_core<ntan, internal_rhs, internal_work, internal_matrix,
+                                            A_static_stride, work_static_stride, rhs_static_stride,
+                                            x_static_stride>(provider, converged, A, A_stride, work,
+                                                             work_stride, y, rhs_stride, col0, x,
+                                                             x_stride, xcol_stride, refused_count);
     }
 
     /// \brief solve_border_canonical_multirhs with the blocks streamed (see
@@ -712,6 +654,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \param[in]     provider      the source of the blocks
     /// \param[in,out] A             storage: A_bb on entry; on exit the
@@ -730,7 +678,8 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of refused blocks
     /// \return false when the matrix is singular
     template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
-             typename Provider>
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Provider>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool solve_border_canonical_multirhs_streamed(
         Provider&& provider, T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
         const int work_stride, const int col0, T* TDLS_RESTRICT x, const int rhs_stride,
@@ -738,11 +687,13 @@ struct ArrowheadLUppSolverStatic {
         static_assert(nrhs >= 1 && nrhs <= Shape.border,
                       "ArrowheadLUppSolverStatic: nrhs must be in [1, border]");
         if constexpr (Config.streamed_out_of_line)
-            return solve_core_out_of_line<nrhs, true, internal_rhs, internal_work, internal_matrix>(
+            return solve_core_out_of_line<nrhs, true, internal_rhs, internal_work, internal_matrix,
+                                          A_static_stride, work_static_stride, rhs_static_stride>(
                 A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count,
                 &provider);
         else
-            return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix>(
+            return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix,
+                              A_static_stride, work_static_stride, rhs_static_stride>(
                 A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count,
                 &provider);
     }
@@ -751,6 +702,12 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    y is a caller-local array (stride ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A             matrix in its storage (pattern entries
     ///                              only); recovery data on exit
     /// \param[in]     A_stride      element stride of A
@@ -762,19 +719,28 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check, eliminated by the second pass
     /// \return false when the matrix is singular
-    template<bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                   const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                   int& refused_count) noexcept {
-        return solve_core<1, false, internal_rhs, internal_work, internal_matrix>(
-            A, A_stride, work, work_stride, y, rhs_stride, 0, 0, refused_count);
+        return solve_core<1, false, internal_rhs, internal_work, internal_matrix, A_static_stride,
+                          work_static_stride, rhs_static_stride>(A, A_stride, work, work_stride, y,
+                                                                 rhs_stride, 0, 0, refused_count);
     }
 
     /// \brief Solves A x = y in place.
     /// \tparam internal_rhs    y is a caller-local array (stride ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           matrix in its storage; recovery data on exit
     /// \param[in]     A_stride    element stride of A
     /// \param[out]    work        workspace of workspace_size entries
@@ -782,13 +748,16 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in,out] y           right-hand side on entry, solution on exit
     /// \param[in]     rhs_stride  element stride of y
     /// \return false when the matrix is singular
-    template<bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                   const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride) noexcept {
         int refused_count = 0;
-        return solve_inplace<internal_rhs, internal_work, internal_matrix>(
-            A, A_stride, work, work_stride, y, rhs_stride, refused_count);
+        return solve_inplace<internal_rhs, internal_work, internal_matrix, A_static_stride,
+                             work_static_stride, rhs_static_stride>(A, A_stride, work, work_stride,
+                                                                    y, rhs_stride, refused_count);
     }
 
     /// \brief Solves A x = b, b left untouched, counting the refused
@@ -797,6 +766,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A             matrix in its storage; recovery data on
     ///                              exit
     /// \param[in]     A_stride      element stride of A
@@ -808,19 +783,23 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check
     /// \return false when the matrix is singular
-    template<bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
           const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           int& refused_count) noexcept {
+        const int stride = detail::stride_or<rhs_static_stride>(rhs_stride);
         for (int i = 0; i < dimension; ++i) {
             if constexpr (internal_rhs)
                 x[i] = b[i];
             else
-                x[TDLS_STRIDED(i, rhs_stride)] = b[TDLS_STRIDED(i, rhs_stride)];
+                x[TDLS_STRIDED(i, stride)] = b[TDLS_STRIDED(i, stride)];
         }
-        return solve_inplace<internal_rhs, internal_work, internal_matrix>(
-            A, A_stride, work, work_stride, x, rhs_stride, refused_count);
+        return solve_inplace<internal_rhs, internal_work, internal_matrix, A_static_stride,
+                             work_static_stride, rhs_static_stride>(A, A_stride, work, work_stride,
+                                                                    x, rhs_stride, refused_count);
     }
 
     /// \brief Solves A x = b, b left untouched.
@@ -828,6 +807,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           matrix in its storage; recovery data on exit
     /// \param[in]     A_stride    element stride of A
     /// \param[out]    work        workspace of workspace_size entries
@@ -836,13 +821,16 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    x           solution
     /// \param[in]     rhs_stride  element stride of b and x
     /// \return false when the matrix is singular
-    template<bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
           const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride) noexcept {
         int refused_count = 0;
-        return solve<internal_rhs, internal_work, internal_matrix>(A, A_stride, work, work_stride,
-                                                                   b, x, rhs_stride, refused_count);
+        return solve<internal_rhs, internal_work, internal_matrix, A_static_stride,
+                     work_static_stride, rhs_static_stride>(A, A_stride, work, work_stride, b, x,
+                                                            rhs_stride, refused_count);
     }
 
     /// \brief Solves A X = Y in place for nrhs right-hand sides, counting
@@ -857,6 +845,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         m * dimension (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A             matrix in its storage (pattern entries
     ///                              only); recovery data on exit
     /// \param[in]     A_stride      element stride of A
@@ -871,13 +865,16 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check, eliminated by the second pass
     /// \return false when the matrix is singular
-    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                            const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                            const std::size_t xcol_stride, int& refused_count) noexcept {
         static_assert(nrhs >= 1, "ArrowheadLUppSolverStatic: nrhs must be >= 1");
-        return solve_core<nrhs, false, internal_rhs, internal_work, internal_matrix>(
+        return solve_core<nrhs, false, internal_rhs, internal_work, internal_matrix,
+                          A_static_stride, work_static_stride, rhs_static_stride>(
             A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, 0, refused_count);
     }
 
@@ -887,6 +884,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         m * dimension (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           matrix in its storage; recovery data on exit
     /// \param[in]     A_stride    element stride of A
     /// \param[out]    work        workspace of multirhs_workspace_size<nrhs>
@@ -897,13 +900,16 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     rhs_stride  element stride of y
     /// \param[in]     xcol_stride element stride between columns of y
     /// \return false when the matrix is singular
-    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_inplace_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                            const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                            const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
-        return solve_inplace_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
+        return solve_inplace_multirhs<nrhs, internal_rhs, internal_work, internal_matrix,
+                                      A_static_stride, work_static_stride, rhs_static_stride>(
             A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused_count);
     }
 
@@ -915,6 +921,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         from m * dimension (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A             matrix in its storage; recovery data on
     ///                              exit
     /// \param[in]     A_stride      element stride of A
@@ -928,21 +940,25 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check
     /// \return false when the matrix is singular
-    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                    const int work_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                    const int rhs_stride, const std::size_t xcol_stride,
                    int& refused_count) noexcept {
+        const int stride = detail::stride_or<rhs_static_stride>(rhs_stride);
         for (int m = 0; m < nrhs; ++m)
             for (int i = 0; i < dimension; ++i) {
                 if constexpr (internal_rhs)
                     x[m * dimension + i] = b[m * dimension + i];
                 else
-                    x[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
-                        b[TDLS_STRIDED(i, rhs_stride) + TDLS_STRIDED_WIDE(m, xcol_stride)];
+                    x[TDLS_STRIDED(i, stride) + TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                        b[TDLS_STRIDED(i, stride) + TDLS_STRIDED_WIDE(m, xcol_stride)];
             }
-        return solve_inplace_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
+        return solve_inplace_multirhs<nrhs, internal_rhs, internal_work, internal_matrix,
+                                      A_static_stride, work_static_stride, rhs_static_stride>(
             A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, refused_count);
     }
 
@@ -952,6 +968,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         from m * dimension (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           matrix in its storage; recovery data on exit
     /// \param[in]     A_stride    element stride of A
     /// \param[out]    work        workspace of multirhs_workspace_size<nrhs>
@@ -962,13 +984,16 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     rhs_stride  element stride of b and x
     /// \param[in]     xcol_stride element stride between columns of b and x
     /// \return false when the matrix is singular
-    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                    const int work_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x,
                    const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
-        return solve_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
+        return solve_multirhs<nrhs, internal_rhs, internal_work, internal_matrix, A_static_stride,
+                              work_static_stride, rhs_static_stride>(
             A, A_stride, work, work_stride, b, x, rhs_stride, xcol_stride, refused_count);
     }
 
@@ -994,6 +1019,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A             matrix in its storage; unchanged on exit,
     ///                              but under schur_in_place
     /// \param[in]     A_stride      element stride of A
@@ -1008,7 +1039,9 @@ struct ArrowheadLUppSolverStatic {
     /// \param[out]    refused_count number of blocks refused by the pivot
     ///                              check
     /// \return false when the matrix is singular
-    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_border_canonical_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                                     const int work_stride, const int col0, T* TDLS_RESTRICT x,
@@ -1016,7 +1049,8 @@ struct ArrowheadLUppSolverStatic {
                                     int& refused_count) noexcept {
         static_assert(nrhs >= 1 && nrhs <= Shape.border,
                       "ArrowheadLUppSolverStatic: nrhs must be in [1, border]");
-        return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix>(
+        return solve_core<nrhs, true, internal_rhs, internal_work, internal_matrix, A_static_stride,
+                          work_static_stride, rhs_static_stride>(
             A, A_stride, work, work_stride, x, rhs_stride, xcol_stride, col0, refused_count);
     }
 
@@ -1027,6 +1061,12 @@ struct ArrowheadLUppSolverStatic {
     ///                         m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix A is a caller-local array (stride ignored)
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \param[in,out] A           matrix in its storage; unchanged on exit,
     ///                            but under schur_in_place
     /// \param[in]     A_stride    element stride of A
@@ -1038,13 +1078,17 @@ struct ArrowheadLUppSolverStatic {
     /// \param[in]     rhs_stride  element stride of x
     /// \param[in]     xcol_stride element stride between columns of x
     /// \return false when the matrix is singular
-    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nrhs, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr bool
     solve_border_canonical_multirhs(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                                     const int work_stride, const int col0, T* TDLS_RESTRICT x,
                                     const int rhs_stride, const std::size_t xcol_stride) noexcept {
         int refused_count = 0;
-        return solve_border_canonical_multirhs<nrhs, internal_rhs, internal_work, internal_matrix>(
+        return solve_border_canonical_multirhs<nrhs, internal_rhs, internal_work, internal_matrix,
+                                               A_static_stride, work_static_stride,
+                                               rhs_static_stride>(
             A, A_stride, work, work_stride, col0, x, rhs_stride, xcol_stride, refused_count);
     }
 
@@ -1097,6 +1141,12 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    y is a caller-local array (stride ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix Abb is a caller-local array (stride ignored)
+    /// \tparam Abb_static_stride compile-time stride of Abb, used instead of
+    ///         Abb_stride; tdls::dynamic_stride (the default) reads Abb_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \param[in]     provider      the source of the blocks
     /// \param[in]     Abb           the border block A_bb, B x B in the layout
@@ -1113,14 +1163,16 @@ struct ArrowheadLUppSolverStatic {
     /// \return solved, singular, or deferred when more than capacity blocks
     ///         are refused
     template<int capacity, bool internal_rhs, bool internal_work, bool internal_matrix,
-             typename Provider>
+             int Abb_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Provider>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOutcome
     solve_inplace_recomputed(Provider&& provider, const T* TDLS_RESTRICT Abb, const int Abb_stride,
                              T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
                              const int rhs_stride, int& refused_count) noexcept {
-        return recomputed_core<0, capacity, internal_rhs, internal_work, internal_matrix>(
-            provider, Abb, Abb_stride, work, work_stride, y, rhs_stride, 0, nullptr, 1, 0,
-            refused_count);
+        return recomputed_core<0, capacity, internal_rhs, internal_work, internal_matrix,
+                               Abb_static_stride, work_static_stride, rhs_static_stride,
+                               dynamic_stride>(provider, Abb, Abb_stride, work, work_stride, y,
+                                               rhs_stride, 0, nullptr, 1, 0, refused_count);
     }
 
     /// \brief One recomputed pass of a Newton iteration: the blocks
@@ -1143,6 +1195,14 @@ struct ArrowheadLUppSolverStatic {
     ///                         from m * border (strides ignored)
     /// \tparam internal_work   work is a caller-local array (stride ignored)
     /// \tparam internal_matrix Abb is a caller-local array (stride ignored)
+    /// \tparam Abb_static_stride compile-time stride of Abb, used instead of
+    ///         Abb_stride; tdls::dynamic_stride (the default) reads Abb_stride
+    /// \tparam work_static_stride compile-time stride of work, used instead of
+    ///         work_stride; tdls::dynamic_stride (the default) reads work_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
+    /// \tparam x_static_stride compile-time stride of x, used instead of
+    ///         x_stride; tdls::dynamic_stride (the default) reads x_stride
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \tparam Converged       callable () returning bool
     /// \param[in]     provider      the source of the blocks
@@ -1167,6 +1227,8 @@ struct ArrowheadLUppSolverStatic {
     /// \return solved, tangent, singular, or deferred when more than
     ///         capacity blocks are refused
     template<int ntan, int capacity, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int Abb_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, int x_static_stride = dynamic_stride,
              typename Provider, typename Converged>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOutcome
     solve_inplace_recomputed_or_tangent(Provider&& provider, Converged&& converged,
@@ -1178,9 +1240,11 @@ struct ArrowheadLUppSolverStatic {
                                         int& refused_count) noexcept {
         static_assert(ntan >= 1 && ntan <= Shape.border,
                       "ArrowheadLUppSolverStatic: ntan must be in [1, border]");
-        return recomputed_core<ntan, capacity, internal_rhs, internal_work, internal_matrix>(
-            provider, Abb, Abb_stride, work, work_stride, y, rhs_stride, col0, x, x_stride,
-            xcol_stride, refused_count, &converged);
+        return recomputed_core<ntan, capacity, internal_rhs, internal_work, internal_matrix,
+                               Abb_static_stride, work_static_stride, rhs_static_stride,
+                               x_static_stride>(provider, Abb, Abb_stride, work, work_stride, y,
+                                                rhs_stride, col0, x, x_stride, xcol_stride,
+                                                refused_count, &converged);
     }
 
   private:
@@ -1200,37 +1264,55 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    y and x are caller-local arrays
     /// \tparam internal_work   work is a caller-local array
     /// \tparam internal_matrix Abb is a caller-local array
+    /// \tparam Abb_static_stride compile-time stride, used instead of Abb_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam work_static_stride compile-time stride, used instead of work_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam rhs_static_stride compile-time stride, used instead of rhs_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam x_static_stride compile-time stride, used instead of x_stride_arg
+    ///         unless dynamic_stride
     /// \tparam Provider        callable (int k, StreamedBlock& blk)
     /// \tparam Converged       none, or callable () returning bool
     /// \param[in]     provider      the source of the blocks
     /// \param[in]     Abb           the border block
-    /// \param[in]     Abb_stride    element stride of Abb
+    /// \param[in]     Abb_stride_arg element stride of Abb
     /// \param[out]    work          workspace
-    /// \param[in]     work_stride   element stride of work
+    /// \param[in]     work_stride_arg element stride of work
     /// \param[in,out] y             border rows of the right-hand side on
     ///                              entry, the solution on exit when solved
-    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     rhs_stride_arg element stride of y
     /// \param[in]     col0          first tangent column
     /// \param[out]    x             the tangent columns
-    /// \param[in]     x_stride      element stride of x
+    /// \param[in]     x_stride_arg  element stride of x
     /// \param[in]     xcol_stride   element stride between columns of x
     /// \param[out]    refused_count number of refused blocks
     /// \param[in]     converged     none, or whether the tangent replaces the
     ///                              correction
     /// \return the outcome
     template<int ntan, int capacity, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int Abb_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, int x_static_stride = dynamic_stride,
              typename Provider, typename... Converged>
     [[nodiscard]] TDLS_HOST_DEVICE static constexpr RecomputedOutcome
-    recomputed_core(Provider& provider, const T* TDLS_RESTRICT Abb, const int Abb_stride,
-                    [[maybe_unused]] T* TDLS_RESTRICT work, [[maybe_unused]] const int work_stride,
-                    T* TDLS_RESTRICT y, const int rhs_stride, [[maybe_unused]] const int col0,
-                    [[maybe_unused]] T* TDLS_RESTRICT x, [[maybe_unused]] const int x_stride,
+    recomputed_core(Provider& provider, const T* TDLS_RESTRICT Abb, const int Abb_stride_arg,
+                    [[maybe_unused]] T* TDLS_RESTRICT work,
+                    [[maybe_unused]] const int work_stride_arg, T* TDLS_RESTRICT y,
+                    const int rhs_stride_arg, [[maybe_unused]] const int col0,
+                    [[maybe_unused]] T* TDLS_RESTRICT x, [[maybe_unused]] const int x_stride_arg,
                     [[maybe_unused]] const std::size_t xcol_stride, int& refused_count,
                     Converged*... converged) noexcept {
+        const int Abb_stride = detail::stride_or<Abb_static_stride>(Abb_stride_arg);
+        [[maybe_unused]] const int work_stride =
+            detail::stride_or<work_static_stride>(work_stride_arg);
+        const int rhs_stride                = detail::stride_or<rhs_static_stride>(rhs_stride_arg);
+        [[maybe_unused]] const int x_stride = detail::stride_or<x_static_stride>(x_stride_arg);
         TDLS_ARROW_LUPP_SIDED(
-            template recomputed_core<ntan, capacity, internal_rhs, internal_work, internal_matrix>(
-                provider, Abb, Abb_stride, work, work_stride, y, rhs_stride, col0, x, x_stride,
-                xcol_stride, refused_count, converged...))
+            template recomputed_core<ntan, capacity, internal_rhs, internal_work, internal_matrix,
+                                     Abb_static_stride, work_static_stride, rhs_static_stride,
+                                     x_static_stride>(provider, Abb, Abb_stride, work, work_stride,
+                                                      y, rhs_stride, col0, x, x_stride, xcol_stride,
+                                                      refused_count, converged...))
         static_assert(capacity >= 0 && capacity <= NB,
                       "ArrowheadLUppSolverStatic: the capacity of the store of refused blocks "
                       "must be in [0, blocks]");
@@ -1303,8 +1385,9 @@ struct ArrowheadLUppSolverStatic {
                     m, 0, fnc,
                     TDLS_ARROW_LUPP_FOR(r, 0, B, rt[m * B + r] = r == col0 + m ? T(1) : T(0);))
                 if constexpr (capacity > 0) {
-                    if (count > 0 && !second_pass_refused<capacity, fnc, fnc, true, internal_work>(
-                                         work, work_stride, count, Sbb, rt))
+                    if (count > 0 &&
+                        !second_pass_refused<capacity, fnc, fnc, true, internal_work,
+                                             work_static_stride>(work, work_stride, count, Sbb, rt))
                         return RecomputedOutcome::singular;
                 }
                 int pt[B];
@@ -1330,8 +1413,9 @@ struct ArrowheadLUppSolverStatic {
         TDLS_ARROW_LUPP_FOR(r, 0, B, const bool acc = r >= R0 && r < R0 + R;
                             rb[r] = acc ? racc[acc ? r - R0 : 0] : TDLS_ARROW_LUPP_Y(r);)
         if constexpr (capacity > 0) {
-            if (count > 0 && !second_pass_refused<capacity, fnc, 1, false, internal_work>(
-                                 work, work_stride, count, Sbb, rb))
+            if (count > 0 &&
+                !second_pass_refused<capacity, fnc, 1, false, internal_work, work_static_stride>(
+                    work, work_stride, count, Sbb, rb))
                 return RecomputedOutcome::singular;
         }
         int pb[B];
@@ -1352,8 +1436,9 @@ struct ArrowheadLUppSolverStatic {
         }
         if constexpr (capacity > 0) {
             if (count > 0)
-                recover_refused<capacity, fnc, internal_rhs, internal_work>(
-                    work, work_stride, y, rhs_stride, refused, count, rb);
+                recover_refused<capacity, fnc, internal_rhs, internal_work, work_static_stride,
+                                rhs_static_stride>(work, work_stride, y, rhs_stride, refused, count,
+                                                   rb);
         }
         TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_Y(r) = rb[r];)
         return RecomputedOutcome::solved;
@@ -1429,21 +1514,25 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam canonical     unit columns of the border (the tangent): no
     ///                       recovery data
     /// \tparam internal_work work is a caller-local array (stride ignored)
+    /// \tparam work_static_stride compile-time stride, used instead of work_stride_arg
+    ///         unless dynamic_stride
     /// \param[in,out] work        workspace
-    /// \param[in]     work_stride element stride of work
+    /// \param[in]     work_stride_arg element stride of work
     /// \param[in]     count       number of refused blocks
     /// \param[in,out] Sbb         the border matrix, the final one on exit
     /// \param[in,out] rb          its right-hand sides (column m at m * B),
     ///                            the final ones on exit
     /// \return false when the matrix is singular
-    template<int capacity, int fnc, int nc, bool canonical, bool internal_work>
+    template<int capacity, int fnc, int nc, bool canonical, bool internal_work,
+             int work_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE static constexpr bool
-    second_pass_refused(T* TDLS_RESTRICT work, const int work_stride, const int count,
+    second_pass_refused(T* TDLS_RESTRICT work, const int work_stride_arg, const int count,
                         T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb) noexcept {
-        using Store         = RefusedStore<capacity>;
-        constexpr int off   = Store::template multirhs_workspace_size<fnc>;
-        constexpr int oy    = off + Store::storage_size;
-        constexpr int words = (capacity + 31) / 32;
+        const int work_stride = detail::stride_or<work_static_stride>(work_stride_arg);
+        using Store           = RefusedStore<capacity>;
+        constexpr int off     = Store::template multirhs_workspace_size<fnc>;
+        constexpr int oy      = off + Store::storage_size;
+        constexpr int words   = (capacity + 31) / 32;
         unsigned held[words];
         for (int e = 0; e < words; ++e)
             held[e] = 0u;
@@ -1452,9 +1541,10 @@ struct ArrowheadLUppSolverStatic {
         T* const store  = work + (internal_work ? off : TDLS_STRIDED(off, work_stride));
         T* const ystore = work + (internal_work ? oy : TDLS_STRIDED(oy, work_stride));
         return Store::template second_pass<nc, canonical, internal_work, internal_work,
-                                           internal_work>(store, work_stride, work, work_stride,
-                                                          ystore, work_stride, 0, held, Sbb, rb,
-                                                          BlockSolver::singular_floor);
+                                           internal_work, work_static_stride, work_static_stride,
+                                           work_static_stride>(
+            store, work_stride, work, work_stride, ystore, work_stride, 0, held, Sbb, rb,
+            BlockSolver::singular_floor);
     }
 
 // The block the provider wrote for the recovery (see the suppression
@@ -1493,23 +1583,30 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam fnc           columns of the front reserved before the store
     /// \tparam internal_rhs  y is a caller-local array (stride ignored)
     /// \tparam internal_work work is a caller-local array (stride ignored)
+    /// \tparam work_static_stride compile-time stride, used instead of work_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam rhs_static_stride compile-time stride, used instead of rhs_stride_arg
+    ///         unless dynamic_stride
     /// \param[in]     work        workspace: the store, after the second pass
-    /// \param[in]     work_stride element stride of work
+    /// \param[in]     work_stride_arg element stride of work
     /// \param[out]    y           the unknowns of the refused blocks
-    /// \param[in]     rhs_stride  element stride of y
+    /// \param[in]     rhs_stride_arg element stride of y
     /// \param[in]     refused     bit k set for a refused block k
     /// \param[in]     count       number of refused blocks
     /// \param[in]     rb          the border solution
-    template<int capacity, int fnc, bool internal_rhs, bool internal_work>
+    template<int capacity, int fnc, bool internal_rhs, bool internal_work,
+             int work_static_stride = dynamic_stride, int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE static constexpr void
-    recover_refused(const T* TDLS_RESTRICT work, const int work_stride, T* TDLS_RESTRICT y,
-                    const int rhs_stride, const unsigned* TDLS_RESTRICT refused, const int count,
-                    const T* TDLS_RESTRICT rb) noexcept {
-        using Store         = RefusedStore<capacity>;
-        using Map           = typename Store::storage_map;
-        constexpr int off   = Store::template multirhs_workspace_size<fnc>;
-        constexpr int oy    = off + Store::storage_size;
-        constexpr int fcols = front_cols_for<1>;
+    recover_refused(const T* TDLS_RESTRICT work, const int work_stride_arg, T* TDLS_RESTRICT y,
+                    const int rhs_stride_arg, const unsigned* TDLS_RESTRICT refused,
+                    const int count, const T* TDLS_RESTRICT rb) noexcept {
+        const int work_stride = detail::stride_or<work_static_stride>(work_stride_arg);
+        const int rhs_stride  = detail::stride_or<rhs_static_stride>(rhs_stride_arg);
+        using Store           = RefusedStore<capacity>;
+        using Map             = typename Store::storage_map;
+        constexpr int off     = Store::template multirhs_workspace_size<fnc>;
+        constexpr int oy      = off + Store::storage_size;
+        constexpr int fcols   = front_cols_for<1>;
         T w[R];
         for (int a = 0; a < R; ++a)
             w[a] = T(0);
@@ -1548,33 +1645,175 @@ struct ArrowheadLUppSolverStatic {
     }
 
   private:
+    /// \brief The pass of solve_inplace_streamed_or_tangent, once the side
+    /// and streamed_out_of_line are dispatched: the same parameters, the
+    /// callables by reference.
+    /// \tparam ntan            number of tangent columns, in [1, border]
+    /// \tparam internal_rhs    y and x are caller-local arrays
+    /// \tparam internal_work   work is a caller-local array
+    /// \tparam internal_matrix A is a caller-local array
+    /// \tparam A_static_stride compile-time stride, used instead of A_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam work_static_stride compile-time stride, used instead of work_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam rhs_static_stride compile-time stride, used instead of rhs_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam x_static_stride compile-time stride, used instead of x_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam Provider        callable (int k, StreamedBlock& blk)
+    /// \tparam Converged       callable () returning bool
+    /// \param[in]     provider      the source of the blocks
+    /// \param[in]     converged     whether the tangent replaces the correction
+    /// \param[in,out] A             storage: A_bb on entry; overwritten
+    /// \param[in]     A_stride_arg  element stride of A
+    /// \param[out]    work          workspace
+    /// \param[in]     work_stride_arg element stride of work
+    /// \param[in,out] y             border rows of the right-hand side on
+    ///                              entry, the correction on exit (solved)
+    /// \param[in]     rhs_stride_arg element stride of y
+    /// \param[in]     col0          first tangent column
+    /// \param[out]    x             the tangent columns (tangent)
+    /// \param[in]     x_stride_arg  element stride of x
+    /// \param[in]     xcol_stride   element stride between columns of x
+    /// \param[out]    refused_count number of refused blocks
+    /// \return solved, tangent, or singular
+    template<int ntan, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, int x_static_stride = dynamic_stride,
+             typename Provider, typename Converged>
+    TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr StreamedOutcome
+    streamed_or_tangent_core(Provider& provider, Converged& converged, T* TDLS_RESTRICT A,
+                             const int A_stride_arg, T* TDLS_RESTRICT work,
+                             const int work_stride_arg, T* TDLS_RESTRICT y,
+                             const int rhs_stride_arg, const int col0, T* TDLS_RESTRICT x,
+                             const int x_stride_arg, const std::size_t xcol_stride,
+                             int& refused_count) noexcept {
+        const int A_stride    = detail::stride_or<A_static_stride>(A_stride_arg);
+        const int work_stride = detail::stride_or<work_static_stride>(work_stride_arg);
+        const int rhs_stride  = detail::stride_or<rhs_static_stride>(rhs_stride_arg);
+        const int x_stride    = detail::stride_or<x_static_stride>(x_stride_arg);
+        constexpr int ny      = 1;
+        [[maybe_unused]] constexpr int ycols = 1;
+        T Sacc[in_place ? 1 : R * B];
+        T racc[in_place ? 1 : R];
+        if constexpr (in_place) {
+            Sacc[0] = T(0);
+            racc[0] = T(0);
+        } else {
+            TDLS_ARROW_LUPP_FOR(
+                r, 0, R,
+                TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                    Sacc[r * B + c] = TDLS_ARROW_LUPP_A(
+                                        storage_map::abb(shape_value(), R0 + r, c));) racc[r] =
+                    TDLS_ARROW_LUPP_YW(0, R0 + r);)
+        }
+        constexpr int words = (NB + 31) / 32;
+        unsigned refused[words];
+        TDLS_ARROW_LUPP_FOR(e, 0, words, refused[e] = 0u;)
+        refused_count = 0;
+        for (int k = 0; k < NB; ++k) {
+            StreamedBlock blk;
+            provider(k, blk);
+            if (!condense_or_store_streamed<ny, internal_rhs, internal_matrix>(
+                    A, A_stride, y, rhs_stride, 0, k, Sacc, racc, blk)) {
+                refused[k >> 5] |= 1u << (k & 31);
+                ++refused_count;
+            }
+        }
+        T Sbb[B * B];
+        int pb[B];
+        // The rows as stored and the accumulated rows in separate loops, as
+        // in solve_core.
+        constexpr int acc0 = in_place ? B : R0;
+        constexpr int acc1 = in_place ? B : R0 + R;
+        TDLS_ARROW_LUPP_FOR(r, 0, acc0,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                                Sbb[r * B + c] = TDLS_ARROW_LUPP_A(
+                                                    storage_map::abb(shape_value(), r, c));))
+        TDLS_ARROW_LUPP_FOR(r, acc0, acc1,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B, Sbb[r * B + c] = Sacc[(r - R0) * B + c];))
+        TDLS_ARROW_LUPP_FOR(r, acc1, B,
+                            TDLS_ARROW_LUPP_FOR(c, 0, B,
+                                                Sbb[r * B + c] = TDLS_ARROW_LUPP_A(
+                                                    storage_map::abb(shape_value(), r, c));))
+        if (converged()) {
+            T rt[B * ntan];
+            TDLS_ARROW_LUPP_FOR(
+                m, 0, ntan,
+                TDLS_ARROW_LUPP_FOR(r, 0, B, rt[m * B + r] = r == col0 + m ? T(1) : T(0);))
+            // the refused blocks, stored as is, by the second pass of the
+            // canonical solve, which writes neither x nor y
+            if (refused_count > 0 &&
+                !second_pass<ntan, true, internal_rhs, internal_work, internal_matrix,
+                             A_static_stride, work_static_stride, rhs_static_stride>(
+                    A, A_stride, work, work_stride, y, rhs_stride, 0, refused, Sbb, rt,
+                    BlockSolver::singular_floor))
+                return StreamedOutcome::singular;
+            bool ok;
+            if constexpr (ntan == 1)
+                ok = BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rt, 1);
+            else
+                ok = BorderSolver::template solve_inplace_multirhs<ntan, true, true, true>(
+                    Sbb, 1, pb, 1, rt, 1, B);
+            if (!ok) return StreamedOutcome::singular;
+            TDLS_ARROW_LUPP_FOR(
+                m, 0, ntan,
+                TDLS_ARROW_LUPP_FOR(r, 0, B,
+                                    x[internal_rhs ? unsigned(m * B + r)
+                                                   : TDLS_STRIDED(r, x_stride) +
+                                                         TDLS_STRIDED_WIDE(m, xcol_stride)] =
+                                        rt[m * B + r];))
+            return StreamedOutcome::tangent;
+        }
+        T rb[B];
+        TDLS_ARROW_LUPP_FOR(r, 0, acc0, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
+        TDLS_ARROW_LUPP_FOR(r, acc0, acc1, rb[r] = racc[r - R0];)
+        TDLS_ARROW_LUPP_FOR(r, acc1, B, rb[r] = TDLS_ARROW_LUPP_YW(0, r);)
+        if (refused_count > 0 &&
+            !second_pass<1, false, internal_rhs, internal_work, internal_matrix, A_static_stride,
+                         work_static_stride, rhs_static_stride>(A, A_stride, work, work_stride, y,
+                                                                rhs_stride, 0, refused, Sbb, rb,
+                                                                BlockSolver::singular_floor))
+            return StreamedOutcome::singular;
+        if (!BorderSolver::template solve_inplace<true, true, true>(Sbb, 1, pb, 1, rb, 1))
+            return StreamedOutcome::singular;
+        TDLS_ARROW_LUPP_FOR(r, 0, B, TDLS_ARROW_LUPP_YW(0, r) = rb[r];)
+        recover<1, internal_rhs, internal_work, internal_matrix>(A, A_stride, work, work_stride, y,
+                                                                 rhs_stride, 0, refused, rb);
+        return StreamedOutcome::solved;
+    }
+
     /// \brief solve_inplace_streamed_or_tangent kept out of line on GPU
     /// (ArrowheadLUppConfig::streamed_out_of_line): the same call, its
-    /// parameters taken by reference.
+    /// parameters taken by reference, the compile-time strides passed on.
     template<int ntan, bool internal_rhs, bool internal_work, bool internal_matrix,
-             typename Provider, typename Converged>
+             int A_static_stride, int work_static_stride, int rhs_static_stride,
+             int x_static_stride, typename Provider, typename Converged>
     TDLS_HOST_DEVICE TDLS_NO_INLINE_GPU static constexpr StreamedOutcome
     streamed_or_tangent_out_of_line(Provider& provider, Converged& converged, T* TDLS_RESTRICT A,
                                     const int A_stride, T* TDLS_RESTRICT work,
                                     const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                                     const int col0, T* TDLS_RESTRICT x, const int x_stride,
                                     const std::size_t xcol_stride, int& refused_count) noexcept {
-        return solve_inplace_streamed_or_tangent<ntan, internal_rhs, internal_work, internal_matrix,
-                                                 Provider&, Converged&, true>(
+        return solve_inplace_streamed_or_tangent<
+            ntan, internal_rhs, internal_work, internal_matrix, A_static_stride, work_static_stride,
+            rhs_static_stride, x_static_stride, Provider&, Converged&, true>(
             provider, converged, A, A_stride, work, work_stride, y, rhs_stride, col0, x, x_stride,
             xcol_stride, refused_count);
     }
 
     /// \brief solve_core of a streamed entry point kept out of line on GPU
-    /// (ArrowheadLUppConfig::streamed_out_of_line); same parameters.
+    /// (ArrowheadLUppConfig::streamed_out_of_line); same parameters, the
+    /// compile-time strides passed on.
     template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix,
-             typename Provider>
+             int A_static_stride, int work_static_stride, int rhs_static_stride, typename Provider>
     TDLS_HOST_DEVICE TDLS_NO_INLINE_GPU static constexpr bool
     solve_core_out_of_line(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
                            const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
                            const std::size_t xcol_stride, const int col0, int& refused_count,
                            Provider* provider) noexcept {
-        return solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix>(
+        return solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix,
+                          A_static_stride, work_static_stride, rhs_static_stride>(
             A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, col0, refused_count,
             provider);
     }
@@ -1602,31 +1841,42 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_work   residency of work
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride, used instead of A_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam work_static_stride compile-time stride, used instead of work_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam rhs_static_stride compile-time stride, used instead of rhs_stride_arg
+    ///         unless dynamic_stride
     /// \tparam Provider        none on the stored path; streamed, the type
     ///                         of the callable (int k, StreamedBlock& blk)
     ///                         giving the blocks
     /// \param[in,out] A             matrix in its storage
-    /// \param[in]     A_stride      element stride of A
+    /// \param[in]     A_stride_arg  element stride of A
     /// \param[out]    work          workspace of multirhs_workspace_size<nc>
     ///                              entries
-    /// \param[in]     work_stride   element stride of work
+    /// \param[in]     work_stride_arg element stride of work
     /// \param[in,out] y             right-hand sides on entry, solutions on
     ///                              exit (canonical: the border rows, out)
-    /// \param[in]     rhs_stride    element stride of y
+    /// \param[in]     rhs_stride_arg element stride of y
     /// \param[in]     xcol_stride   element stride between columns of y
     /// \param[in]     col0          first unit column (canonical)
     /// \param[out]    refused_count number of refused blocks
     /// \param[in]     provider      streamed: the source of the blocks
     /// \return false when the matrix is singular
     template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix,
-             typename... Provider>
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename... Provider>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL static constexpr bool
-    solve_core(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work, const int work_stride,
-               T* TDLS_RESTRICT y, const int rhs_stride,
+    solve_core(T* TDLS_RESTRICT A, const int A_stride_arg, T* TDLS_RESTRICT work,
+               const int work_stride_arg, T* TDLS_RESTRICT y, const int rhs_stride_arg,
                [[maybe_unused]] const std::size_t xcol_stride, [[maybe_unused]] const int col0,
                int& refused_count, Provider*... provider) noexcept {
+        const int A_stride    = detail::stride_or<A_static_stride>(A_stride_arg);
+        const int work_stride = detail::stride_or<work_static_stride>(work_stride_arg);
+        const int rhs_stride  = detail::stride_or<rhs_static_stride>(rhs_stride_arg);
         TDLS_ARROW_LUPP_SIDED(
-            template solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix>(
+            template solve_core<nc, canonical, internal_rhs, internal_work, internal_matrix,
+                                A_static_stride, work_static_stride, rhs_static_stride>(
                 A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, col0, refused_count,
                 provider...))
         constexpr bool streamed = sizeof...(Provider) > 0;
@@ -1706,7 +1956,8 @@ struct ArrowheadLUppSolverStatic {
                     m, 0, nc, if constexpr (canonical) rb[m * B + r] = r == col0 + m ? T(1) : T(0);
                     else rb[m * B + r] = TDLS_ARROW_LUPP_YW(m, r);))
         if (refused_count > 0 &&
-            !second_pass<nc, canonical, internal_rhs, internal_work, internal_matrix>(
+            !second_pass<nc, canonical, internal_rhs, internal_work, internal_matrix,
+                         A_static_stride, work_static_stride, rhs_static_stride>(
                 A, A_stride, work, work_stride, y, rhs_stride, xcol_stride, refused, Sbb, rb,
                 BlockSolver::singular_floor))
             return false;
@@ -2540,14 +2791,20 @@ struct ArrowheadLUppSolverStatic {
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_work   residency of work
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride, used instead of A_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam work_static_stride compile-time stride, used instead of work_stride_arg
+    ///         unless dynamic_stride
+    /// \tparam rhs_static_stride compile-time stride, used instead of rhs_stride_arg
+    ///         unless dynamic_stride
     /// \param[in,out] A              matrix in its storage; the refused blocks
     ///                               receive their recovery data
-    /// \param[in]     A_stride       element stride of A
+    /// \param[in]     A_stride_arg   element stride of A
     /// \param[out]    work           workspace: the front, then H_k beyond its
     ///                               S columns
-    /// \param[in]     work_stride    element stride of work
+    /// \param[in]     work_stride_arg element stride of work
     /// \param[in,out] y              right-hand sides
-    /// \param[in]     rhs_stride     element stride of y
+    /// \param[in]     rhs_stride_arg element stride of y
     /// \param[in]     xcol_stride    element stride between columns of y
     /// \param[in]     refused        bit k set for a refused block k
     /// \param[in,out] Sbb            the border matrix, the final one on exit
@@ -2563,14 +2820,19 @@ struct ArrowheadLUppSolverStatic {
     ///                               SGPR spill to memory"
     /// \return false when a column of a refused block has no nonzero
     ///         candidate: the matrix is singular
-    template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix>
+    template<int nc, bool canonical, bool internal_rhs, bool internal_work, bool internal_matrix,
+             int A_static_stride = dynamic_stride, int work_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride>
     TDLS_HOST_DEVICE TDLS_NO_INLINE static constexpr bool
-    second_pass(T* TDLS_RESTRICT A, const int A_stride, T* TDLS_RESTRICT work,
-                const int work_stride, T* TDLS_RESTRICT y, const int rhs_stride,
+    second_pass(T* TDLS_RESTRICT A, const int A_stride_arg, T* TDLS_RESTRICT work,
+                const int work_stride_arg, T* TDLS_RESTRICT y, const int rhs_stride_arg,
                 [[maybe_unused]] const std::size_t xcol_stride,
                 const unsigned* TDLS_RESTRICT refused, T* TDLS_RESTRICT Sbb, T* TDLS_RESTRICT rb,
                 const T singular_floor) noexcept {
-        constexpr int fcols                  = front_cols_for<nc>;
+        const int A_stride    = detail::stride_or<A_static_stride>(A_stride_arg);
+        const int work_stride = detail::stride_or<work_static_stride>(work_stride_arg);
+        const int rhs_stride  = detail::stride_or<rhs_static_stride>(rhs_stride_arg);
+        constexpr int fcols   = front_cols_for<nc>;
         [[maybe_unused]] constexpr int ycols = nc;
         // First column of the right-hand sides in the front.
         constexpr int rhs0 = S + B + R;

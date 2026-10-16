@@ -83,6 +83,23 @@ $$
 :dedent: 4
 ```
 
+## Strides known at compile time
+
+The same AoSoA batch with the compile-time solver, the strides given
+as template arguments: `X_static_stride`, after the other template
+parameters, `tdls::dynamic_stride` by default. The solver then uses
+these constants and ignores the stride arguments, as if the caller had
+passed the constants. Every entry point of the three compile-time
+solvers takes them, one per strided operand; a stride known only at run
+time, the number of systems in SoA, stays a function argument.
+
+```{literalinclude} ../../../snippets/tiled_lupp/batch_static_strides.cpp
+:language: cpp
+:start-after: // snippet begin
+:end-before: // snippet end
+:dedent: 4
+```
+
 ## An OpenMP loop over a batch
 
 One iteration per system of an SoA batch, in a function shown whole.

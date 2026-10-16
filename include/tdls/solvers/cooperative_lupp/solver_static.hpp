@@ -100,7 +100,9 @@
 /// an internal operand, its own slice), the same workspace and its own
 /// rank tx in [0, threads_per_system). The solver never sees a global
 /// thread index: callers pre-offset every remote pointer with the system
-/// index and pass a runtime stride, as for the TiledLUpp solvers.
+/// index and pass a runtime stride, as for the TiledLUpp solvers, or a
+/// stride known at compile time as a template argument (see
+/// tdls::dynamic_stride).
 ///
 /// **Barrier.** The last argument, `sync`, is the barrier of the group,
 /// and most calls omit it. By default, tdls::AutoSync, the solver deduces
@@ -1661,6 +1663,10 @@ struct CooperativeLUppSolverStatic {
     /// \brief In-place LU factorization with partial pivoting.
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
     /// \tparam Sync            callable type of the barrier
     /// \param[in]     tx         rank of the calling thread in its group
     /// \param[in,out] A          matrix, or slice of the thread, pre-offset
@@ -1675,23 +1681,30 @@ struct CooperativeLUppSolverStatic {
     ///                           tdls::AutoSync)
     /// \return false on a singular matrix (factorization unspecified).
     TDLS_EXEC_CHECK_DISABLE
-    template<bool internal_piv, bool internal_matrix, typename Sync = tdls::AutoSync>
+    template<bool internal_piv, bool internal_matrix, int A_static_stride = dynamic_stride,
+             int piv_static_stride = dynamic_stride, typename Sync = tdls::AutoSync>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     factorize(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
               const int piv_stride, T* work,
               Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
-        T* const exchange = work + detail::barrier_elements;
-        T rA[rows_per_thread][N];
-        T rB[rows_per_thread];
-        int rpiv[rows_per_thread];
-        load_rows<internal_matrix>(tx, A, A_stride, rA);
-        init_piv(tx, rpiv);
-        const int linfo = eliminate<false>(tx, rA, rB, rpiv, exchange, group);
-        store_rows<internal_matrix>(tx, A, A_stride, rA);
-        store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        group(); // every output visible to the whole group on return
-        return linfo == 0;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride>) {
+            return factorize<internal_piv, internal_matrix>(
+                tx, A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), work, std::forward<Sync>(sync));
+        } else {
+            auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
+            T* const exchange = work + detail::barrier_elements;
+            T rA[rows_per_thread][N];
+            T rB[rows_per_thread];
+            int rpiv[rows_per_thread];
+            load_rows<internal_matrix>(tx, A, A_stride, rA);
+            init_piv(tx, rpiv);
+            const int linfo = eliminate<false>(tx, rA, rB, rpiv, exchange, group);
+            store_rows<internal_matrix>(tx, A, A_stride, rA);
+            store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
+            group(); // every output visible to the whole group on return
+            return linfo == 0;
+        }
     }
 
     /// \brief Solve from a factorization produced by factorize (b and x
@@ -1699,6 +1712,12 @@ struct CooperativeLUppSolverStatic {
     /// \tparam internal_rhs    residency of b and x
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Sync            callable type of the barrier
     /// \param[in]  tx         rank of the calling thread in its group
     /// \param[in]  A          factored matrix, or slice of the thread
@@ -1714,23 +1733,32 @@ struct CooperativeLUppSolverStatic {
     ///                        tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             typename Sync = tdls::AutoSync>
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Sync = tdls::AutoSync>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                const int* TDLS_RESTRICT piv, const int piv_stride, const T* TDLS_RESTRICT b,
                T* TDLS_RESTRICT x, const int rhs_stride, T* work,
                Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
-        T* const exchange = work + detail::barrier_elements;
-        T rA[rows_per_thread][N];
-        T rB[rows_per_thread];
-        int rpiv[rows_per_thread];
-        load_rows<internal_matrix>(tx, A, A_stride, rA);
-        load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        load_rhs<internal_rhs>(tx, b, rhs_stride, rB);
-        substitution<false>(tx, rA, rB, rpiv, exchange, group);
-        store_solution<internal_rhs>(tx, x, rhs_stride, rB);
-        group(); // every output visible to the whole group on return
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute<internal_rhs, internal_piv, internal_matrix>(
+                tx, A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), b, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), work, std::forward<Sync>(sync));
+        } else {
+            auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
+            T* const exchange = work + detail::barrier_elements;
+            T rA[rows_per_thread][N];
+            T rB[rows_per_thread];
+            int rpiv[rows_per_thread];
+            load_rows<internal_matrix>(tx, A, A_stride, rA);
+            load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
+            load_rhs<internal_rhs>(tx, b, rhs_stride, rB);
+            substitution<false>(tx, rA, rB, rpiv, exchange, group);
+            store_solution<internal_rhs>(tx, x, rhs_stride, rB);
+            group(); // every output visible to the whole group on return
+        }
     }
 
     /// \brief Solve with b = e_col generated on the fly: the
@@ -1738,6 +1766,12 @@ struct CooperativeLUppSolverStatic {
     /// \tparam internal_rhs    residency of x
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Sync            callable type of the barrier
     /// \param[in]  tx         rank of the calling thread in its group
     /// \param[in]  A          factored matrix, or slice of the thread
@@ -1753,26 +1787,35 @@ struct CooperativeLUppSolverStatic {
     ///                        tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             typename Sync = tdls::AutoSync>
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Sync = tdls::AutoSync>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_canonical(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                          const int* TDLS_RESTRICT piv, const int piv_stride, const int col,
                          T* TDLS_RESTRICT x, const int rhs_stride, T* work,
                          Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
-        T* const exchange = work + detail::barrier_elements;
-        T rA[rows_per_thread][N];
-        T rB[rows_per_thread];
-        int rpiv[rows_per_thread];
-        load_rows<internal_matrix>(tx, A, A_stride, rA);
-        load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
-            constexpr int K = decltype(K_tag)::value;
-            rB[K]           = (tx + K * threads_per_system == col) ? T(1) : T(0);
-        });
-        substitution<false>(tx, rA, rB, rpiv, exchange, group);
-        store_solution<internal_rhs>(tx, x, rhs_stride, rB);
-        group(); // every output visible to the whole group on return
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_canonical<internal_rhs, internal_piv, internal_matrix>(
+                tx, A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), col, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), work, std::forward<Sync>(sync));
+        } else {
+            auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
+            T* const exchange = work + detail::barrier_elements;
+            T rA[rows_per_thread][N];
+            T rB[rows_per_thread];
+            int rpiv[rows_per_thread];
+            load_rows<internal_matrix>(tx, A, A_stride, rA);
+            load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
+            detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+                constexpr int K = decltype(K_tag)::value;
+                rB[K]           = (tx + K * threads_per_system == col) ? T(1) : T(0);
+            });
+            substitution<false>(tx, rA, rB, rpiv, exchange, group);
+            store_solution<internal_rhs>(tx, x, rhs_stride, rB);
+            group(); // every output visible to the whole group on return
+        }
     }
 
     /// \brief Solve in place from a factorization produced by factorize:
@@ -1783,6 +1826,12 @@ struct CooperativeLUppSolverStatic {
     /// \tparam internal_rhs    residency of x
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Sync            callable type of the barrier
     /// \param[in]     tx         rank of the calling thread in its group
     /// \param[in]     A          factored matrix, or slice of the thread
@@ -1798,23 +1847,32 @@ struct CooperativeLUppSolverStatic {
     ///                           tdls::AutoSync)
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             typename Sync = tdls::AutoSync>
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Sync = tdls::AutoSync>
     TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr void
     substitute_inplace(const int tx, const T* TDLS_RESTRICT A, const int A_stride,
                        const int* TDLS_RESTRICT piv, const int piv_stride, T* TDLS_RESTRICT x,
                        const int rhs_stride, T* work,
                        Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
-        T* const exchange = work + detail::barrier_elements;
-        T rA[rows_per_thread][N];
-        T rB[rows_per_thread];
-        int rpiv[rows_per_thread];
-        load_rows<internal_matrix>(tx, A, A_stride, rA);
-        load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        load_rhs<internal_rhs>(tx, x, rhs_stride, rB);
-        substitution<false>(tx, rA, rB, rpiv, exchange, group);
-        store_solution<internal_rhs>(tx, x, rhs_stride, rB);
-        group(); // every output visible to the whole group on return
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return substitute_inplace<internal_rhs, internal_piv, internal_matrix>(
+                tx, A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), work, std::forward<Sync>(sync));
+        } else {
+            auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
+            T* const exchange = work + detail::barrier_elements;
+            T rA[rows_per_thread][N];
+            T rB[rows_per_thread];
+            int rpiv[rows_per_thread];
+            load_rows<internal_matrix>(tx, A, A_stride, rA);
+            load_piv<internal_piv>(tx, piv, piv_stride, rpiv);
+            load_rhs<internal_rhs>(tx, x, rhs_stride, rB);
+            substitution<false>(tx, rA, rB, rpiv, exchange, group);
+            store_solution<internal_rhs>(tx, x, rhs_stride, rB);
+            group(); // every output visible to the whole group on return
+        }
     }
 
     /// \brief factorize + substitute in one call. The rows stay in
@@ -1826,6 +1884,12 @@ struct CooperativeLUppSolverStatic {
     /// \tparam internal_rhs    residency of b and x
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of b and x, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Sync            callable type of the barrier
     /// \param[in]     tx         rank of the calling thread in its group
     /// \param[in,out] A          on entry the matrix, or slice of the
@@ -1845,26 +1909,35 @@ struct CooperativeLUppSolverStatic {
     /// \return false on a singular matrix (x unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             typename Sync = tdls::AutoSync>
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Sync = tdls::AutoSync>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
           const int piv_stride, const T* TDLS_RESTRICT b, T* TDLS_RESTRICT x, const int rhs_stride,
           T* work, Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
-        T* const exchange = work + detail::barrier_elements;
-        T rA[rows_per_thread][N];
-        T rB[rows_per_thread];
-        int rpiv[rows_per_thread];
-        load_rows<internal_matrix>(tx, A, A_stride, rA);
-        init_piv(tx, rpiv);
-        const int linfo = eliminate<false>(tx, rA, rB, rpiv, exchange, group);
-        store_rows<internal_matrix>(tx, A, A_stride, rA);
-        store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        load_rhs<internal_rhs>(tx, b, rhs_stride, rB);
-        substitution<false>(tx, rA, rB, rpiv, exchange, group);
-        store_solution<internal_rhs>(tx, x, rhs_stride, rB);
-        group(); // every output visible to the whole group on return
-        return linfo == 0;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return solve<internal_rhs, internal_piv, internal_matrix>(
+                tx, A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), b, x,
+                detail::stride_or<rhs_static_stride>(rhs_stride), work, std::forward<Sync>(sync));
+        } else {
+            auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
+            T* const exchange = work + detail::barrier_elements;
+            T rA[rows_per_thread][N];
+            T rB[rows_per_thread];
+            int rpiv[rows_per_thread];
+            load_rows<internal_matrix>(tx, A, A_stride, rA);
+            init_piv(tx, rpiv);
+            const int linfo = eliminate<false>(tx, rA, rB, rpiv, exchange, group);
+            store_rows<internal_matrix>(tx, A, A_stride, rA);
+            store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
+            load_rhs<internal_rhs>(tx, b, rhs_stride, rB);
+            substitution<false>(tx, rA, rB, rpiv, exchange, group);
+            store_solution<internal_rhs>(tx, x, rhs_stride, rB);
+            group(); // every output visible to the whole group on return
+            return linfo == 0;
+        }
     }
 
     /// \brief Factorization with the forward substitution folded in: the
@@ -1880,6 +1953,12 @@ struct CooperativeLUppSolverStatic {
     /// \tparam internal_rhs    residency of y
     /// \tparam internal_piv    residency of piv
     /// \tparam internal_matrix residency of A
+    /// \tparam A_static_stride compile-time stride of A, used instead of
+    ///         A_stride; tdls::dynamic_stride (the default) reads A_stride
+    /// \tparam piv_static_stride compile-time stride of piv, used instead of
+    ///         piv_stride; tdls::dynamic_stride (the default) reads piv_stride
+    /// \tparam rhs_static_stride compile-time stride of y, used instead of
+    ///         rhs_stride; tdls::dynamic_stride (the default) reads rhs_stride
     /// \tparam Sync            callable type of the barrier
     /// \param[in]     tx         rank of the calling thread in its group
     /// \param[in,out] A          on entry the matrix, or slice of the
@@ -1898,31 +1977,41 @@ struct CooperativeLUppSolverStatic {
     /// \return false on a singular matrix (y unspecified).
     TDLS_EXEC_CHECK_DISABLE
     template<bool internal_rhs, bool internal_piv, bool internal_matrix,
-             typename Sync = tdls::AutoSync>
+             int A_static_stride = dynamic_stride, int piv_static_stride = dynamic_stride,
+             int rhs_static_stride = dynamic_stride, typename Sync = tdls::AutoSync>
     [[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_GPU static constexpr bool
     solve_inplace(const int tx, T* TDLS_RESTRICT A, const int A_stride, int* TDLS_RESTRICT piv,
                   const int piv_stride, T* TDLS_RESTRICT y, const int rhs_stride, T* work,
                   Sync&& sync = Sync{}) noexcept(detail::nothrow_sync<Sync>) {
-        auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
-        T* const exchange = work + detail::barrier_elements;
-        T rA[rows_per_thread][N];
-        T rB[rows_per_thread];
-        int rpiv[rows_per_thread];
-        load_rows<internal_matrix>(tx, A, A_stride, rA);
-        init_piv(tx, rpiv);
-        load_rhs<internal_rhs>(tx, y, rhs_stride, rB);
-        const int linfo = eliminate<true>(tx, rA, rB, rpiv, exchange, group);
-        store_rows<internal_matrix>(tx, A, A_stride, rA);
-        store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
-        substitution<true>(tx, rA, rB, rpiv, exchange, group);
-        detail::unroll_K<rows_per_thread>([&](auto K_tag) {
-            constexpr int K = decltype(K_tag)::value;
-            if constexpr (slot_has_rows(K)) {
-                if (slot_is_full(K) || tx + K * threads_per_system < N) TDLS_COOP_LUPP_Y(K) = rB[K];
-            }
-        });
-        group(); // every output visible to the whole group on return
-        return linfo == 0;
+        if constexpr (detail::any_static_stride<A_static_stride, piv_static_stride,
+                                                rhs_static_stride>) {
+            return solve_inplace<internal_rhs, internal_piv, internal_matrix>(
+                tx, A, detail::stride_or<A_static_stride>(A_stride), piv,
+                detail::stride_or<piv_static_stride>(piv_stride), y,
+                detail::stride_or<rhs_static_stride>(rhs_stride), work, std::forward<Sync>(sync));
+        } else {
+            auto&& group = detail::resolve_sync<threads_per_system>(sync, work, threads_per_system);
+            T* const exchange = work + detail::barrier_elements;
+            T rA[rows_per_thread][N];
+            T rB[rows_per_thread];
+            int rpiv[rows_per_thread];
+            load_rows<internal_matrix>(tx, A, A_stride, rA);
+            init_piv(tx, rpiv);
+            load_rhs<internal_rhs>(tx, y, rhs_stride, rB);
+            const int linfo = eliminate<true>(tx, rA, rB, rpiv, exchange, group);
+            store_rows<internal_matrix>(tx, A, A_stride, rA);
+            store_piv<internal_piv>(tx, piv, piv_stride, rpiv);
+            substitution<true>(tx, rA, rB, rpiv, exchange, group);
+            detail::unroll_K<rows_per_thread>([&](auto K_tag) {
+                constexpr int K = decltype(K_tag)::value;
+                if constexpr (slot_has_rows(K)) {
+                    if (slot_is_full(K) || tx + K * threads_per_system < N)
+                        TDLS_COOP_LUPP_Y(K) = rB[K];
+                }
+            });
+            group(); // every output visible to the whole group on return
+            return linfo == 0;
+        }
     }
 };
 

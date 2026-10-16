@@ -85,8 +85,9 @@ lives. A caller-local array saves the strided addressing; on GPU its
 working tiles stay in registers, but the matrix itself lives in the
 local memory of the thread, since the pivots index its rows at run
 time (see Algorithm). External memory is walked with a runtime
-stride. The booleans have no default: each call site states
-what its buffers are.
+stride, or with a stride known at compile time, given as a template
+argument (see the batches page). The booleans have no default: each
+call site states what its buffers are.
 
 `TiledLUppSolverDynamic<T, Config>` takes the dimension n at run time.
 Every operand is a pointer plus a stride; there are no residency

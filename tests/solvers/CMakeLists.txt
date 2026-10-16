@@ -129,7 +129,8 @@ tdls_add_solver_suites(
         dynamic_edges
         wide_offsets
         constexpr
-        physical)
+        physical
+        static_strides)
 
 tdls_add_reject_cases(
     FAMILY tiledlupp
@@ -148,6 +149,7 @@ tdls_add_reject_cases(
         reject_adaptors_multirhs_extent_mismatch
         reject_adaptors_pivot_extent_mismatch
         reject_config_auto_row_interchange
+        reject_static_stride
     DIAGNOSTICS
         "singular_floor must not exceed oot_pivot_threshold"
         "singular_floor must be positive"
@@ -161,7 +163,8 @@ tdls_add_reject_cases(
         "b and x extents do not match"
         "B and X must have N rows and the same column count"
         "the pivot must be vector-like"
-        "TiledLUppSolverStatic: row_interchange must be Logical or Physical")
+        "TiledLUppSolverStatic: row_interchange must be Logical or Physical"
+        "a compile-time stride must be tdls::dynamic_stride or positive")
 
 tdls_add_solver_suites(
     FAMILY arrowheadlupp
@@ -180,7 +183,8 @@ tdls_add_solver_suites(
         constexpr
         multirhs
         streamed
-        recomputed)
+        recomputed
+        static_strides)
 
 tdls_add_reject_cases(
     FAMILY arrowheadlupp
@@ -227,6 +231,7 @@ tdls_add_solver_suites(
         auto_sync
         wide_offsets
         constexpr
+        static_strides
     LIBRARIES Threads::Threads)
 
 tdls_add_reject_cases(

@@ -18,7 +18,10 @@
 ///
 /// The families also share one calling convention. Every operand is a
 /// raw pointer pre-offset by the caller plus one runtime element
-/// stride, which covers the AoS, SoA and AoSoA batch layouts alike.
+/// stride, which covers the AoS, SoA and AoSoA batch layouts alike. The
+/// entry points of the compile-time solvers also take each stride as a
+/// template argument, dynamic_stride by default: a stride known at
+/// compile time is given there (see dynamic_stride).
 /// The flat element index of an object (N*N for a matrix) must stay
 /// below 2^31; element offsets, index times stride, are computed in
 /// 64-bit arithmetic (TDLS_STRIDED). Residency template
@@ -150,6 +153,57 @@ template<typename T>
 #endif
     return physical_rows<T>(r, n);
 }
+
+} // namespace detail
+
+
+
+/// \brief The compile-time stride of an operand whose stride is known at
+/// run time only: the default of the stride template parameters of the
+/// compile-time solvers.
+///
+/// Every entry point of TiledLUppSolverStatic, CooperativeLUppSolverStatic
+/// and ArrowheadLUppSolverStatic takes the element stride of each strided
+/// operand twice: an int function argument, X_stride, and an int template
+/// parameter, X_static_stride, dynamic_stride by default. These template
+/// parameters come after the others, but for the deduced types of the
+/// callables, in the order of the function arguments. With
+/// dynamic_stride, the solver reads the function argument. With a
+/// positive value, 1 in AoS or 32 in AoSoA by blocks of 32 interleaved
+/// systems for instance, the solver uses that value and ignores the
+/// function argument: it runs as if the caller had passed the constant,
+/// which the compilers fold wherever they inline the solver, everywhere on
+/// GPU, and the out-of-line parts of ArrowheadLUpp (the second pass,
+/// streamed_out_of_line) receive it as a template argument. A stride
+/// known only at run time, the number of systems in SoA, stays a
+/// function argument. Under internal residency the stride of the operand
+/// is ignored either way.
+inline constexpr int dynamic_stride = -1;
+
+namespace detail {
+
+/// \brief The stride an entry point uses: the compile-time stride when it
+/// is known, the runtime one otherwise (see dynamic_stride).
+/// \tparam s compile-time stride: dynamic_stride or positive
+/// \param[in] runtime the stride given as a function argument
+/// \return s, or runtime when s is dynamic_stride
+template<int s>
+[[nodiscard]] TDLS_HOST_DEVICE TDLS_FORCE_INLINE_ALL constexpr int
+stride_or(const int runtime) noexcept {
+    static_assert(s == dynamic_stride || s >= 1,
+                  "tdls: a compile-time stride must be tdls::dynamic_stride or positive");
+    if constexpr (s == dynamic_stride)
+        return runtime;
+    else
+        return s;
+}
+
+/// \brief Whether one of the strides of an entry point is known at
+/// compile time: the entry point then runs its runtime-stride
+/// instantiation with the constants.
+/// \tparam s the compile-time strides
+template<int... s>
+inline constexpr bool any_static_stride = ((s != dynamic_stride) || ...);
 
 } // namespace detail
 

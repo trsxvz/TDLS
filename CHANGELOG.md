@@ -23,6 +23,20 @@ the API may change between minor versions.
   and blocks of 12; no trend on CPU. The same blocks are refused; the
   solutions differ by rounding errors. Both solvers, bitwise identical
   to each other.
+- The compile-time solvers (TiledLUpp, CooperativeLUpp, ArrowheadLUpp)
+  take the stride of each strided operand as a template argument too,
+  `X_static_stride` beside the function argument `X_stride`,
+  `tdls::dynamic_stride` by default, after the other template
+  parameters but for the deduced types of the callables. A positive
+  value, 1 in AoS or the width of a block in AoSoA, is the stride the
+  solver uses, the function argument then ignored: the solver runs as
+  if the caller had passed the constant, and the out-of-line parts of
+  ArrowheadLUpp (the second pass, `streamed_out_of_line`) receive it as
+  a template argument. The calls without these arguments are unchanged,
+  but for those that spell out the type of the barrier of CooperativeLUpp
+  or of a callable of ArrowheadLUpp: the strides now come before it. A
+  bool given by mistake where a stride is now expected converts to 0,
+  which is rejected, or to 1, which is accepted as a stride.
 - TiledLUpp: `row_interchange`, `Logical` (the default) or `Physical`,
   the second knob, after the tile size and the schedule, as in
   CooperativeLUpp.
